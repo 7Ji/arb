@@ -1,0 +1,16 @@
+[package]
+name = "arch_repo_builder"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = "1.0"
+serde_yaml = "0.9"
+git2 = "0.18.0"
+url = "2.4.1"
+
+[dependencies.xxhash-rust]
+version = "0.8.5"
+features = ["xxh3"]
