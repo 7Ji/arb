@@ -19,7 +19,10 @@ struct Repo {
     url: String,
 }
 
-fn read_pkgbuilds_yaml<P>(yaml: P) -> Vec<PKGBUILD> where P: AsRef<Path>{
+fn read_pkgbuilds_yaml<P>(yaml: P) -> Vec<PKGBUILD>
+where 
+    P: AsRef<Path>
+{
     let f = std::fs::File::open(yaml)
             .expect("Failed to open pkgbuilds YAML config");
     let config: BTreeMap<String, String> = 
@@ -180,9 +183,13 @@ fn healthy_pkgbuilds(pkgbuilds: &Vec<PKGBUILD>) -> bool {
     true
 }
 
-fn dump_pkgbuilds<P> (dir: P, pkgbuilds: &Vec<PKGBUILD>) where P: AsRef<Path> {
+fn dump_pkgbuilds<P> (dir: P, pkgbuilds: &Vec<PKGBUILD>)
+where 
+    P: AsRef<Path> 
+{
+    let dir = dir.as_ref();
     for pkgbuild in pkgbuilds.iter() {
-        let path = dir.as_ref().join(&pkgbuild.name);
+        let path = dir.join(&pkgbuild.name);
         let repo = 
             git::open_or_init_bare_repo(&pkgbuild.git, &pkgbuild.url)
             .expect("Failed to open repo");
@@ -196,14 +203,20 @@ fn dump_pkgbuilds<P> (dir: P, pkgbuilds: &Vec<PKGBUILD>) where P: AsRef<Path> {
     }
 }
 
-fn get_all_sources<P> (dir: P, pkgbuilds: &Vec<PKGBUILD>) where P: AsRef<Path> {
+fn get_all_sources<P> (dir: P, pkgbuilds: &Vec<PKGBUILD>) 
+where 
+    P: AsRef<Path> 
+{
+    let dir = dir.as_ref();
     for pkgbuild in pkgbuilds.iter() {
-        let path = dir.as_ref().join(&pkgbuild.name);
-        source::get_sources(&path);
+        source::get_sources::<P>(&dir.join(&pkgbuild.name));
     }
 }
 
-pub(crate) fn get_pkgbuilds<P>(config: P, hold: bool) -> Vec<PKGBUILD>  where P:AsRef<Path>{
+pub(crate) fn get_pkgbuilds<P>(config: P, hold: bool) -> Vec<PKGBUILD>
+where 
+    P:AsRef<Path>
+{
     let pkgbuilds = read_pkgbuilds_yaml(config);
     let update_pkg = if hold {
         if healthy_pkgbuilds(&pkgbuilds) {
@@ -225,7 +238,9 @@ pub(crate) fn get_pkgbuilds<P>(config: P, hold: bool) -> Vec<PKGBUILD>  where P:
     pkgbuilds
 }
 
-pub(crate) fn prepare_sources<P>(dir: P, pkgbuilds: &Vec<PKGBUILD>) where P:AsRef<Path> {
+pub(crate) fn prepare_sources<P>(dir: P, pkgbuilds: &Vec<PKGBUILD>) 
+where
+    P:AsRef<Path> {
     dump_pkgbuilds(&dir, &pkgbuilds);
     get_all_sources(&dir, &pkgbuilds);
 }

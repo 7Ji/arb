@@ -1,8 +1,12 @@
-use std::{path::{Path, PathBuf}, io::Write};
+use std::{path::Path, io::Write};
 
 use git2::{Repository, Progress, RemoteCallbacks, FetchOptions, ProxyOptions};
 
-pub(crate) fn open_or_init_bare_repo (path: &Path, url: &str) -> Option<Repository> {
+pub(crate) fn open_or_init_bare_repo<P> (path: P, url: &str) -> Option<Repository> 
+where 
+    P: AsRef<Path>
+{
+    let path = path.as_ref();
     match Repository::open_bare(path) {
         Ok(repo) => Some(repo),
         Err(e) => {
@@ -63,7 +67,11 @@ fn gcb_transfer_progress(progress: Progress<'_>) -> bool {
 }
 
 
-pub(crate) fn sync_repo(path: &Path, url: &str, proxy: Option<&str>) {
+pub(crate) fn sync_repo<P>(path: P, url: &str, proxy: Option<&str>) 
+where 
+    P: AsRef<Path>
+{
+    let path = path.as_ref();
     println!("Syncing repo '{}' with '{}'", path.display(), url);
     let repo = 
         open_or_init_bare_repo(path, url)

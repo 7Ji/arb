@@ -46,7 +46,10 @@ struct Source {
     b2: Option<Blake2b512>
 }
 
-pub(crate) fn get_sources(pkgbuild: &Path) {
+pub(crate) fn get_sources<P> (pkgbuild: &Path) 
+where
+    P: AsRef<Path>
+{
     const SCRIPT: &str = include_str!("scripts/get_sources.bash");
     let output = Command::new("/bin/bash")
         .arg("-c")
