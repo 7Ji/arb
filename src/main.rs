@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 use git2::{Repository, FetchOptions, Progress, RemoteCallbacks, ProxyOptions};
+use tempfile::tempdir;
 use xxhash_rust::xxh3::xxh3_64;
 use url::{Url, ParseError};
 
@@ -33,16 +34,16 @@ struct PKGBUILD {
     url: String,
     hash_url: u64,
     hash_domain: u64,
-    build: String,
-    git: String,
+    build: PathBuf,
+    git: PathBuf,
 }
 
 struct Repo {
-    path: String,
+    path: PathBuf,
     url: String,
 }
 
-fn open_or_init_bare_repo (path: &str, url: &str) -> Option<Repository> {
+fn open_or_init_bare_repo (path: &Path, url: &str) -> Option<Repository> {
     match Repository::open_bare(path) {
         Ok(repo) => Some(repo),
         Err(e) => {
@@ -54,7 +55,7 @@ fn open_or_init_bare_repo (path: &str, url: &str) -> Option<Repository> {
                             "origin", url, "+refs/*:refs/*") {
                             Ok(_) => (),
                             Err(e) => {
-                                eprintln!("Failed to add remote {}: {}", path, e);
+                                eprintln!("Failed to add remote {}: {}", path.display(), e);
                                 std::fs::remove_dir_all(path)
                                 .expect(
                                     "Failed to remove dir after failed attempt");
@@ -64,12 +65,12 @@ fn open_or_init_bare_repo (path: &str, url: &str) -> Option<Repository> {
                         Some(repo)
                     },
                     Err(e) => {
-                        eprintln!("Failed to create {}: {}", path, e);
+                        eprintln!("Failed to create {}: {}", path.display(), e);
                         None
                     }
                 }
             } else {
-                eprintln!("Failed to open {}: {}", path, e);
+                eprintln!("Failed to open {}: {}", path.display(), e);
                 None
             }
         },
@@ -103,8 +104,8 @@ fn gcb_transfer_progress(progress: Progress<'_>) -> bool {
 }
 
 
-fn sync_repo(path: &str, url: &str, proxy: Option<&str>) {
-    println!("Syncing repo '{}' with '{}'", path, url);
+fn sync_repo(path: &Path, url: &str, proxy: Option<&str>) {
+    println!("Syncing repo '{}' with '{}'", path.display(), url);
     let repo = 
         open_or_init_bare_repo(path, url)
         .expect("Failed to open or init repo");
@@ -164,8 +165,10 @@ fn read_pkgbuilds_yaml(yaml: &str) -> Vec<PKGBUILD> {
             None => 0,
         };
         let hash_url = xxh3_64(url.as_bytes());
-        let build = format!("build/{}", name);
-        let git = format!("sources/git/{:016x}", hash_url);
+        let mut build = PathBuf::from("build");
+        build.push(name);
+        let mut git = PathBuf::from("sources/git");
+        git.push(format!("{:016x}", hash_url));
         PKGBUILD {
             name: name.clone(),
             url: url.clone(),
@@ -286,7 +289,7 @@ fn healthy_pkgbuild(pkgbuild: &PKGBUILD) -> bool {
         match open_or_init_bare_repo(&pkgbuild.git, &pkgbuild.url) {
             Some(repo) => repo,
             None => {
-                eprintln!("Failed to open or init bare repo {}", pkgbuild.git);
+                eprintln!("Failed to open or init bare repo {}", pkgbuild.git.display());
                 return false
             }
         };
@@ -310,6 +313,22 @@ fn healthy_pkgbuilds(pkgbuilds: &Vec<PKGBUILD>) -> bool {
     true
 }
 
+fn dump_pkgbuilds(dir: &Path, pkgbuilds: &Vec<PKGBUILD>) {
+    for pkgbuild in pkgbuilds.iter() {
+        let path = dir.join(&pkgbuild.name);
+        let repo = 
+            open_or_init_bare_repo(&pkgbuild.git, &pkgbuild.url)
+            .expect("Failed to open repo");
+        let blob = 
+            get_pkgbuild_blob(&repo)
+            .expect("Failed to get PKGBUILD blob");
+        let mut file = 
+            std::fs::File::create(path)
+            .expect("Failed to create file");
+        file.write_all(blob.content()).expect("Failed to write");
+    }
+}
+
 fn main() {
     let arg = Arg::parse();
     let pkgbuilds = read_pkgbuilds_yaml(&arg.pkgbuilds);
@@ -330,4 +349,7 @@ fn main() {
             panic!("Updating broke some of our PKGBUILDs");
         }
     }
+    let pkgbuilds_dir = tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
+    println!("{}", pkgbuilds_dir.path().display());
+    dump_pkgbuilds(&pkgbuilds_dir.path(), &pkgbuilds);
 }
