@@ -1,6 +1,33 @@
 use std::{path::Path, io::Write};
 
-use git2::{Repository, Progress, RemoteCallbacks, FetchOptions, ProxyOptions};
+use git2::{Repository, Progress, RemoteCallbacks, FetchOptions, ProxyOptions, Remote};
+
+fn init_bare_repo<P> (path: P, url: &str) -> Option<Repository>
+where
+    P: AsRef<Path>
+{
+    let path = path.as_ref();
+    match Repository::init_bare(path) {
+        Ok(repo) => {
+            match &repo.remote_with_fetch(
+                "origin", url, "+refs/*:refs/*") {
+                Ok(_) => (),
+                Err(e) => {
+                    eprintln!("Failed to add remote {}: {}", path.display(), e);
+                    std::fs::remove_dir_all(path)
+                    .expect(
+                        "Failed to remove dir after failed attempt");
+                    return None
+                }
+            };
+            Some(repo)
+        },
+        Err(e) => {
+            eprintln!("Failed to create {}: {}", path.display(), e);
+            None
+        }
+    }
+}
 
 pub(crate) fn open_or_init_bare_repo<P> (path: P, url: &str) -> Option<Repository> 
 where 
@@ -12,26 +39,7 @@ where
         Err(e) => {
             if e.class() == git2::ErrorClass::Os &&
                e.code() == git2::ErrorCode::NotFound {
-                match Repository::init_bare(path) {
-                    Ok(repo) => {
-                        match &repo.remote_with_fetch(
-                            "origin", url, "+refs/*:refs/*") {
-                            Ok(_) => (),
-                            Err(e) => {
-                                eprintln!("Failed to add remote {}: {}", path.display(), e);
-                                std::fs::remove_dir_all(path)
-                                .expect(
-                                    "Failed to remove dir after failed attempt");
-                                return None
-                            }
-                        };
-                        Some(repo)
-                    },
-                    Err(e) => {
-                        eprintln!("Failed to create {}: {}", path.display(), e);
-                        None
-                    }
-                }
+                init_bare_repo(path, url)
             } else {
                 eprintln!("Failed to open {}: {}", path.display(), e);
                 None
@@ -66,17 +74,7 @@ fn gcb_transfer_progress(progress: Progress<'_>) -> bool {
     true
 }
 
-
-pub(crate) fn sync_repo<P>(path: P, url: &str, proxy: Option<&str>) 
-where 
-    P: AsRef<Path>
-{
-    let path = path.as_ref();
-    println!("Syncing repo '{}' with '{}'", path.display(), url);
-    let repo = 
-        open_or_init_bare_repo(path, url)
-        .expect("Failed to open or init repo");
-    let mut remote = repo.remote_anonymous(&url).expect("Failed to create temporary remote");
+fn fetch_opts_init<'a>() -> FetchOptions<'a> {
     let mut cbs = RemoteCallbacks::new();
     cbs.sideband_progress(|log| {
             print!("Remote: {}", String::from_utf8_lossy(log));
@@ -89,10 +87,14 @@ where
         .prune(git2::FetchPrune::On)
         .update_fetchhead(true)
         .remote_callbacks(cbs);
+    fetch_opts
+}
+
+fn fetch_repo(remote: &mut Remote, fetch_opts: &mut FetchOptions, proxy: Option<&str>) {
     if let Err(e) = 
         remote.fetch(
             &["+refs/*:refs/*"], 
-            Some(&mut fetch_opts), 
+            Some(fetch_opts), 
             None
     ) {
         if let Some(proxy) = proxy {
@@ -102,7 +104,7 @@ where
             fetch_opts.proxy_options(proxy_opts);
             remote.fetch(
                 &["+refs/*:refs/*"], 
-                Some(&mut fetch_opts), 
+                Some(fetch_opts), 
                 None
             ).expect("Failed to fetch even with proxy");
         } else {
@@ -110,6 +112,9 @@ where
             panic!();
         }
     };
+}
+
+fn update_head(remote: &Remote, repo: &Repository) {
     for head in remote.list().expect("Failed to list remote") {
         if head.name() == "HEAD" {
             if let Some(target) = head.symref_target() {
@@ -117,4 +122,19 @@ where
             }
         }
     }
+}
+
+pub(crate) fn sync_repo<P>(path: P, url: &str, proxy: Option<&str>) 
+where 
+    P: AsRef<Path>
+{
+    let path = path.as_ref();
+    println!("Syncing repo '{}' with '{}'", path.display(), url);
+    let repo = 
+        open_or_init_bare_repo(path, url)
+        .expect("Failed to open or init repo");
+    let mut remote = repo.remote_anonymous(&url).expect("Failed to create temporary remote");
+    let mut fetch_opts = fetch_opts_init();
+    fetch_repo(&mut remote, &mut fetch_opts, proxy);
+    update_head(&remote, &repo);
 }
