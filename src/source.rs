@@ -1,10 +1,12 @@
 use std::{path::Path, process::Command};
 
 use blake2::Blake2b512;
-use crc::{CRC_32_CKSUM, Crc};
+use crc::Crc;
 use sha1::Sha1;
 use sha2::{Sha224, Sha256, Sha384, Sha512};
 
+
+#[derive(Debug)]
 enum NetfileProtocol {
     File,
     Ftp,
@@ -12,38 +14,69 @@ enum NetfileProtocol {
     Https,
     Rsync,
     Scp,
-    Unknown
 }
 
+#[derive(Debug)]
 enum VcsProtocol {
     Bzr,
     Fossil,
     Git,
     Hg,
-    Svn
+    Svn,
 }
 
+#[derive(Debug)]
 enum Protocol {
     Netfile {
-        Protocol: NetfileProtocol
+        protocol: NetfileProtocol
     },
     Vcs {
-        Protocol: VcsProtocol
+        protocol: VcsProtocol
     },
+    Local
 }
 
 struct Source {
     name: String,
     protocol: Protocol,
     url: String,
-    cksum: Option<Crc<u32>>,
-    md5: Option<md5::Digest>,
-    sha1: Option<Sha1>,
-    sha224: Option<Sha224>,
-    sha256: Option<Sha256>,
-    sha384: Option<Sha384>,
-    sha512: Option<Sha512>,
-    b2: Option<Blake2b512>
+    // ck: Option<Crc<u32>>,
+    // md5: Option<md5::Digest>,
+    // sha1: Option<Sha1>,
+    // sha224: Option<Sha224>,
+    // sha256: Option<Sha256>,
+    // sha384: Option<Sha384>,
+    // sha512: Option<Sha512>,
+    // b2: Option<Blake2b512>
+}
+
+fn push_source(
+    sources: &mut Vec<Source>, 
+    name: Option<String>, 
+    protocol: Option<Protocol>,
+    url: Option<String>
+) {
+    if let Some(name) = name {
+        if let Some(protocol) = protocol {
+            if let Some(url) = url {
+                sources.push(Source{
+                    name,
+                    protocol,
+                    url,
+                    // ck,
+                    // md5,
+                    // sha1,
+                    // sha224,
+                    // sha256,
+                    // sha384,
+                    // sha512,
+                    // b2,
+                });
+                return
+            }
+        }
+    };
+    panic!("Unfinished source definition")
 }
 
 pub(crate) fn get_sources<P> (pkgbuild: &Path) 
@@ -58,32 +91,66 @@ where
         .arg(pkgbuild)
         .output()
         .expect("Failed to run script");
+    let mut name = None;
+    let mut protocol = None;
+    let mut url = None;
+    // let mut ck = None;
+    // let mut md5 = None;
+    // let mut sha1 = None;
+    // let mut sha224 = None;
+    // let mut sha256 = None;
+    // let mut sha384 = None;
+    // let mut sha512 = None;
+    // let mut b2 = None;
+    let mut sources = vec![];
+    // let source = sources.last();
+    let mut started = false;
     let raw = String::from_utf8_lossy(&output.stdout);
-    let mut protocol: Protocol;
-    protocol = Protocol::Netfile { Protocol: NetfileProtocol::File };
     for line in raw.lines() {
         if line == "[source]" {
-            println!("Start definition");
+            if started {
+                push_source(&mut sources, name, protocol, url);
+                name = None;
+                protocol = None;
+                url = None;
+            } else {
+                started = true;
+            }
         } else {
             let mut it = line.splitn(2, ": ");
             let key = it.next().expect("Failed to get key");
             let value = it.next().expect("Failed to get value");
             match key {
                 "name" => {
-                    println!("Name: {}", value);
+                    name = Some(value.to_string().clone());
                 }
                 "protocol" => {
-                    println!("Protocol: {}", value);
+                    protocol = Some(match value {
+                        "file" => Protocol::Netfile { protocol: NetfileProtocol::File },
+                        "ftp" => Protocol::Netfile { protocol: NetfileProtocol::Ftp },
+                        "http" => Protocol::Netfile { protocol: NetfileProtocol::Http },
+                        "https" => Protocol::Netfile { protocol: NetfileProtocol::Https },
+                        "rsync" => Protocol::Netfile { protocol: NetfileProtocol::Rsync },
+                        "scp" => Protocol::Netfile { protocol: NetfileProtocol::Scp },
+                        "bzr" => Protocol::Vcs { protocol: VcsProtocol::Bzr },
+                        "fossil" => Protocol::Vcs { protocol: VcsProtocol::Fossil },
+                        "git" => Protocol::Vcs { protocol: VcsProtocol::Git },
+                        "hg" => Protocol::Vcs { protocol: VcsProtocol::Hg },
+                        "svn" => Protocol::Vcs { protocol: VcsProtocol::Svn },
+                        "local" => Protocol::Local,
+                        &_ => {
+                            eprintln!("Unknown protocol {}", value);
+                            panic!("Unknown protocol");
+                        },
+                    });
                 }
                 "url" => {
-                    println!("URL: {}", value);
+                    url = Some(value.to_string().clone());
                 }
                 "cksum" => {
                     println!("CRC checksum: {}", value);
                 }
                 "md5sum" => {
-                    // md5
-                    
                     println!("MD5 checksum: {}", value);
                 }
                 "sha1sum" => {
@@ -110,5 +177,9 @@ where
                 }
             }
         }
+    }
+    push_source(&mut sources, name, protocol, url);
+    for source in sources.iter() {
+        println!("Source {} from {}, protocol {:?}", source.name, source.url, source.protocol);
     }
 }

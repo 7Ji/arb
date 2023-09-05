@@ -8,9 +8,9 @@ use crate::{git, source};
 pub(crate) struct PKGBUILD {
     name: String,
     url: String,
-    hash_url: u64,
+    _hash_url: u64,
     hash_domain: u64,
-    build: PathBuf,
+    _build: PathBuf,
     git: PathBuf,
 }
 
@@ -34,17 +34,17 @@ where
             Some(domain) => xxh3_64(domain.as_bytes()),
             None => 0,
         };
-        let hash_url = xxh3_64(url.as_bytes());
-        let mut build = PathBuf::from("build");
-        build.push(name);
+        let _hash_url = xxh3_64(url.as_bytes());
+        let mut _build = PathBuf::from("build");
+        _build.push(name);
         let mut git = PathBuf::from("sources/git");
-        git.push(format!("{:016x}", hash_url));
+        git.push(format!("{:016x}", _hash_url));
         PKGBUILD {
             name: name.clone(),
             url: url.clone(),
-            hash_url,
+            _hash_url,
             hash_domain,
-            build,
+            _build,
             git
         }
     }).collect()
