@@ -5,6 +5,7 @@ use tempfile::tempdir;
 mod git;
 mod pkgbuild;
 mod source;
+mod cksums;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

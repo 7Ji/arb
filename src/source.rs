@@ -1,9 +1,5 @@
 use std::{path::Path, process::Command};
-
-use blake2::Blake2b512;
-use crc::Crc;
-use sha1::Sha1;
-use sha2::{Sha224, Sha256, Sha384, Sha512};
+use hex::FromHex;
 
 
 #[derive(Debug)]
@@ -36,25 +32,56 @@ enum Protocol {
     Local
 }
 
+impl Protocol {
+    fn from_string(value: &str) -> Protocol {
+        match value {
+            "file" => Protocol::Netfile { protocol: NetfileProtocol::File },
+            "ftp" => Protocol::Netfile { protocol: NetfileProtocol::Ftp },
+            "http" => Protocol::Netfile { protocol: NetfileProtocol::Http },
+            "https" => Protocol::Netfile { protocol: NetfileProtocol::Https },
+            "rsync" => Protocol::Netfile { protocol: NetfileProtocol::Rsync },
+            "scp" => Protocol::Netfile { protocol: NetfileProtocol::Scp },
+            "bzr" => Protocol::Vcs { protocol: VcsProtocol::Bzr },
+            "fossil" => Protocol::Vcs { protocol: VcsProtocol::Fossil },
+            "git" => Protocol::Vcs { protocol: VcsProtocol::Git },
+            "hg" => Protocol::Vcs { protocol: VcsProtocol::Hg },
+            "svn" => Protocol::Vcs { protocol: VcsProtocol::Svn },
+            "local" => Protocol::Local,
+            &_ => {
+                eprintln!("Unknown protocol {}", value);
+                panic!("Unknown protocol");
+            },
+        }
+    }
+}
+
 struct Source {
     name: String,
     protocol: Protocol,
     url: String,
-    // ck: Option<Crc<u32>>,
-    // md5: Option<md5::Digest>,
-    // sha1: Option<Sha1>,
-    // sha224: Option<Sha224>,
-    // sha256: Option<Sha256>,
-    // sha384: Option<Sha384>,
-    // sha512: Option<Sha512>,
-    // b2: Option<Blake2b512>
+    ck: Option<u32>,     // 32-bit CRC 
+    md5: Option<[u8; 16]>,   // 128-bit MD5
+    sha1: Option<[u8; 20]>,  // 160-bit SHA-1
+    sha224: Option<[u8; 28]>,// 224-bit SHA-2
+    sha256: Option<[u8; 32]>,// 256-bit SHA-2
+    sha384: Option<[u8; 48]>,// 384-bit SHA-2
+    sha512: Option<[u8; 64]>,// 512-bit SHA-2
+    b2: Option<[u8; 64]>,    // 512-bit Blake-2B
 }
 
 fn push_source(
     sources: &mut Vec<Source>, 
     name: Option<String>, 
     protocol: Option<Protocol>,
-    url: Option<String>
+    url: Option<String>,
+    ck: Option<u32>,     // 32-bit CRC 
+    md5: Option<[u8; 16]>,   // 128-bit MD5
+    sha1: Option<[u8; 20]>,  // 160-bit SHA-1
+    sha224: Option<[u8; 28]>,// 224-bit SHA-2
+    sha256: Option<[u8; 32]>,// 256-bit SHA-2
+    sha384: Option<[u8; 48]>,// 384-bit SHA-2
+    sha512: Option<[u8; 64]>,// 512-bit SHA-2
+    b2: Option<[u8; 64]>,    // 512-bit Blake-2B
 ) {
     if let Some(name) = name {
         if let Some(protocol) = protocol {
@@ -63,14 +90,14 @@ fn push_source(
                     name,
                     protocol,
                     url,
-                    // ck,
-                    // md5,
-                    // sha1,
-                    // sha224,
-                    // sha256,
-                    // sha384,
-                    // sha512,
-                    // b2,
+                    ck,
+                    md5,
+                    sha1,
+                    sha224,
+                    sha256,
+                    sha384,
+                    sha512,
+                    b2,
                 });
                 return
             }
@@ -94,14 +121,14 @@ where
     let mut name = None;
     let mut protocol = None;
     let mut url = None;
-    // let mut ck = None;
-    // let mut md5 = None;
-    // let mut sha1 = None;
-    // let mut sha224 = None;
-    // let mut sha256 = None;
-    // let mut sha384 = None;
-    // let mut sha512 = None;
-    // let mut b2 = None;
+    let mut ck = None;
+    let mut md5 = None;
+    let mut sha1 = None;
+    let mut sha224 = None;
+    let mut sha256 = None;
+    let mut sha384 = None;
+    let mut sha512 = None;
+    let mut b2 = None;
     let mut sources = vec![];
     // let source = sources.last();
     let mut started = false;
@@ -109,10 +136,22 @@ where
     for line in raw.lines() {
         if line == "[source]" {
             if started {
-                push_source(&mut sources, name, protocol, url);
+                push_source(&mut sources, 
+                    name, protocol, url, 
+                    ck, md5, sha1, 
+                    sha224, sha256, sha384, sha512, 
+                    b2);
                 name = None;
                 protocol = None;
                 url = None;
+                ck = None;
+                md5 = None;
+                sha1 = None;
+                sha224 = None;
+                sha256 = None;
+                sha384 = None;
+                sha512 = None;
+                b2 = None;
             } else {
                 started = true;
             }
@@ -125,51 +164,42 @@ where
                     name = Some(value.to_string().clone());
                 }
                 "protocol" => {
-                    protocol = Some(match value {
-                        "file" => Protocol::Netfile { protocol: NetfileProtocol::File },
-                        "ftp" => Protocol::Netfile { protocol: NetfileProtocol::Ftp },
-                        "http" => Protocol::Netfile { protocol: NetfileProtocol::Http },
-                        "https" => Protocol::Netfile { protocol: NetfileProtocol::Https },
-                        "rsync" => Protocol::Netfile { protocol: NetfileProtocol::Rsync },
-                        "scp" => Protocol::Netfile { protocol: NetfileProtocol::Scp },
-                        "bzr" => Protocol::Vcs { protocol: VcsProtocol::Bzr },
-                        "fossil" => Protocol::Vcs { protocol: VcsProtocol::Fossil },
-                        "git" => Protocol::Vcs { protocol: VcsProtocol::Git },
-                        "hg" => Protocol::Vcs { protocol: VcsProtocol::Hg },
-                        "svn" => Protocol::Vcs { protocol: VcsProtocol::Svn },
-                        "local" => Protocol::Local,
-                        &_ => {
-                            eprintln!("Unknown protocol {}", value);
-                            panic!("Unknown protocol");
-                        },
-                    });
+                    protocol = Some(Protocol::from_string(value));
                 }
                 "url" => {
                     url = Some(value.to_string().clone());
                 }
                 "cksum" => {
+                    ck = Some(value.parse().expect("Failed to parse 32-bit CRC"));
                     println!("CRC checksum: {}", value);
                 }
                 "md5sum" => {
-                    println!("MD5 checksum: {}", value);
+                    md5 = Some(FromHex::from_hex(value)
+                        .expect("Failed to parse 128-bit MD5 sum"));
                 }
                 "sha1sum" => {
-                    println!("SHA1 checksum: {}", value);
+                    sha1 = Some(FromHex::from_hex(value)
+                        .expect("Failed to parse 160-bit SHA-1 sum"));
                 }
                 "sha224sum" => {
-                    println!("SHA224 checksum: {}", value);
+                    sha224 = Some(FromHex::from_hex(value)
+                        .expect("Failed to parse 224-bit SHA-2 sum"));
                 }
                 "sha256sum" => {
-                    println!("SHA256 checksum: {}", value);
+                    sha256 = Some(FromHex::from_hex(value)
+                        .expect("Failed to parse 256-bit SHA-2 sum"));
                 }
                 "sha384sum" => {
-                    println!("SHA384 checksum: {}", value);
+                    sha384 = Some(FromHex::from_hex(value)
+                        .expect("Failed to parse 384-bit SHA-2 sum"));
                 }
                 "sha512sum" => {
-                    println!("SHA512 checksum: {}", value);
+                    sha512 = Some(FromHex::from_hex(value)
+                        .expect("Failed to parse 512-bit SHA-2 sum"));
                 }
                 "b2sum" => {
-                    println!("B2 checksum: {}", value);
+                    b2 = Some(FromHex::from_hex(value)
+                        .expect("Failed to parse 512-bit Blake-2B sum"));
                 }
                 &_ => {
                     println!("Other thing: {}", line);
@@ -178,7 +208,11 @@ where
             }
         }
     }
-    push_source(&mut sources, name, protocol, url);
+    push_source(&mut sources, 
+        name, protocol, url, 
+        ck, md5, sha1, 
+        sha224, sha256, sha384, sha512, 
+        b2);
     for source in sources.iter() {
         println!("Source {} from {}, protocol {:?}", source.name, source.url, source.protocol);
     }
