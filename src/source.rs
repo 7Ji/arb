@@ -1,8 +1,11 @@
-use std::{path::Path, process::Command};
+use std::{path::{Path, PathBuf}, process::Command, fmt::Display};
 use hex::FromHex;
+use xxhash_rust::xxh3::xxh3_64;
+
+use crate::cksums;
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum NetfileProtocol {
     File,
     Ftp,
@@ -12,7 +15,7 @@ enum NetfileProtocol {
     Scp,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum VcsProtocol {
     Bzr,
     Fossil,
@@ -21,7 +24,7 @@ enum VcsProtocol {
     Svn,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Protocol {
     Netfile {
         protocol: NetfileProtocol
@@ -54,8 +57,8 @@ impl Protocol {
         }
     }
 }
-
-struct Source {
+#[derive(Clone)]
+pub(crate) struct Source {
     name: String,
     protocol: Protocol,
     url: String,
@@ -67,6 +70,11 @@ struct Source {
     sha384: Option<[u8; 48]>,// 384-bit SHA-2
     sha512: Option<[u8; 64]>,// 512-bit SHA-2
     b2: Option<[u8; 64]>,    // 512-bit Blake-2B
+}
+
+struct SourceCache {
+    path: PathBuf,
+    url: String,
 }
 
 fn push_source(
@@ -106,7 +114,7 @@ fn push_source(
     panic!("Unfinished source definition")
 }
 
-pub(crate) fn get_sources<P> (pkgbuild: &Path) 
+pub(crate) fn get_sources<P> (pkgbuild: &Path) -> Vec<Source>
 where
     P: AsRef<Path>
 {
@@ -213,7 +221,117 @@ where
         ck, md5, sha1, 
         sha224, sha256, sha384, sha512, 
         b2);
+    sources
+}
+
+fn update_unique_sources(unique_sources: &mut Vec<Source>, source: &Source) {
+    let mut existing = None;
+    for unique_source in unique_sources.iter_mut() {
+        if cksums::optional_equal(&unique_source.ck, &source.ck) ||
+           cksums::optional_equal(&unique_source.md5, &source.md5) ||
+           cksums::optional_equal(&unique_source.sha1, &source.sha1) ||
+           cksums::optional_equal(&unique_source.sha224, &source.sha224) ||
+           cksums::optional_equal(&unique_source.sha256, &source.sha256) ||
+           cksums::optional_equal(&unique_source.sha384, &source.sha384) ||
+           cksums::optional_equal(&unique_source.sha512, &source.sha512) ||
+           cksums::optional_equal(&unique_source.b2, &source.b2) {
+            existing = Some(unique_source);
+            break;
+        }
+    }
+    let unique_source = match existing {
+        Some(unique_source) => unique_source,
+        None => {
+            unique_sources.push(source.clone());
+            unique_sources.last_mut().expect("Failed to get unique source we just added")
+        },
+    };
+    cksums::optional_update(&mut unique_source.ck, &source.ck);
+    cksums::optional_update(&mut unique_source.md5, &source.md5);
+    cksums::optional_update(&mut unique_source.sha1, &source.sha1);
+    cksums::optional_update(&mut unique_source.sha224, &source.sha224);
+    cksums::optional_update(&mut unique_source.sha256, &source.sha256);
+    cksums::optional_update(&mut unique_source.sha384, &source.sha384);
+    cksums::optional_update(&mut unique_source.sha512, &source.sha512);
+    cksums::optional_update(&mut unique_source.b2, &source.b2);
+
+}
+
+pub(crate) fn dedup_sources(sources: &Vec<Source>) -> Vec<Source> {
+    let mut unique_sources: Vec<Source> = vec![];
     for source in sources.iter() {
-        println!("Source {} from {}, protocol {:?}", source.name, source.url, source.protocol);
+        if let Protocol::Local = source.protocol {
+            continue;
+        }
+        update_unique_sources(&mut unique_sources, source);
+    }
+    unique_sources
+}
+
+fn print_source(source: &Source) {
+    println!("Source '{}' from '{}' protocol '{:?}'", source.name, source.url, source.protocol);
+    if let Some(ck) = source.ck {
+        println!("=> CKSUM: {:x}", ck);
+    }
+    if let Some(md5) = source.md5 {
+        println!("=> md5sum: {}", cksums::print(&md5));
+    }
+    if let Some(sha1) = source.sha1 {
+        println!("=> sha1sum: {}", cksums::print(&sha1));
+    }
+    if let Some(sha224) = source.sha224 {
+        println!("=> sha224sum: {}", cksums::print(&sha224));
+    }
+    if let Some(sha256) = source.sha256 {
+        println!("=> sha256sum: {}", cksums::print(&sha256));
+    }
+    if let Some(sha384) = source.sha384 {
+        println!("=> sha384sum: {}", cksums::print(&sha384));
+    }
+    if let Some(sha512) = source.sha512 {
+        println!("=> sha512sum: {}", cksums::print(&sha512));
+    }
+    if let Some(b2) = source.b2 {
+        println!("=> b2sum: {}", cksums::print(&b2));
+    }
+}
+
+
+pub(crate) fn cache_sources(sources: &Vec<Source>) {
+    for source in sources.iter() {
+        print_source(source);
+    }
+    return;
+
+    let mut gits = vec![];
+    let git_parent = PathBuf::from("sources/git");
+    for source in sources.iter() {
+        match &source.protocol {
+            Protocol::Netfile { protocol } => {
+                match protocol {
+                    NetfileProtocol::File => todo!(),
+                    NetfileProtocol::Ftp => todo!(),
+                    NetfileProtocol::Http => todo!(),
+                    NetfileProtocol::Https => todo!(),
+                    NetfileProtocol::Rsync => todo!(),
+                    NetfileProtocol::Scp => todo!(),
+                }
+            },
+            Protocol::Vcs { protocol } => {
+                match protocol {
+                    VcsProtocol::Bzr => todo!(),
+                    VcsProtocol::Fossil => todo!(),
+                    VcsProtocol::Git => gits.push(SourceCache {
+                        path: git_parent.join(format!("{:016x}", xxh3_64(source.url.as_bytes()))),
+                        url: source.url.clone(),
+                    }),
+                    VcsProtocol::Hg => todo!(),
+                    VcsProtocol::Svn => todo!(),
+                }
+            },
+            Protocol::Local => todo!(),
+        }
+        // match source
+
     }
 }

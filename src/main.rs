@@ -31,6 +31,5 @@ fn main() {
     let arg = Arg::parse();
     let pkgbuilds = pkgbuild::get_pkgbuilds(&arg.pkgbuilds, arg.holdpkg);
     let pkgbuilds_dir = tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
-    println!("{}", pkgbuilds_dir.path().display());
     pkgbuild::prepare_sources(pkgbuilds_dir, &pkgbuilds);
 }

@@ -208,9 +208,13 @@ where
     P: AsRef<Path> 
 {
     let dir = dir.as_ref();
+    let mut sources_all = vec![];
     for pkgbuild in pkgbuilds.iter() {
-        source::get_sources::<P>(&dir.join(&pkgbuild.name));
+        let mut sources_this = source::get_sources::<P>(&dir.join(&pkgbuild.name));
+        sources_all.append(&mut sources_this);
     }
+    sources_all = source::dedup_sources(&sources_all);
+    source::cache_sources(&sources_all);
 }
 
 pub(crate) fn get_pkgbuilds<P>(config: P, hold: bool) -> Vec<PKGBUILD>
@@ -240,7 +244,8 @@ where
 
 pub(crate) fn prepare_sources<P>(dir: P, pkgbuilds: &Vec<PKGBUILD>) 
 where
-    P:AsRef<Path> {
+    P:AsRef<Path> 
+{
     dump_pkgbuilds(&dir, &pkgbuilds);
     get_all_sources(&dir, &pkgbuilds);
 }
