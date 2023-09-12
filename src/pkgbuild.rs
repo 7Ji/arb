@@ -5,12 +5,13 @@ use url::Url;
 use xxhash_rust::xxh3::xxh3_64;
 use crate::{git, source};
 
+#[derive(Clone)]
 pub(crate) struct PKGBUILD {
     name: String,
     url: String,
-    _hash_url: u64,
+    hash_url: u64,
     hash_domain: u64,
-    _build: PathBuf,
+    build: PathBuf,
     git: PathBuf,
 }
 
@@ -34,71 +35,54 @@ where
             Some(domain) => xxh3_64(domain.as_bytes()),
             None => 0,
         };
-        let _hash_url = xxh3_64(url.as_bytes());
-        let mut _build = PathBuf::from("build");
-        _build.push(name);
-        let mut git = PathBuf::from("sources/git");
-        git.push(format!("{:016x}", _hash_url));
+        let hash_url = xxh3_64(url.as_bytes());
+        let mut build = PathBuf::from("build");
+        build.push(name);
+        let git = PathBuf::from(format!("sources/PKGBUILDs/{}", name));
         PKGBUILD {
             name: name.clone(),
             url: url.clone(),
-            _hash_url,
+            hash_url,
             hash_domain,
-            _build,
+            build,
             git
         }
     }).collect()
 }
 
 fn sync_pkgbuilds(pkgbuilds: &Vec<PKGBUILD>, proxy: Option<&str>) {
-    let mut map: HashMap<u64, Vec<&PKGBUILD>> = HashMap::new();
+    let mut map: HashMap<u64, Vec<Repo>> = HashMap::new();
     for pkgbuild in pkgbuilds.iter() {
         if ! map.contains_key(&pkgbuild.hash_domain) {
+            println!("New domain found from PKGBUILD URL: {}", pkgbuild.url);
             map.insert(pkgbuild.hash_domain, vec![]);
         }
         let vec = map
             .get_mut(&pkgbuild.hash_domain)
             .expect("Failed to get vec");
-        vec.push(pkgbuild);
+        vec.push(Repo { path: pkgbuild.git.clone(), url: pkgbuild.url.clone() });
     }
-    match pkgbuilds.len() {
-        0 => {
-            panic!("No PKGBUILDs defined");
-        },
-        1 => {
-            for pkgbuild in pkgbuilds {
-                git::sync_repo(&pkgbuild.git, &pkgbuild.url, proxy);
-            }
-            return
-        },
-        _ => ()
-    }
-    println!("Syncing PKGBUILDs with {} threads, one thread per domain...", 
-            map.len());
+    println!("Syncing PKGBUILDs with {} threads", map.len());
+    const REFSPECS: &[&str] = &["+refs/heads/master:refs/heads/master"];
+    let (proxy_string, has_proxy) = match proxy {
+        Some(proxy) => (proxy.to_owned(), true),
+        None => (String::new(), false),
+    };
     let mut threads =  Vec::new();
-    for (domain, pkgbuilds) in map.iter() {
-        print!("PKGBUILDs from domain {:016x}:", domain);
-        let mut repos = vec![];
-        for pkgbuild in pkgbuilds.iter() {
-            print!(" '{}'", pkgbuild.name);
-            repos.push(Repo {
-                path: pkgbuild.git.clone(),
-                url: pkgbuild.url.clone(),
-            });
-        }
-        println!();
-        let proxy_url = match proxy {
-            Some(proxy_url) => proxy_url.to_string(),
-            None => String::new(),
-        };
+    for repos in map.into_values() {
+        let proxy_string_thread = proxy_string.clone();
         threads.push(thread::spawn(move || {
+            let proxy = match has_proxy {
+                true => Some(proxy_string_thread.as_str()),
+                false => None,
+            };
             for repo in repos {
-                git::sync_repo(&repo.path, &repo.url, Some(&proxy_url));
+                git::sync_repo(&repo.path, &repo.url, proxy, REFSPECS);
             }
         }));
     }
-    for handle in threads {
-        handle.join().expect("Failed to join");
+    for thread in threads.into_iter() {
+        thread.join().expect("Failed to join");
     }
 }
 
@@ -204,20 +188,24 @@ where
 }
 
 fn get_all_sources<P> (dir: P, pkgbuilds: &Vec<PKGBUILD>) 
+    -> (Vec<source::Source>, Vec<source::Source>, Vec<source::Source>)
 where 
     P: AsRef<Path> 
 {
     let dir = dir.as_ref();
-    let mut sources_all = vec![];
-    for pkgbuild in pkgbuilds.iter() {
-        let mut sources_this = source::get_sources::<P>(&dir.join(&pkgbuild.name));
-        sources_all.append(&mut sources_this);
+    let sources_all: Vec<Vec<source::Source>> = pkgbuilds.iter().map(|pkgbuild| {
+        source::get_sources::<P>(&dir.join(&pkgbuild.name))
+    }).collect();
+    let mut sources_non_unique = vec![];
+    for sources in sources_all.iter() {
+        for source in sources.iter() {
+            sources_non_unique.push(source);
+        }
     }
-    sources_all = source::dedup_sources(&sources_all);
-    source::cache_sources(&sources_all);
+    source::unique_sources(&sources_non_unique)
 }
 
-pub(crate) fn get_pkgbuilds<P>(config: P, hold: bool) -> Vec<PKGBUILD>
+pub(crate) fn get_pkgbuilds<P>(config: P, hold: bool, proxy: Option<&str>) -> Vec<PKGBUILD>
 where 
     P:AsRef<Path>
 {
@@ -234,7 +222,7 @@ where
         true
     };
     if update_pkg {
-        sync_pkgbuilds(&pkgbuilds, Some("http://xray.lan:1081"));
+        sync_pkgbuilds(&pkgbuilds, proxy);
         if ! healthy_pkgbuilds(&pkgbuilds) {
             panic!("Updating broke some of our PKGBUILDs");
         }
@@ -242,10 +230,12 @@ where
     pkgbuilds
 }
 
-pub(crate) fn prepare_sources<P>(dir: P, pkgbuilds: &Vec<PKGBUILD>) 
+pub(crate) fn prepare_sources<P>(dir: P, pkgbuilds: &Vec<PKGBUILD>, proxy: Option<&str>) 
 where
     P:AsRef<Path> 
 {
     dump_pkgbuilds(&dir, &pkgbuilds);
-    get_all_sources(&dir, &pkgbuilds);
+    let (netfile_sources, git_sources, local_sources) 
+        = get_all_sources(&dir, &pkgbuilds);
+    source::cache_sources_mt(&netfile_sources, &git_sources, proxy);
 }

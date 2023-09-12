@@ -25,11 +25,13 @@ struct Arg {
     /// Hold versions of git sources, do not update them
     #[arg(short='G', long, default_value_t = false)]
     holdgit: bool
+
 }
 
 fn main() {
     let arg = Arg::parse();
-    let pkgbuilds = pkgbuild::get_pkgbuilds(&arg.pkgbuilds, arg.holdpkg);
+    let proxy = arg.proxy.as_deref();
+    let pkgbuilds = pkgbuild::get_pkgbuilds(&arg.pkgbuilds, arg.holdpkg, proxy);
     let pkgbuilds_dir = tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
-    pkgbuild::prepare_sources(pkgbuilds_dir, &pkgbuilds);
+    pkgbuild::prepare_sources(pkgbuilds_dir, &pkgbuilds, proxy);
 }

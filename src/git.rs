@@ -90,10 +90,10 @@ fn fetch_opts_init<'a>() -> FetchOptions<'a> {
     fetch_opts
 }
 
-fn fetch_repo(remote: &mut Remote, fetch_opts: &mut FetchOptions, proxy: Option<&str>) {
+fn fetch_repo(remote: &mut Remote, fetch_opts: &mut FetchOptions, proxy: Option<&str>, refspecs: &[&str]) {
     if let Err(e) = 
         remote.fetch(
-            &["+refs/*:refs/*"], 
+            refspecs, 
             Some(fetch_opts), 
             None
     ) {
@@ -103,7 +103,7 @@ fn fetch_repo(remote: &mut Remote, fetch_opts: &mut FetchOptions, proxy: Option<
             proxy_opts.url(proxy);
             fetch_opts.proxy_options(proxy_opts);
             remote.fetch(
-                &["+refs/*:refs/*"], 
+                refspecs, 
                 Some(fetch_opts), 
                 None
             ).expect("Failed to fetch even with proxy");
@@ -124,7 +124,7 @@ fn update_head(remote: &Remote, repo: &Repository) {
     }
 }
 
-pub(crate) fn sync_repo<P>(path: P, url: &str, proxy: Option<&str>) 
+pub(crate) fn sync_repo<P>(path: P, url: &str, proxy: Option<&str>, refspecs: &[&str]) 
 where 
     P: AsRef<Path>
 {
@@ -135,6 +135,6 @@ where
         .expect("Failed to open or init repo");
     let mut remote = repo.remote_anonymous(&url).expect("Failed to create temporary remote");
     let mut fetch_opts = fetch_opts_init();
-    fetch_repo(&mut remote, &mut fetch_opts, proxy);
+    fetch_repo(&mut remote, &mut fetch_opts, proxy, refspecs);
     update_head(&remote, &repo);
 }
