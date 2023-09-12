@@ -1,11 +1,8 @@
 use std::{path::Path, io::Write};
 
-use git2::{Repository, Progress, RemoteCallbacks, FetchOptions, ProxyOptions, Remote};
+use git2::{Repository, Progress, RemoteCallbacks, FetchOptions, ProxyOptions, Remote, TreeEntry, Tree, Blob};
 
-fn init_bare_repo<P> (path: P, url: &str) -> Option<Repository>
-where
-    P: AsRef<Path>
-{
+fn init_bare_repo<P: AsRef<Path>> (path: P, url: &str) -> Option<Repository> {
     let path = path.as_ref();
     match Repository::init_bare(path) {
         Ok(repo) => {
@@ -29,10 +26,7 @@ where
     }
 }
 
-pub(crate) fn open_or_init_bare_repo<P> (path: P, url: &str) -> Option<Repository> 
-where 
-    P: AsRef<Path>
-{
+pub(crate) fn open_or_init_bare_repo<P: AsRef<Path>> (path: P, url: &str) -> Option<Repository> {
     let path = path.as_ref();
     match Repository::open_bare(path) {
         Ok(repo) => Some(repo),
@@ -91,27 +85,35 @@ fn fetch_opts_init<'a>() -> FetchOptions<'a> {
 }
 
 fn fetch_repo(remote: &mut Remote, fetch_opts: &mut FetchOptions, proxy: Option<&str>, refspecs: &[&str]) {
-    if let Err(e) = 
-        remote.fetch(
-            refspecs, 
-            Some(fetch_opts), 
-            None
-    ) {
-        if let Some(proxy) = proxy {
-            eprintln!("Failed to fetch from remote: {}. Will use proxy to retry", e);
+    for _ in 0..2 {
+        match remote.fetch(refspecs, Some(fetch_opts), None) {
+            Ok(_) => return,
+            Err(e) => {
+                eprintln!("Failed to fetch from remote '{}': {}", remote.url().expect("Failed to get URL"), e);
+            },
+        }
+    }
+    match proxy {
+        Some(proxy) => {
+            eprintln!("Failed to fetch from remote '{}'. Will use proxy to retry", remote.url().expect("Failed to get URL"));
             let mut proxy_opts = ProxyOptions::new();
             proxy_opts.url(proxy);
             fetch_opts.proxy_options(proxy_opts);
-            remote.fetch(
-                refspecs, 
-                Some(fetch_opts), 
-                None
-            ).expect("Failed to fetch even with proxy");
-        } else {
-            eprintln!("Failed to fetch from remote: {}", e);
-            panic!();
+            for _ in 0..2 {
+                match remote.fetch(refspecs, Some(fetch_opts), None) {
+                    Ok(_) => return,
+                    Err(e) => {
+                        eprintln!("Failed to fetch from remote '{}': {}", remote.url().expect("Failed to get URL"), e);
+                    },
+                }
+            }
         }
-    };
+        None => {
+            eprintln!("Failed to fetch from remote '{}' after 3 retries, considered failure", remote.url().expect("Failed to get URL"));
+            panic!("Failed to fecth from remote and there's no proxy to retry");
+        },
+    }
+    panic!("Failed to fetch even with proxy");
 }
 
 fn update_head(remote: &Remote, repo: &Repository) {
@@ -124,10 +126,7 @@ fn update_head(remote: &Remote, repo: &Repository) {
     }
 }
 
-pub(crate) fn sync_repo<P>(path: P, url: &str, proxy: Option<&str>, refspecs: &[&str]) 
-where 
-    P: AsRef<Path>
-{
+pub(crate) fn sync_repo<P: AsRef<Path>>(path: P, url: &str, proxy: Option<&str>, refspecs: &[&str]) {
     let path = path.as_ref();
     println!("Syncing repo '{}' with '{}'", path.display(), url);
     let repo = 
@@ -137,4 +136,93 @@ where
     let mut fetch_opts = fetch_opts_init();
     fetch_repo(&mut remote, &mut fetch_opts, proxy, refspecs);
     update_head(&remote, &repo);
+}
+
+fn get_branch_tree<'a>(repo: &'a Repository, branch: &str) -> Option<Tree<'a>> {
+    let branch = 
+        match repo.find_branch(branch, git2::BranchType::Local) {
+            Ok(branch) => branch,
+            Err(e) => {
+                eprintln!("Failed to find master branch: {}", e);
+                return None
+            }
+        };
+    let commit = 
+        match branch.get().peel_to_commit() {
+            Ok(commit) => commit,
+            Err(e) => {
+                eprintln!("Failed to peel master branch to commit: {}", e);
+                return None
+            },
+        };
+    let tree = 
+        match commit.tree() {
+            Ok(tree) => tree,
+            Err(e) => {
+                eprintln!("Failed to get tree pointed by commit: {}", e);
+                return None
+            },
+        };
+    Some(tree)
+}
+
+fn get_tree_entry_blob<'a>(repo: &'a Repository,tree: &Tree, name: &str) -> Option<Blob<'a>> {
+    let entry = 
+        match tree.get_name("PKGBUILD") {
+            Some(entry) => entry,
+            None => {
+                eprintln!("Failed to find entry of PKGBUILD");
+                return None
+            },
+        };
+    let object = 
+        match entry.to_object(&repo) {
+            Ok(object) => object,
+            Err(e) => {
+                eprintln!("Failed to convert tree entry to object: {}", e);
+                return None
+            },
+        };
+    let blob = 
+        match object.into_blob() {
+            Ok(blob) => blob,
+            Err(_) => {
+                eprintln!("Failed to convert into a blob");
+                return None
+            },
+        };
+    Some(blob)
+}
+
+pub(crate) fn get_branch_entry_blob<'a>(repo: &'a Repository, branch: &str, name: &str) -> Option<Blob<'a>> {
+    let tree = match get_branch_tree(repo, branch) {
+        Some(tree) => tree,
+        None => return None,
+    };
+    get_tree_entry_blob(repo, &tree, name)
+}
+
+pub(crate) fn healthy_repo<P: AsRef<Path>>(path: P) -> bool {
+    let path = path.as_ref();
+    let repo = match Repository::open_bare(&path) {
+        Ok(repo) => repo,
+        Err(e) => {
+            eprintln!("Failed to open bare repo at '{}': {}", path.display(), e);
+            return false
+        },
+    };
+    let head = match repo.head() {
+        Ok(head) => head,
+        Err(e) => {
+            eprintln!("Failed to get head of repo '{}': {}", path.display(), e);
+            return false 
+        },
+    };
+    match head.peel_to_commit() {
+        Ok(_) => return true,
+        Err(e) => {
+            eprintln!("Failed to get head of repo '{}': {}", path.display(), e);
+            return false
+        },
+    };
 }

@@ -33,5 +33,5 @@ fn main() {
     let proxy = arg.proxy.as_deref();
     let pkgbuilds = pkgbuild::get_pkgbuilds(&arg.pkgbuilds, arg.holdpkg, proxy);
     let pkgbuilds_dir = tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
-    pkgbuild::prepare_sources(pkgbuilds_dir, &pkgbuilds, proxy);
+    pkgbuild::prepare_sources(pkgbuilds_dir, &pkgbuilds, arg.holdgit, proxy);
 }

@@ -388,7 +388,7 @@ fn cache_netfile_sources_mt(netfile_sources: HashMap<u64, Vec<Source>>, proxy: O
     // println!("Finished");
 }
 
-fn cache_git_sources_for_domain_mt(git_sources: Vec<Source>, proxy: Option<&str>) {
+fn cache_git_sources_for_domain_mt(git_sources: Vec<Source>, hold: bool, proxy: Option<&str>) {
     const REFSPECS: &[&str] = &[
         "+refs/heads/*:refs/heads/*", 
         "+refs/tags/*:refs/tags/*"
@@ -399,8 +399,18 @@ fn cache_git_sources_for_domain_mt(git_sources: Vec<Source>, proxy: Option<&str>
     };
     let mut threads: Vec<JoinHandle<()>> = vec![];
     for git_source in git_sources {
+        let path = PathBuf::from(format!("sources/git/{:016x}", xxh3_64(git_source.url.as_bytes())));
+        if hold {
+            if git::healthy_repo(&path) {
+                continue;
+            } else {
+                println!("Holdgit set but repo '{}' not healthy, still need update", path.display());
+            }
+        }
         let mut thread_id_finished = None;
-        if threads.len() > 3 {
+        let threads_count = threads.len();
+        if threads_count > 3 {
+            println!("Waiting for any of {} threads caching git sources for the same domain before caching '{}'", threads_count, git_source.url);
             while let None = thread_id_finished {
                 for (thread_id, thread) in threads.iter().enumerate() {
                     if thread.is_finished() {
@@ -416,7 +426,6 @@ fn cache_git_sources_for_domain_mt(git_sources: Vec<Source>, proxy: Option<&str>
             }
         }
         let proxy_string_thread = proxy_string.clone();
-        let path = PathBuf::from(format!("sources/git/{:016x}", xxh3_64(git_source.url.as_bytes())));
         threads.push(thread::spawn(move ||{
             let proxy = match has_proxy {
                 true => Some(proxy_string_thread.as_str()),
@@ -430,7 +439,7 @@ fn cache_git_sources_for_domain_mt(git_sources: Vec<Source>, proxy: Option<&str>
     }
 }
 
-fn cache_git_sources_mt(git_sources: HashMap<u64, Vec<Source>>, proxy: Option<&str>) {
+fn cache_git_sources_mt(git_sources: HashMap<u64, Vec<Source>>, hold: bool, proxy: Option<&str>) {
     println!("Caching git sources with {} groups", git_sources.len());
     let (proxy_string, has_proxy) = match proxy {
         Some(proxy) => (proxy.to_owned(), true),
@@ -444,7 +453,7 @@ fn cache_git_sources_mt(git_sources: HashMap<u64, Vec<Source>>, proxy: Option<&s
                 true => Some(proxy_string_thread.as_str()),
                 false => None,
             };
-            cache_git_sources_for_domain_mt(git_sources, proxy);
+            cache_git_sources_for_domain_mt(git_sources, hold, proxy);
         }));
     }
     for thread in threads {
@@ -469,7 +478,7 @@ fn map_sources_by_domain(sources: &Vec<Source>) -> HashMap<u64, Vec<Source>> {
     map
 }
 
-pub(crate) fn cache_sources_mt(netfile_sources: &Vec<Source>, git_sources: &Vec<Source>, proxy: Option<&str>) {
+pub(crate) fn cache_sources_mt(netfile_sources: &Vec<Source>, git_sources: &Vec<Source>, holdgit: bool, proxy: Option<&str>) {
     let netfile_sources_map = map_sources_by_domain(netfile_sources);
     let git_sources_map = map_sources_by_domain(git_sources);
     let (proxy_string, has_proxy) = match proxy {
@@ -489,7 +498,7 @@ pub(crate) fn cache_sources_mt(netfile_sources: &Vec<Source>, git_sources: &Vec<
             true => Some(proxy_string.as_str()),
             false => None,
         };
-        cache_git_sources_mt(git_sources_map, proxy)
+        cache_git_sources_mt(git_sources_map, holdgit, proxy)
     });
     // let git_thread = std::thread::spawn(move || cache_git_sources_mt(git_sources_map, proxy));
     netfile_thread.join().expect("Failed to join netfile thread");

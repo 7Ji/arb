@@ -87,55 +87,7 @@ fn sync_pkgbuilds(pkgbuilds: &Vec<PKGBUILD>, proxy: Option<&str>) {
 }
 
 fn get_pkgbuild_blob(repo: &Repository) -> Option<git2::Blob> {
-    let branch = 
-        match repo.find_branch("master", git2::BranchType::Local) {
-            Ok(branch) => branch,
-            Err(e) => {
-                eprintln!("Failed to find master branch: {}", e);
-                return None
-            }
-        };
-    let commit = 
-        match branch.get().peel_to_commit() {
-            Ok(commit) => commit,
-            Err(e) => {
-                eprintln!("Failed to peel master branch to commit: {}", e);
-                return None
-            },
-        };
-    let tree = 
-        match commit.tree() {
-            Ok(tree) => tree,
-            Err(e) => {
-                eprintln!("Failed to get tree pointed by commit: {}", e);
-                return None
-            },
-        };
-    let entry = 
-        match tree.get_name("PKGBUILD") {
-            Some(entry) => entry,
-            None => {
-                eprintln!("Failed to find entry of PKGBUILD");
-                return None
-            },
-        };
-    let object = 
-        match entry.to_object(&repo) {
-            Ok(object) => object,
-            Err(e) => {
-                eprintln!("Failed to convert tree entry to object: {}", e);
-                return None
-            },
-        };
-    let blob = 
-        match object.into_blob() {
-            Ok(blob) => blob,
-            Err(_) => {
-                eprintln!("Failed to convert into a blob");
-                return None
-            },
-        };
-    Some(blob)
+    git::get_branch_entry_blob(repo, "master", "PKGBUILD")
 }
 
 fn healthy_pkgbuild(pkgbuild: &PKGBUILD) -> bool {
@@ -147,15 +99,13 @@ fn healthy_pkgbuild(pkgbuild: &PKGBUILD) -> bool {
                 return false
             }
         };
-    let _blob = 
-        match get_pkgbuild_blob(&repo) {
-            Some(blob) => blob,
-            None => {
-                eprintln!("Failed to get PKGBUILD blob");
-                return false
-            },
-        };
-    true
+    match get_pkgbuild_blob(&repo) {
+        Some(_) => return true,
+        None => {
+            eprintln!("Failed to get PKGBUILD blob");
+            return false
+        },
+    };
 }
 
 fn healthy_pkgbuilds(pkgbuilds: &Vec<PKGBUILD>) -> bool {
@@ -230,12 +180,12 @@ where
     pkgbuilds
 }
 
-pub(crate) fn prepare_sources<P>(dir: P, pkgbuilds: &Vec<PKGBUILD>, proxy: Option<&str>) 
+pub(crate) fn prepare_sources<P>(dir: P, pkgbuilds: &Vec<PKGBUILD>, holdgit: bool, proxy: Option<&str>) 
 where
     P:AsRef<Path> 
 {
     dump_pkgbuilds(&dir, &pkgbuilds);
     let (netfile_sources, git_sources, local_sources) 
         = get_all_sources(&dir, &pkgbuilds);
-    source::cache_sources_mt(&netfile_sources, &git_sources, proxy);
+    source::cache_sources_mt(&netfile_sources, &git_sources, holdgit, proxy);
 }
