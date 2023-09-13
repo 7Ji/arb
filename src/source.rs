@@ -1,8 +1,8 @@
-use std::{path::{Path, PathBuf}, process::Command, fmt::Display, collections::HashMap, str::FromStr, ops::Deref, thread::{self, JoinHandle, sleep}, time::Duration};
+use std::{path::{Path, PathBuf}, process::Command, collections::HashMap, str::FromStr, thread::{self, JoinHandle, sleep}, time::Duration, fs::DirBuilder};
 use hex::FromHex;
 use xxhash_rust::xxh3::xxh3_64;
 
-use crate::{cksums, git};
+use crate::{cksums, git, download};
 
 
 #[derive(Debug, Clone)]
@@ -88,6 +88,16 @@ fn push_source(
     sha512: Option<[u8; 64]>,// 512-bit SHA-2
     b2: Option<[u8; 64]>,    // 512-bit Blake-2B
 ) {
+    if let None = ck {
+    if let None = md5 {
+    if let None = sha1 {
+    if let None = sha224 {
+    if let None = sha256 {
+    if let None = sha384 {
+    if let None = sha512 {
+    if let None = b2 {
+        return
+    }}}}}}}}
     if let Some(name) = name {
         if let Some(protocol) = protocol {
             if let Some(url) = url {
@@ -289,103 +299,211 @@ pub(crate) fn unique_sources(sources: &Vec<&Source>) -> (Vec<Source>, Vec<Source
     (netfile_sources, git_sources, local_sources)
 }
 
-fn print_source(source: &Source) {
+fn _print_source(source: &Source) {
     println!("Source '{}' from '{}' protocol '{:?}'", source.name, source.url, source.protocol);
     if let Some(ck) = source.ck {
         println!("=> CKSUM: {:x}", ck);
     }
     if let Some(md5) = source.md5 {
-        println!("=> md5sum: {}", cksums::print(&md5));
+        println!("=> md5sum: {}", cksums::string_from(&md5));
     }
     if let Some(sha1) = source.sha1 {
-        println!("=> sha1sum: {}", cksums::print(&sha1));
+        println!("=> sha1sum: {}", cksums::string_from(&sha1));
     }
     if let Some(sha224) = source.sha224 {
-        println!("=> sha224sum: {}", cksums::print(&sha224));
+        println!("=> sha224sum: {}", cksums::string_from(&sha224));
     }
     if let Some(sha256) = source.sha256 {
-        println!("=> sha256sum: {}", cksums::print(&sha256));
+        println!("=> sha256sum: {}", cksums::string_from(&sha256));
     }
     if let Some(sha384) = source.sha384 {
-        println!("=> sha384sum: {}", cksums::print(&sha384));
+        println!("=> sha384sum: {}", cksums::string_from(&sha384));
     }
     if let Some(sha512) = source.sha512 {
-        println!("=> sha512sum: {}", cksums::print(&sha512));
+        println!("=> sha512sum: {}", cksums::string_from(&sha512));
     }
     if let Some(b2) = source.b2 {
-        println!("=> b2sum: {}", cksums::print(&b2));
+        println!("=> b2sum: {}", cksums::string_from(&b2));
     }
 }
 
-fn cache_netfile_source(protocol: &NetfileProtocol, source: &Source) {
-    let mut http_sources = vec![];
-    let mut file_sources = vec![];
-    let mut ftp_sources = vec![];
-    let mut rsync_sources = vec![];
-    let mut scp_sources = vec![];
-    match protocol {
-        NetfileProtocol::File => file_sources.push(source),
-        NetfileProtocol::Ftp => ftp_sources.push(source),
-        NetfileProtocol::Http => http_sources.push(source),
-        NetfileProtocol::Https => http_sources.push(source),
-        NetfileProtocol::Rsync => rsync_sources.push(source),
-        NetfileProtocol::Scp => scp_sources.push(source),
+fn get_integ_files(source: &Source) -> Vec<cksums::IntegFile> {
+    let mut integ_files = vec![];
+    if let Some(ck) = source.ck {
+        integ_files.push(cksums::get_integ_file("sources/file-ck", cksums::Integ::CK { ck }))
     }
+    if let Some(md5) = source.md5 {
+        integ_files.push(cksums::get_integ_file("sources/file-md5", cksums::Integ::MD5 { md5 }))
+    }
+    if let Some(sha1) = source.sha1 {
+        integ_files.push(cksums::get_integ_file("sources/file-sha1", cksums::Integ::SHA1 { sha1 }))
+    }
+    if let Some(sha224) = source.sha224 {
+        integ_files.push(cksums::get_integ_file("sources/file-sha224", cksums::Integ::SHA224 { sha224 }))
+    }
+    if let Some(sha256) = source.sha256 {
+        integ_files.push(cksums::get_integ_file("sources/file-sha256", cksums::Integ::SHA256 { sha256 } ))
+    }
+    if let Some(sha384) = source.sha384 {
+        integ_files.push(cksums::get_integ_file("sources/file-sha384", cksums::Integ::SHA384 { sha384 } ))
+    }
+    if let Some(sha512) = source.sha512 {
+        integ_files.push(cksums::get_integ_file("sources/file-sha512", cksums::Integ::SHA512 { sha512 }))
+    }
+    if let Some(b2) = source.b2 {
+        integ_files.push(cksums::get_integ_file("sources/file-b2", cksums::Integ::B2 { b2 } ))
+    }
+    integ_files
 }
 
-fn cache_vcs_source(protocol: &VcsProtocol, source: &Source) {
-    // match protocol {
-    //     VcsProtocol::Bzr => (),
-    //     VcsProtocol::Fossil => (),
-    //     VcsProtocol::Git => git::sync_repo(
-            
-    //         // GIT_PARENT.clone().join(format!("{:016x}", xxh3_64(source.url.as_bytes()))), &source.url, None),
-    //     VcsProtocol::Hg => (),
-    //     VcsProtocol::Svn => (),
-    // }
+fn download_netfile_source(netfile_source: &Source, integ_file: &cksums::IntegFile, proxy: Option<&str>) {
+    let protocol = match &netfile_source.protocol {
+        Protocol::Netfile { protocol } => protocol.clone(),
+        Protocol::Vcs { protocol: _ } => panic!("VCS source encountered by netfile cacher"),
+        Protocol::Local => panic!("Local source encountered by netfile cacher"),
+    };
+    let url = netfile_source.url.as_str();
+    let path = integ_file.get_path();
+    for _ in 0..2 {
+        println!("Downloading '{}' to '{}'", netfile_source.url, path.display());
+        match &protocol {
+            NetfileProtocol::File => download::file(url, path),
+            NetfileProtocol::Ftp => download::ftp(url, path),
+            NetfileProtocol::Http => download::http(url, path, None),
+            NetfileProtocol::Https => download::http(url, path, None),
+            NetfileProtocol::Rsync => download::rsync(url, path),
+            NetfileProtocol::Scp => download::scp(url, path),
+        }
+        if cksums::valid_integ_file(integ_file) {
+            return
+        }
+    }
+    if let Some(_) = proxy {
+        if match &protocol {
+            NetfileProtocol::File => false,
+            NetfileProtocol::Ftp => false,
+            NetfileProtocol::Http => true,
+            NetfileProtocol::Https => true,
+            NetfileProtocol::Rsync => false,
+            NetfileProtocol::Scp => false,
+        } {
+            println!("Failed to download '{}' to '{}' after 3 tries, use proxy to retry", netfile_source.url, path.display());
+            for _  in 0..2 {
+                println!("Downloading '{}' to '{}'", netfile_source.url, path.display());
+                download::http(url, path, proxy);
+                if cksums::valid_integ_file(integ_file) {
+                    return
+                }
+            }
+        }
+    }
+    
+
+    panic!("Failed to download netfile source '{}'", netfile_source.url);
 }
 
-fn cache_sources(sources: &Vec<Source>) {
-    for source in sources.iter() {
-        match &source.protocol {
-            Protocol::Netfile { protocol } => cache_netfile_source(protocol, source),
-            Protocol::Vcs { protocol } => cache_vcs_source(protocol, source),
-            Protocol::Local => (),
+fn cache_netfile_source(netfile_source: &Source, integ_files: &Vec<cksums::IntegFile>, proxy: Option<&str>) {
+    println!("Caching {}", netfile_source.url);
+    if integ_files.len() == 0 {
+        panic!("No integ files")
+    }
+    let mut good_files = vec![];
+    let mut bad_files = vec![];
+    for integ_file in integ_files.iter() {
+        if cksums::valid_integ_file(integ_file) {
+            good_files.push(integ_file);
+        } else {
+            bad_files.push(integ_file);
+        }
+    }
+    while let Some(bad_file) = bad_files.pop() {
+        match good_files.last() {
+            Some(good_file) => cksums::clone_integ_file(bad_file, good_file),
+            None => download_netfile_source(netfile_source, bad_file, proxy),
+        }
+        good_files.push(bad_file);
+    }
+    // println!("'{}': {} good files, {} bad files", netfile_source.url, good_files.len(), bad_files.len());
+}
+
+fn cache_netfile_sources_for_domain_mt(netfile_sources: Vec<Source>, proxy: Option<&str>) {
+    let (proxy_string, has_proxy) = match proxy {
+        Some(proxy) => (proxy.to_owned(), true),
+        None => (String::new(), false),
+    };
+    let mut threads: Vec<JoinHandle<()>> = vec![];
+    for netfile_source in netfile_sources {
+        let integ_files = get_integ_files(&netfile_source);
+        println!("'{}' has {} integ files", netfile_source.url, integ_files.len());
+        let mut thread_id_finished = None;
+        let threads_count = threads.len();
+        if threads_count > 3 {
+            println!("Waiting for any of {} threads caching netfile sources for the same domain before caching '{}'", threads_count, netfile_source.url);
+            while let None = thread_id_finished {
+                for (thread_id, thread) in threads.iter().enumerate() {
+                    if thread.is_finished() {
+                        thread_id_finished = Some(thread_id);
+                    }
+                }
+                sleep(Duration::from_millis(100));
+            }
+            if let Some(thread_id_finished) = thread_id_finished {
+                threads.swap_remove(thread_id_finished).join().expect("Failed to join finished thread");
+            } else {
+                panic!("Failed to get finished thread ID")
+            }
+        }
+        let proxy_string_thread = proxy_string.clone();
+        threads.push(thread::spawn(move ||{
+            let proxy = match has_proxy {
+                true => Some(proxy_string_thread.as_str()),
+                false => None,
+            };
+            cache_netfile_source(&netfile_source, &integ_files, proxy)
+        }));
+    }
+    for thread in threads.into_iter() {
+        thread.join().expect("Failed to join finished thread");
+    }
+
+}
+
+fn ensure_netfile_parents() {
+    let mut dir_builder = DirBuilder::new();
+    dir_builder.recursive(true);
+    for integ in ["ck", "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "b2"] {
+        let folder = format!("sources/file-{}", integ);
+        match dir_builder.create(&folder) {
+            Ok(_) => (),
+            Err(e) => {
+                eprintln!("Failed to create folder '{}': {}", &folder, e);
+                panic!("Failed to ensure netfile parents");
+            },
         }
     }
 }
 
 fn cache_netfile_sources_mt(netfile_sources: HashMap<u64, Vec<Source>>, proxy: Option<&str>) {
+    ensure_netfile_parents();
     println!("Caching netfile sources with {} threads", netfile_sources.len());
-    
-    // let mut map = HashMap::new();
-    // for source in sources.iter() {
-    //     let url = url::Url::from_str(&source.url)
-    //         .expect("Failed to parse URL");
-    //     let domain = xxh3_64(url.domain().expect("Failed to get domain").as_bytes());
-    //     if ! map.contains_key(&domain) {
-    //         println!("New domain found from source URL '{}'", source.url);
-    //         map.insert(domain, vec![]);
-    //     }
-    //     let vec = map
-    //         .get_mut(&domain)
-    //         .expect("Failed to get vec");
-    //     vec.push(source);
-    // }
-    // println!("Domains count for sources: {}", map.len());
-    // let mut threads = vec![];
-    // for (_, sources) in map {
-    //     let sources_thread: Vec<Source> = 
-    //         sources.into_iter().map(
-    //             |source| source.clone()).collect();
-    //     threads.push(std::thread::spawn(move|| {
-    //         cache_sources(&sources_thread)
-    //     }))
-    // }
-    // for thread in threads {
-    //     thread.join().expect("Failed to join thread");
-    // }
-    // println!("Finished");
+    let (proxy_string, has_proxy) = match proxy {
+        Some(proxy) => (proxy.to_owned(), true),
+        None => (String::new(), false),
+    };
+    let mut threads: Vec<std::thread::JoinHandle<()>> =  Vec::new();
+    for netfile_sources in netfile_sources.into_values() {
+        let proxy_string_thread = proxy_string.clone();
+        threads.push(thread::spawn(move || {
+            let proxy = match has_proxy {
+                true => Some(proxy_string_thread.as_str()),
+                false => None,
+            };
+            cache_netfile_sources_for_domain_mt(netfile_sources, proxy);
+        }));
+    }
+    for thread in threads {
+        thread.join().expect("Failed to join netfile cacher threads");
+    }
 }
 
 fn cache_git_sources_for_domain_mt(git_sources: Vec<Source>, hold: bool, proxy: Option<&str>) {
@@ -431,8 +549,8 @@ fn cache_git_sources_for_domain_mt(git_sources: Vec<Source>, hold: bool, proxy: 
                 true => Some(proxy_string_thread.as_str()),
                 false => None,
             };
-            git::sync_repo(&path, &git_source.url, proxy, REFSPECS)}
-        ));
+            git::sync_repo(&path, &git_source.url, proxy, REFSPECS)
+        }));
     }
     for thread in threads.into_iter() {
         thread.join().expect("Failed to join finished thread");

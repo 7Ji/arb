@@ -1,6 +1,6 @@
 use std::{path::Path, io::Write};
 
-use git2::{Repository, Progress, RemoteCallbacks, FetchOptions, ProxyOptions, Remote, TreeEntry, Tree, Blob};
+use git2::{Repository, Progress, RemoteCallbacks, FetchOptions, ProxyOptions, Remote, Tree, Blob};
 
 fn init_bare_repo<P: AsRef<Path>> (path: P, url: &str) -> Option<Repository> {
     let path = path.as_ref();
@@ -168,10 +168,10 @@ fn get_branch_tree<'a>(repo: &'a Repository, branch: &str) -> Option<Tree<'a>> {
 
 fn get_tree_entry_blob<'a>(repo: &'a Repository,tree: &Tree, name: &str) -> Option<Blob<'a>> {
     let entry = 
-        match tree.get_name("PKGBUILD") {
+        match tree.get_name(name) {
             Some(entry) => entry,
             None => {
-                eprintln!("Failed to find entry of PKGBUILD");
+                eprintln!("Failed to find entry of {}", name);
                 return None
             },
         };
@@ -218,11 +218,11 @@ pub(crate) fn healthy_repo<P: AsRef<Path>>(path: P) -> bool {
             return false 
         },
     };
-    match head.peel_to_commit() {
-        Ok(_) => return true,
+    return match head.peel_to_commit() {
+        Ok(_) => true,
         Err(e) => {
             eprintln!("Failed to get head of repo '{}': {}", path.display(), e);
-            return false
+            false
         },
     };
 }
