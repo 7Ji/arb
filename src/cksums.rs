@@ -193,10 +193,14 @@ pub(crate) fn get_integ_file(parent: &str, integ: Integ) -> IntegFile {
     IntegFile { path: PathBuf::from(format!("{}/{}", parent, name)), integ}
 }
 
-pub(crate) fn valid_integ_file(integ_file: &IntegFile) -> bool {
+pub(crate) fn valid_integ_file(integ_file: &IntegFile, skipint: bool) -> bool {
     if ! integ_file.path.exists() {
         eprintln!("Integ file '{}' does not exist", integ_file.path.display());
         return false
+    }
+    if skipint {
+        eprintln!("Integrity check skipped for existing '{}'", integ_file.path.display());
+        return true
     }
     let mut file = match File::open(&integ_file.path) {
         Ok(file) => file,
@@ -275,7 +279,7 @@ pub(crate) fn clone_integ_file(target: &IntegFile, source: &IntegFile) {
             }
         },
     }
-    if ! valid_integ_file(target) {
+    if ! valid_integ_file(target, false) {
         panic!("Cloned integ file not healthy");
     }
 }

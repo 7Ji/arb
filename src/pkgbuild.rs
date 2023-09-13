@@ -180,12 +180,12 @@ where
     pkgbuilds
 }
 
-pub(crate) fn prepare_sources<P>(dir: P, pkgbuilds: &Vec<PKGBUILD>, holdgit: bool, proxy: Option<&str>) 
+pub(crate) fn prepare_sources<P>(dir: P, pkgbuilds: &Vec<PKGBUILD>, holdgit: bool, skipint: bool, proxy: Option<&str>) 
 where
     P:AsRef<Path> 
 {
     dump_pkgbuilds(&dir, &pkgbuilds);
     let (netfile_sources, git_sources, local_sources) 
         = get_all_sources(&dir, &pkgbuilds);
-    source::cache_sources_mt(&netfile_sources, &git_sources, holdgit, proxy);
+    source::cache_sources_mt(&netfile_sources, &git_sources, holdgit, skipint, proxy);
 }
