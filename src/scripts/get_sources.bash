@@ -8,9 +8,9 @@ get_all_sources_for_arch 'all_sources'
 i=0
 for source in "${all_sources[@]}"; do
   echo '[source]'
-  echo "name: $(get_filename "${source}")"
+  echo "name:$(get_filename "${source}")"
   protocol=$(get_protocol "${source}")
-  echo "protocol: ${protocol}"
+  echo "protocol:${protocol}"
   url=$(get_url "${source}")
   case "${protocol}" in
     bzr)
@@ -40,14 +40,14 @@ for source in "${all_sources[@]}"; do
       url=${url%%#*}
       ;;
   esac
-  echo "url: ${url}"
+  echo "url:${url}"
   for _integ in {ck,md5,sha{1,224,256,384,512},b2}; do
     declare -n checksums="${_integ}sums"
     checksum="${checksums[$i]}"
     case "${checksum}" in
     ''|'SKIP') :;;
     *)
-      echo "${_integ}sum: ${checksum}"
+      echo "${_integ}sum:${checksum}"
       ;;
     esac
   done

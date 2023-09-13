@@ -1,9 +1,15 @@
-use std::{path::{PathBuf, Path}, collections::{BTreeMap, HashMap}, thread, io::Write};
+use std::{path::{PathBuf, Path}, collections::{BTreeMap, HashMap}, thread, io::Write, process::Command};
 
-use git2::Repository;
+use git2::{Repository, Oid};
 use url::Url;
 use xxhash_rust::xxh3::xxh3_64;
 use crate::{git, source};
+
+#[derive(Clone)]
+enum Pkgver {
+    Plain,
+    Func { pkgver: String },
+}
 
 #[derive(Clone)]
 pub(crate) struct PKGBUILD {
@@ -13,6 +19,9 @@ pub(crate) struct PKGBUILD {
     hash_domain: u64,
     build: PathBuf,
     git: PathBuf,
+    pkg: PathBuf,
+    commit: git2::Oid,
+    pkgver: Pkgver,
 }
 
 struct Repo {
@@ -45,7 +54,10 @@ where
             hash_url,
             hash_domain,
             build,
-            git
+            git,
+            pkg: PathBuf::from("pkgs"),
+            commit: Oid::zero(),
+            pkgver: Pkgver::Plain,
         }
     }).collect()
 }
@@ -90,7 +102,7 @@ fn get_pkgbuild_blob(repo: &Repository) -> Option<git2::Blob> {
     git::get_branch_entry_blob(repo, "master", "PKGBUILD")
 }
 
-fn healthy_pkgbuild(pkgbuild: &PKGBUILD) -> bool {
+fn healthy_pkgbuild(pkgbuild: &mut PKGBUILD, set_commit: bool) -> bool {
     let repo = 
         match git::open_or_init_bare_repo(&pkgbuild.git, &pkgbuild.url) {
             Some(repo) => repo,
@@ -99,6 +111,16 @@ fn healthy_pkgbuild(pkgbuild: &PKGBUILD) -> bool {
                 return false
             }
         };
+    if set_commit {
+        match git::get_branch_commit_id(&repo, "master") {
+            Some(id) => pkgbuild.commit = id,
+            None => {
+                eprintln!("Failed to set commit id for pkgbuild {}", pkgbuild.name);
+                return false
+            },
+        }
+    }
+    println!("PKGBUILD '{}' at commit '{}'", pkgbuild.name, pkgbuild.commit);
     match get_pkgbuild_blob(&repo) {
         Some(_) => return true,
         None => {
@@ -108,9 +130,9 @@ fn healthy_pkgbuild(pkgbuild: &PKGBUILD) -> bool {
     };
 }
 
-fn healthy_pkgbuilds(pkgbuilds: &Vec<PKGBUILD>) -> bool {
-    for pkgbuild in pkgbuilds.iter() {
-        if ! healthy_pkgbuild(pkgbuild) {
+fn healthy_pkgbuilds(pkgbuilds: &mut Vec<PKGBUILD>, set_commit: bool) -> bool {
+    for pkgbuild in pkgbuilds.iter_mut() {
+        if ! healthy_pkgbuild(pkgbuild, set_commit) {
             return false;
         }
     }
@@ -159,9 +181,9 @@ pub(crate) fn get_pkgbuilds<P>(config: P, hold: bool, proxy: Option<&str>) -> Ve
 where 
     P:AsRef<Path>
 {
-    let pkgbuilds = read_pkgbuilds_yaml(config);
+    let mut pkgbuilds = read_pkgbuilds_yaml(config);
     let update_pkg = if hold {
-        if healthy_pkgbuilds(&pkgbuilds) {
+        if healthy_pkgbuilds(&mut pkgbuilds, true) {
             println!("Holdpkg set and all PKGBUILDs healthy, no need to update");
             false
         } else {
@@ -173,17 +195,50 @@ where
     };
     if update_pkg {
         sync_pkgbuilds(&pkgbuilds, proxy);
-        if ! healthy_pkgbuilds(&pkgbuilds) {
+        if ! healthy_pkgbuilds(&mut pkgbuilds, true) {
             panic!("Updating broke some of our PKGBUILDs");
         }
     }
     pkgbuilds
 }
 
-pub(crate) fn prepare_sources<P>(dir: P, pkgbuilds: &Vec<PKGBUILD>, holdgit: bool, skipint: bool, proxy: Option<&str>) 
-where
-    P:AsRef<Path> 
-{
+fn fill_pkgver<P: AsRef<Path>>(pkgbuild: &mut PKGBUILD, pkgbuild_file: P) {
+    let output = Command::new("/bin/bash")
+        .arg("-c")
+        .arg(". \"$1\"; type -t pkgver")
+        .arg("Type Identifier")
+        .arg(pkgbuild_file.as_ref())
+        .output()
+        .expect("Failed to run script");
+    match output.stdout.as_slice() {
+        b"function" => {
+
+        },
+        _ => {
+            
+        }
+    }
+}
+
+fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
+    
+
+}
+
+// fn need_build(pkgbuild: &PKGBUILD) -> bool {
+
+//     // pkg = PathBuf::from(format!("pkgs/{}/{}", pkgbuild.name, pkgbuild.commit));
+//     // pkgbuild.pkg
+//     // if pkgbuild.pkg.exists() {
+//     //     let entries = pkgbuild.pkg.read_dir().iter().count();
+//     //     if entries > 2 {
+//     //         return false
+//     //     }
+//     // }
+//     true
+// }
+
+pub(crate) fn prepare_sources<P: AsRef<Path>>(dir: P, pkgbuilds: &Vec<PKGBUILD>, holdgit: bool, skipint: bool, proxy: Option<&str>) {
     dump_pkgbuilds(&dir, &pkgbuilds);
     let (netfile_sources, git_sources, local_sources) 
         = get_all_sources(&dir, &pkgbuilds);

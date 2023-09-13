@@ -1,6 +1,6 @@
 use std::{path::Path, io::Write};
 
-use git2::{Repository, Progress, RemoteCallbacks, FetchOptions, ProxyOptions, Remote, Tree, Blob};
+use git2::{Repository, Progress, RemoteCallbacks, FetchOptions, ProxyOptions, Remote, Tree, Blob, Commit, Oid};
 
 fn init_bare_repo<P: AsRef<Path>> (path: P, url: &str) -> Option<Repository> {
     let path = path.as_ref();
@@ -138,7 +138,7 @@ pub(crate) fn sync_repo<P: AsRef<Path>>(path: P, url: &str, proxy: Option<&str>,
     update_head(&remote, &repo);
 }
 
-fn get_branch_tree<'a>(repo: &'a Repository, branch: &str) -> Option<Tree<'a>> {
+fn get_branch_commit<'a>(repo: &'a Repository, branch: &str) -> Option<Commit<'a>> {
     let branch = 
         match repo.find_branch(branch, git2::BranchType::Local) {
             Ok(branch) => branch,
@@ -155,6 +155,25 @@ fn get_branch_tree<'a>(repo: &'a Repository, branch: &str) -> Option<Tree<'a>> {
                 return None
             },
         };
+    Some(commit)
+}
+
+pub(crate) fn get_branch_commit_id(repo: &Repository, name: &str) -> Option<Oid> {
+    let commit = get_branch_commit(repo, name);
+    return match commit {
+        Some(commit) => Some(commit.id()),
+        None => None,
+    }
+}
+
+fn get_branch_tree<'a>(repo: &'a Repository, branch: &str) -> Option<Tree<'a>> {
+    let commit = match get_branch_commit(repo, branch) {
+        Some(commit) => commit,
+        None => {
+            eprintln!("Failed to get commit pointed by branch {}", branch);
+            return None
+        },
+    };
     let tree = 
         match commit.tree() {
             Ok(tree) => tree,

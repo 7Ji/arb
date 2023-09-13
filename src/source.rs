@@ -56,6 +56,25 @@ impl Protocol {
             },
         }
     }
+    fn from_raw_string(value: &[u8]) -> Protocol {
+        match value {
+            b"file" => Protocol::Netfile { protocol: NetfileProtocol::File },
+            b"ftp" => Protocol::Netfile { protocol: NetfileProtocol::Ftp },
+            b"http" => Protocol::Netfile { protocol: NetfileProtocol::Http },
+            b"https" => Protocol::Netfile { protocol: NetfileProtocol::Https },
+            b"rsync" => Protocol::Netfile { protocol: NetfileProtocol::Rsync },
+            b"scp" => Protocol::Netfile { protocol: NetfileProtocol::Scp },
+            b"bzr" => Protocol::Vcs { protocol: VcsProtocol::Bzr },
+            b"fossil" => Protocol::Vcs { protocol: VcsProtocol::Fossil },
+            b"git" => Protocol::Vcs { protocol: VcsProtocol::Git },
+            b"hg" => Protocol::Vcs { protocol: VcsProtocol::Hg },
+            b"svn" => Protocol::Vcs { protocol: VcsProtocol::Svn },
+            b"local" => Protocol::Local,
+            &_ => {
+                panic!("Unknown protocol");
+            },
+        }
+    }
 }
 #[derive(Clone)]
 pub(crate) struct Source {
@@ -150,8 +169,11 @@ where
     // let source = sources.last();
     let mut started = false;
     let raw = String::from_utf8_lossy(&output.stdout);
-    for line in raw.lines() {
-        if line == "[source]" {
+    for line in  output.stdout.split(|byte| byte == &b'\n') {
+        if line.len() == 0 {
+            continue;
+        }
+        if line == b"[source]" {
             if started {
                 push_source(&mut sources, 
                     name, protocol, url, hash_url,
@@ -173,57 +195,55 @@ where
             } else {
                 started = true;
             }
-        } else {
-            let mut it = line.splitn(2, ": ");
-            let key = it.next().expect("Failed to get key");
-            let value = it.next().expect("Failed to get value");
-            match key {
-                "name" => {
-                    name = Some(value.to_string());
-                }
-                "protocol" => {
-                    protocol = Some(Protocol::from_string(value));
-                }
-                "url" => {
-                    let url_string = value.to_string();
-                    hash_url = xxh3_64(url_string.as_bytes());
-                    url = Some(url_string);
-                }
-                "cksum" => {
-                    ck = Some(value.parse().expect("Failed to parse 32-bit CRC"));
-                }
-                "md5sum" => {
-                    md5 = Some(FromHex::from_hex(value)
-                        .expect("Failed to parse 128-bit MD5 sum"));
-                }
-                "sha1sum" => {
-                    sha1 = Some(FromHex::from_hex(value)
-                        .expect("Failed to parse 160-bit SHA-1 sum"));
-                }
-                "sha224sum" => {
-                    sha224 = Some(FromHex::from_hex(value)
-                        .expect("Failed to parse 224-bit SHA-2 sum"));
-                }
-                "sha256sum" => {
-                    sha256 = Some(FromHex::from_hex(value)
-                        .expect("Failed to parse 256-bit SHA-2 sum"));
-                }
-                "sha384sum" => {
-                    sha384 = Some(FromHex::from_hex(value)
-                        .expect("Failed to parse 384-bit SHA-2 sum"));
-                }
-                "sha512sum" => {
-                    sha512 = Some(FromHex::from_hex(value)
-                        .expect("Failed to parse 512-bit SHA-2 sum"));
-                }
-                "b2sum" => {
-                    b2 = Some(FromHex::from_hex(value)
-                        .expect("Failed to parse 512-bit Blake-2B sum"));
-                }
-                &_ => {
-                    println!("Other thing: {}", line);
-                    panic!("Unexpected line");
-                }
+            continue;
+        }
+        let mut it = line.splitn(2, |byte| byte == &b':');
+        let key = it.next().expect("Failed to get key");
+        let value = it.next().expect("Failed to get value");
+        match key {
+            b"name" => {
+                name = Some(String::from_utf8_lossy(value).into_owned());
+            }
+            b"protocol" => {
+                protocol = Some(Protocol::from_raw_string(value));
+            }
+            b"url" => {
+                url = Some(String::from_utf8_lossy(value).into_owned());
+                hash_url = xxh3_64(value);
+            }
+            b"cksum" => {
+                ck = Some(String::from_utf8_lossy(value).into_owned().parse().expect("Failed to parse 32-bit CRC"));
+            }
+            b"md5sum" => {
+                md5 = Some(FromHex::from_hex(value)
+                    .expect("Failed to parse 128-bit MD5 sum"));
+            }
+            b"sha1sum" => {
+                sha1 = Some(FromHex::from_hex(value)
+                    .expect("Failed to parse 160-bit SHA-1 sum"));
+            }
+            b"sha224sum" => {
+                sha224 = Some(FromHex::from_hex(value)
+                    .expect("Failed to parse 224-bit SHA-2 sum"));
+            }
+            b"sha256sum" => {
+                sha256 = Some(FromHex::from_hex(value)
+                    .expect("Failed to parse 256-bit SHA-2 sum"));
+            }
+            b"sha384sum" => {
+                sha384 = Some(FromHex::from_hex(value)
+                    .expect("Failed to parse 384-bit SHA-2 sum"));
+            }
+            b"sha512sum" => {
+                sha512 = Some(FromHex::from_hex(value)
+                    .expect("Failed to parse 512-bit SHA-2 sum"));
+            }
+            b"b2sum" => {
+                b2 = Some(FromHex::from_hex(value)
+                    .expect("Failed to parse 512-bit Blake-2B sum"));
+            }
+            &_ => {
+                panic!("Unexpected line");
             }
         }
     }
