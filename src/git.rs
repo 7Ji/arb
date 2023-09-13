@@ -1,6 +1,6 @@
 use std::{path::Path, io::Write};
 
-use git2::{Repository, Progress, RemoteCallbacks, FetchOptions, ProxyOptions, Remote, Tree, Blob, Commit, Oid};
+use git2::{Repository, Progress, RemoteCallbacks, FetchOptions, ProxyOptions, Remote, Tree, Blob, Commit, Oid, build::CheckoutBuilder};
 
 fn init_bare_repo<P: AsRef<Path>> (path: P, url: &str) -> Option<Repository> {
     let path = path.as_ref();
@@ -244,4 +244,20 @@ pub(crate) fn healthy_repo<P: AsRef<Path>>(path: P) -> bool {
             false
         },
     };
+}
+
+pub(crate) fn checkout_branch_from_repo<P: AsRef<Path>>(target: P, repo_path: P, branch: &str) {
+    let repo = match Repository::open_bare(&repo_path) {
+        Ok(repo) => repo,
+        Err(e) => {
+            eprintln!("Failed to open bare repo at '{}': {}", repo_path.as_ref().display(), e);
+            panic!("Failed to open bare repo");
+        },
+    };
+    let tree = get_branch_tree(&repo, branch).expect("Failed to get commit");
+    repo.cleanup_state().expect("Failed to cleanup state");
+    repo.set_workdir(target.as_ref(), false).expect("Failed to set work dir");
+    let mut checkout_opts = CheckoutBuilder::new();
+    checkout_opts.force();
+    repo.checkout_tree(tree.as_object(), Some(&mut checkout_opts)).expect("Failed to checkout tree");
 }

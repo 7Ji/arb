@@ -2,7 +2,7 @@ use std::{path::{Path, PathBuf}, process::Command, collections::HashMap, str::Fr
 use hex::FromHex;
 use xxhash_rust::xxh3::xxh3_64;
 
-use crate::{cksums, git, download};
+use crate::{cksums, git, download, threading};
 
 
 #[derive(Debug, Clone)]
@@ -147,7 +147,7 @@ where
 {
     const SCRIPT: &str = include_str!("scripts/get_sources.bash");
     let output = Command::new("/bin/bash")
-        .arg("-c")
+        .arg("-ec")
         .arg(SCRIPT)
         .arg("Source reader")
         .arg(pkgbuild)
@@ -168,7 +168,6 @@ where
     let mut sources = vec![];
     // let source = sources.last();
     let mut started = false;
-    let raw = String::from_utf8_lossy(&output.stdout);
     for line in  output.stdout.split(|byte| byte == &b'\n') {
         if line.len() == 0 {
             continue;
@@ -212,7 +211,7 @@ where
                 hash_url = xxh3_64(value);
             }
             b"cksum" => {
-                ck = Some(String::from_utf8_lossy(value).into_owned().parse().expect("Failed to parse 32-bit CRC"));
+                ck = Some(String::from_utf8_lossy(value).parse().expect("Failed to parse 32-bit CRC"));
             }
             b"md5sum" => {
                 md5 = Some(FromHex::from_hex(value)
@@ -429,6 +428,7 @@ fn cache_netfile_source(netfile_source: &Source, integ_files: &Vec<cksums::Integ
     let mut good_files = vec![];
     let mut bad_files = vec![];
     for integ_file in integ_files.iter() {
+        println!("'{}' <= '{}'", integ_file.get_path().display(), netfile_source.url);
         if cksums::valid_integ_file(integ_file, skipint) {
             good_files.push(integ_file);
         } else {
@@ -458,25 +458,8 @@ fn cache_netfile_sources_for_domain_mt(netfile_sources: Vec<Source>, skipint:boo
     let mut threads: Vec<JoinHandle<()>> = vec![];
     for netfile_source in netfile_sources {
         let integ_files = get_integ_files(&netfile_source);
-        let mut thread_id_finished = None;
-        let threads_count = threads.len();
-        if threads_count > 3 {
-            println!("Waiting for any of {} threads caching netfile sources for the same domain before caching '{}'", threads_count, netfile_source.url);
-            while let None = thread_id_finished {
-                for (thread_id, thread) in threads.iter().enumerate() {
-                    if thread.is_finished() {
-                        thread_id_finished = Some(thread_id);
-                    }
-                }
-                sleep(Duration::from_millis(100));
-            }
-            if let Some(thread_id_finished) = thread_id_finished {
-                threads.swap_remove(thread_id_finished).join().expect("Failed to join finished thread");
-            } else {
-                panic!("Failed to get finished thread ID")
-            }
-        }
         let proxy_string_thread = proxy_string.clone();
+        threading::wait_if_too_busy(&mut threads, 3);
         threads.push(thread::spawn(move ||{
             let proxy = match has_proxy {
                 true => Some(proxy_string_thread.as_str()),
@@ -548,25 +531,8 @@ fn cache_git_sources_for_domain_mt(git_sources: Vec<Source>, hold: bool, proxy: 
                 println!("Holdgit set but repo '{}' not healthy, still need update", path.display());
             }
         }
-        let mut thread_id_finished = None;
-        let threads_count = threads.len();
-        if threads_count > 3 {
-            println!("Waiting for any of {} threads caching git sources for the same domain before caching '{}'", threads_count, git_source.url);
-            while let None = thread_id_finished {
-                for (thread_id, thread) in threads.iter().enumerate() {
-                    if thread.is_finished() {
-                        thread_id_finished = Some(thread_id);
-                    }
-                }
-                sleep(Duration::from_secs(1));
-            }
-            if let Some(thread_id_finished) = thread_id_finished {
-                threads.swap_remove(thread_id_finished).join().expect("Failed to join finished thread");
-            } else {
-                panic!("Failed to get finished thread ID")
-            }
-        }
         let proxy_string_thread = proxy_string.clone();
+        threading::wait_if_too_busy(&mut threads, 3);
         threads.push(thread::spawn(move ||{
             let proxy = match has_proxy {
                 true => Some(proxy_string_thread.as_str()),

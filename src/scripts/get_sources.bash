@@ -51,5 +51,5 @@ for source in "${all_sources[@]}"; do
       ;;
     esac
   done
-  let i++
+  i=$(( i + 1 ))
 done

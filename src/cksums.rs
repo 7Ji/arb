@@ -29,6 +29,8 @@ impl IntegFile {
     }
 }
 
+const BUFFER_SIZE: usize = 0x400000; // 4M
+
 const CKSUM: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
 
 fn _cksum(input: &[u8]) {
@@ -50,9 +52,8 @@ fn _cksum(input: &[u8]) {
 
 fn cksum(file: &mut File) -> u32 {
     let mut digest = CKSUM.digest();
-    let mut buffer: [u8; 0x10000] = [0; 0x10000];
+    let mut buffer = vec![0; BUFFER_SIZE];
     let mut size_total = 0;
-    // file.seek(SeekFrom::Start(0)).expect("Failed to seek file");
     loop {
         let size_chunk = match file.read(&mut buffer) {
             Ok(size) => size,
@@ -83,7 +84,7 @@ fn cksum(file: &mut File) -> u32 {
 
 fn md5sum(file: &mut File) -> [u8; 16] {
     let mut context = md5::Context::new();
-    let mut buffer: [u8; 0x10000] = [0; 0x10000];
+    let mut buffer = vec![0; BUFFER_SIZE];
     // file.seek(SeekFrom::Start(0)).expect("Failed to seek file");
     loop {
         let size_chunk = match file.read(&mut buffer) {
@@ -104,7 +105,7 @@ fn md5sum(file: &mut File) -> [u8; 16] {
 
 fn generic_sum<T: Digest + OutputSizeUser>(file: &mut File) -> GenericArray<u8, T::OutputSize> {
     let mut hasher = T::new();
-    let mut buffer: [u8; 0x10000] = [0; 0x10000];
+    let mut buffer = vec![0; BUFFER_SIZE];
     // file.seek(SeekFrom::Start(0)).expect("Failed to seek file");
     loop {
         let size_chunk = match file.read(&mut buffer) {
@@ -256,7 +257,7 @@ pub(crate) fn clone_integ_file(target: &IntegFile, source: &IntegFile) {
                     panic!("Failed to open source file as read-only");
                 },
             };
-            let mut buffer: [u8; 0x10000] = [0; 0x10000];
+            let mut buffer = vec![0; BUFFER_SIZE];
             loop {
                 let size_chunk = match source_file.read(&mut buffer) {
                     Ok(size) => size,

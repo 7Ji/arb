@@ -1,9 +1,9 @@
-use std::{path::{PathBuf, Path}, collections::{BTreeMap, HashMap}, thread, io::Write, process::Command};
+use std::{path::{PathBuf, Path}, collections::{BTreeMap, HashMap}, thread::{self, sleep, JoinHandle}, io::Write, process::Command, fs::{DirBuilder, remove_dir_all, create_dir_all}, time::Duration};
 
 use git2::{Repository, Oid};
 use url::Url;
 use xxhash_rust::xxh3::xxh3_64;
-use crate::{git, source};
+use crate::{git, source, threading};
 
 #[derive(Clone)]
 enum Pkgver {
@@ -22,6 +22,7 @@ pub(crate) struct PKGBUILD {
     pkg: PathBuf,
     commit: git2::Oid,
     pkgver: Pkgver,
+    extract: bool,
 }
 
 struct Repo {
@@ -58,6 +59,7 @@ where
             pkg: PathBuf::from("pkgs"),
             commit: Oid::zero(),
             pkgver: Pkgver::Plain,
+            extract: false
         }
     }).collect()
 }
@@ -202,27 +204,74 @@ where
     pkgbuilds
 }
 
-fn fill_pkgver<P: AsRef<Path>>(pkgbuild: &mut PKGBUILD, pkgbuild_file: P) {
-    let output = Command::new("/bin/bash")
-        .arg("-c")
-        .arg(". \"$1\"; type -t pkgver")
-        .arg("Type Identifier")
-        .arg(pkgbuild_file.as_ref())
-        .output()
-        .expect("Failed to run script");
-    match output.stdout.as_slice() {
-        b"function" => {
-
-        },
-        _ => {
-            
-        }
-    }
+fn extract_source<P: AsRef<Path>>(dir: P, repo: P) {
+    create_dir_all(&dir).expect("Failed to create dir");
+    git::checkout_branch_from_repo(&dir, &repo, "master");
+    const SCRIPT: &str = include_str!("scripts/extract_sources.bash");
+    Command::new("/bin/bash")
+        .arg("-ec")
+        .arg(SCRIPT)
+        .arg("Source reader")
+        .arg(dir.as_ref().canonicalize().expect("Failed to canonicalize dir"))
+        .spawn()
+        .expect("Failed to run script")
+        .wait()
+        .expect("Failed to wait for spawned script");
 }
 
-fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
-    
+// fn fill_pkgver<P: AsRef<Path>>(pkgbuild: &mut PKGBUILD, pkgbuild_file: P) {
+//     let output = Command::new("/bin/bash")
+//         .arg("-c")
+//         .arg(". \"$1\"; type -t pkgver")
+//         .arg("Type Identifier")
+//         .arg(pkgbuild_file.as_ref())
+//         .output()
+//         .expect("Failed to run script");
+//     let mut pkgname = format!("{}-{}", pkgbuild.name, pkgbuild.commit);
+//     match output.stdout.as_slice() {
+//         b"function\n" => {
+//             println!("{}'s pkgver is a function, a full deploy is needed to run it", pkgbuild.name);
+//             let pkgver = String::new();
+//             pkgname.push('-');
+//             pkgname.push_str(&pkgver);
+//             pkgbuild.pkgver = Pkgver::Func { pkgver };
+//         },
+//         _ => {
+//             pkgbuild.pkgver = Pkgver::Plain
+//         }
+//     }
+//     pkgbuild.pkg.push(pkgname);
+// }
 
+
+fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
+    let _ = remove_dir_all("build");
+    let dir = dir.as_ref();
+    for pkgbuild in pkgbuilds.iter_mut() {
+        let output = Command::new("/bin/bash")
+            .arg("-c")
+            .arg(". \"$1\"; type -t pkgver")
+            .arg("Type Identifier")
+            .arg(dir.join(&pkgbuild.name))
+            .output()
+            .expect("Failed to run script");
+        pkgbuild.extract = match output.stdout.as_slice() {
+            b"function\n" => true,
+            _ => false,
+        }
+    }
+    let mut dir_builder = DirBuilder::new();
+    dir_builder.recursive(true);
+    let mut threads: Vec<JoinHandle<()>> = vec![];
+    for pkgbuild in pkgbuilds.iter().filter(|pkgbuild| pkgbuild.extract) {
+        let dir = pkgbuild.build.clone();
+        let repo = pkgbuild.git.clone();
+        threading::wait_if_too_busy(&mut threads, 20);
+        threads.push(thread::spawn(move|| extract_source(dir, repo)));
+    }
+    for thread in threads {
+        thread.join().expect("Failed to join finished thread");
+    }
 }
 
 // fn need_build(pkgbuild: &PKGBUILD) -> bool {
@@ -238,9 +287,10 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
 //     true
 // }
 
-pub(crate) fn prepare_sources<P: AsRef<Path>>(dir: P, pkgbuilds: &Vec<PKGBUILD>, holdgit: bool, skipint: bool, proxy: Option<&str>) {
+pub(crate) fn prepare_sources<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>, holdgit: bool, skipint: bool, proxy: Option<&str>) {
     dump_pkgbuilds(&dir, &pkgbuilds);
     let (netfile_sources, git_sources, local_sources) 
         = get_all_sources(&dir, &pkgbuilds);
     source::cache_sources_mt(&netfile_sources, &git_sources, holdgit, skipint, proxy);
+    fill_all_pkgvers(dir, pkgbuilds);
 }

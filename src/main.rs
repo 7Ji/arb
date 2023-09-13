@@ -7,6 +7,7 @@ mod pkgbuild;
 mod source;
 mod cksums;
 mod download;
+mod threading;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -34,7 +35,7 @@ struct Arg {
 
 fn main() {let arg = Arg::parse();
     let proxy = arg.proxy.as_deref();
-    let pkgbuilds = pkgbuild::get_pkgbuilds(&arg.pkgbuilds, arg.holdpkg, proxy);
+    let mut pkgbuilds = pkgbuild::get_pkgbuilds(&arg.pkgbuilds, arg.holdpkg, proxy);
     let pkgbuilds_dir = tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
-    pkgbuild::prepare_sources(pkgbuilds_dir, &pkgbuilds, arg.holdgit, arg.skipint, proxy);
+    pkgbuild::prepare_sources(pkgbuilds_dir, &mut pkgbuilds, arg.holdgit, arg.skipint, proxy);
 }
