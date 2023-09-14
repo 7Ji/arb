@@ -1,4 +1,4 @@
-use std::{path::{Path, PathBuf}, process::Command, collections::HashMap, str::FromStr, thread::{self, JoinHandle, sleep}, time::Duration, fs::DirBuilder};
+use std::{path::{Path, PathBuf}, process::Command, collections::HashMap, str::FromStr, thread::{self, JoinHandle, sleep}, time::Duration, fs::DirBuilder, os::unix::fs::symlink};
 use hex::FromHex;
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -613,4 +613,26 @@ pub(crate) fn cache_sources_mt(netfile_sources: &Vec<Source>, git_sources: &Vec<
     netfile_thread.join().expect("Failed to join netfile thread");
     git_thread.join().expect("Failed to join git thread");
     println!("Finished multi-threading caching sources");
+}
+
+pub(crate) fn extract<P: AsRef<Path>>(dir: P, sources: &Vec<Source>) {
+    let rel = PathBuf::from("../..");
+    for source in sources.iter() {
+        let mut original = None;
+        match &source.protocol {
+            Protocol::Netfile { protocol: _ } => {
+                let integ_files = get_integ_files(source);
+                if let Some(integ_file) = integ_files.last() {
+                    original = Some(rel.join(integ_file.get_path()));
+                }
+            },
+            Protocol::Vcs { protocol } => if let VcsProtocol::Git = protocol {
+                original = Some(rel.join(format!("sources/git/{:016x}", xxh3_64(source.url.as_bytes()))));
+            },
+            Protocol::Local => (),
+        }
+        if let Some(original) = original {
+            symlink(original, dir.as_ref().join(&source.name)).expect("Failed to symlink")
+        }
+    }
 }

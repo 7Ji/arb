@@ -24,6 +24,7 @@ pub(crate) struct PKGBUILD {
     commit: git2::Oid,
     pkgver: Pkgver,
     extract: bool,
+    sources: Vec<source::Source>,
 }
 
 struct Repo {
@@ -60,7 +61,8 @@ where
             pkgdir: PathBuf::from("pkgs"),
             commit: Oid::zero(),
             pkgver: Pkgver::Plain,
-            extract: false
+            extract: false,
+            sources: vec![],
         }
     }).collect()
 }
@@ -162,18 +164,17 @@ where
     }
 }
 
-fn get_all_sources<P> (dir: P, pkgbuilds: &Vec<PKGBUILD>) 
+fn get_all_sources<P> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) 
     -> (Vec<source::Source>, Vec<source::Source>, Vec<source::Source>)
 where 
     P: AsRef<Path> 
 {
-    let dir = dir.as_ref();
-    let sources_all: Vec<Vec<source::Source>> = pkgbuilds.iter().map(|pkgbuild| {
-        source::get_sources::<P>(&dir.join(&pkgbuild.name))
-    }).collect();
     let mut sources_non_unique = vec![];
-    for sources in sources_all.iter() {
-        for source in sources.iter() {
+    for pkgbuild in pkgbuilds.iter_mut() {
+        pkgbuild.sources = source::get_sources::<P>(&dir.as_ref().join(&pkgbuild.name))
+    }
+    for pkgbuild in pkgbuilds.iter() {
+        for source in pkgbuild.sources.iter() {
             sources_non_unique.push(source);
         }
     }
@@ -205,9 +206,10 @@ where
     pkgbuilds
 }
 
-fn extract_source<P: AsRef<Path>>(dir: P, repo: P) {
+fn extract_source<P: AsRef<Path>>(dir: P, repo: P, sources: &Vec<source::Source>) {
     create_dir_all(&dir).expect("Failed to create dir");
     git::checkout_branch_from_repo(&dir, &repo, "master");
+    source::extract(&dir, sources);
     const SCRIPT: &str = include_str!("scripts/extract_sources.bash");
     Command::new("/bin/bash")
         .arg("-ec")
@@ -220,8 +222,8 @@ fn extract_source<P: AsRef<Path>>(dir: P, repo: P) {
         .expect("Failed to wait for spawned script");
 }
 
-fn extract_source_and_get_pkgver<P: AsRef<Path>>(dir: P, repo: P) -> String {
-    extract_source(&dir, &repo);
+fn extract_source_and_get_pkgver<P: AsRef<Path>>(dir: P, repo: P, sources: &Vec<source::Source>) -> String {
+    extract_source(&dir, &repo, sources);
     let output = Command::new("/bin/bash")
         .arg("-ec")
         .arg("cd $1; source ../PKGBUILD; pkgver")
@@ -258,6 +260,7 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
     for pkgbuild in pkgbuilds.iter_mut().filter(|pkgbuild| pkgbuild.extract) {
         let dir = pkgbuild.build.clone();
         let repo = pkgbuild.git.clone();
+        let sources = pkgbuild.sources.clone();
         let mut thread_id_finished = None;
         if pkgbuild_threads.len() > 20 {
             loop {
@@ -281,7 +284,7 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
                 panic!("Failed to get finished thread ID")
             }
         }
-        pkgbuild_threads.push(PkgbuildThread { pkgbuild, thread: thread::spawn(move|| extract_source_and_get_pkgver(dir, repo)) });
+        pkgbuild_threads.push(PkgbuildThread { pkgbuild, thread: thread::spawn(move || extract_source_and_get_pkgver(dir, repo, &sources))});
     }
     for pkgbuild_thread in pkgbuild_threads {
         let pkgver = pkgbuild_thread.thread.join().expect("Failed to join finished thread");
@@ -322,8 +325,9 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
             if ! pkgbuild.extract {
                 let dir = pkgbuild.build.clone();
                 let repo = pkgbuild.git.clone();
+                let sources = pkgbuild.sources.clone();
                 wait_if_too_busy(&mut threads, 20);
-                threads.push(thread::spawn(|| extract_source(dir, repo)));
+                threads.push(thread::spawn(move || extract_source(dir, repo, &sources)));
                 pkgbuild.extract = true;
             }
         }
