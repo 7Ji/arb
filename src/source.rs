@@ -443,6 +443,7 @@ fn cache_netfile_source(netfile_source: &Source, integ_files: &Vec<cksums::Integ
         println!("Missing integ files for '{}': {}", netfile_source.url, bad_count);
     } else {
         println!("All integ files healthy for '{}'", netfile_source.url);
+        return
     }
     while let Some(bad_file) = bad_files.pop() {
         match good_files.last() {
