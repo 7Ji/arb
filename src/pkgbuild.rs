@@ -304,11 +304,13 @@ fn fill_all_pkgdirs(pkgbuilds: &mut Vec<PKGBUILD>) {
 fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
     let mut threads = vec![];
     for pkgbuild in pkgbuilds.iter_mut() {
-        let mut pkgcount = 0;
-        if let Ok(dir) = pkgbuild.pkgdir.read_dir() {
-            pkgcount = dir.count();
+        let mut built = false;
+        if let Ok(mut dir) = pkgbuild.pkgdir.read_dir() {
+            if let Some(_) = dir.next() {
+                built = true;
+            }
         }
-        if pkgcount > 0 { // Does not need build
+        if built { // Does not need build
             println!("'{}' already built, no need to build", pkgbuild.pkgdir.display());
             if pkgbuild.extract {
                 let dir = pkgbuild.build.clone();
@@ -338,4 +340,5 @@ pub(crate) fn prepare_sources<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUI
     source::cache_sources_mt(&netfile_sources, &git_sources, holdgit, skipint, proxy);
     fill_all_pkgvers(dir, pkgbuilds);
     fill_all_pkgdirs(pkgbuilds);
+    extract_if_need_build(pkgbuilds);
 }
