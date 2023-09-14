@@ -149,6 +149,7 @@ where
 {
     const SCRIPT: &str = include_str!("scripts/get_sources.bash");
     let output = Command::new("/bin/bash")
+        .env_clear()
         .arg("-ec")
         .arg(SCRIPT)
         .arg("Source reader")

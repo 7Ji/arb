@@ -39,4 +39,5 @@ fn main() {
     let mut pkgbuilds = pkgbuild::get_pkgbuilds(&arg.pkgbuilds, arg.holdpkg, proxy);
     let pkgbuilds_dir = tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
     pkgbuild::prepare_sources(pkgbuilds_dir, &mut pkgbuilds, arg.holdgit, arg.skipint, proxy);
+    pkgbuild::build_any_needed(&pkgbuilds);
 }

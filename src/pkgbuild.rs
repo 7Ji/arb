@@ -1,4 +1,4 @@
-use std::{path::{PathBuf, Path}, collections::{BTreeMap, HashMap}, thread::{self, sleep, JoinHandle}, io::Write, process::Command, fs::{DirBuilder, remove_dir_all, create_dir_all}, time::Duration};
+use std::{path::{PathBuf, Path}, collections::{BTreeMap, HashMap}, thread::{self, sleep, JoinHandle}, io::Write, process::Command, fs::{DirBuilder, remove_dir_all, create_dir_all, rename}, time::Duration, os::unix::{prelude::OsStrExt, fs::symlink}, env};
 
 use git2::{Repository, Oid};
 use hex::ToHex;
@@ -20,6 +20,7 @@ pub(crate) struct PKGBUILD {
     hash_domain: u64,
     build: PathBuf,
     git: PathBuf,
+    pkgid: String,
     pkgdir: PathBuf,
     commit: git2::Oid,
     pkgver: Pkgver,
@@ -58,6 +59,7 @@ where
             hash_domain,
             build,
             git,
+            pkgid: String::new(),
             pkgdir: PathBuf::from("pkgs"),
             commit: Oid::zero(),
             pkgver: Pkgver::Plain,
@@ -212,6 +214,7 @@ fn extract_source<P: AsRef<Path>>(dir: P, repo: P, sources: &Vec<source::Source>
     source::extract(&dir, sources);
     const SCRIPT: &str = include_str!("scripts/extract_sources.bash");
     Command::new("/bin/bash")
+        .env_clear()
         .arg("-ec")
         .arg(SCRIPT)
         .arg("Source reader")
@@ -225,6 +228,7 @@ fn extract_source<P: AsRef<Path>>(dir: P, repo: P, sources: &Vec<source::Source>
 fn extract_source_and_get_pkgver<P: AsRef<Path>>(dir: P, repo: P, sources: &Vec<source::Source>) -> String {
     extract_source(&dir, &repo, sources);
     let output = Command::new("/bin/bash")
+        .env_clear()
         .arg("-ec")
         .arg("cd $1; source ../PKGBUILD; pkgver")
         .arg("Source reader")
@@ -239,6 +243,7 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
     let dir = dir.as_ref();
     for pkgbuild in pkgbuilds.iter_mut() {
         let output = Command::new("/bin/bash")
+            .env_clear()
             .arg("-c")
             .arg(". \"$1\"; type -t pkgver")
             .arg("Type Identifier")
@@ -294,13 +299,14 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
 
 fn fill_all_pkgdirs(pkgbuilds: &mut Vec<PKGBUILD>) {
     for pkgbuild in pkgbuilds.iter_mut() {
-        let mut name = format!("{}-{}", pkgbuild.name, pkgbuild.commit);
+        let mut pkgid = format!("{}-{}", pkgbuild.name, pkgbuild.commit);
         if let Pkgver::Func { pkgver } = &pkgbuild.pkgver {
-            name.push('-');
-            name.push_str(&pkgver);
+            pkgid.push('-');
+            pkgid.push_str(&pkgver);
         }
-        pkgbuild.pkgdir.push(&name);
-        println!("PKGDIR: '{}' -> '{}'", pkgbuild.name, pkgbuild.pkgdir.display());
+        pkgbuild.pkgdir.push(&pkgid);
+        pkgbuild.pkgid = pkgid;
+        println!("Pkgdir for '{}': '{}'", pkgbuild.name, pkgbuild.pkgdir.display());
     }
 }
 
@@ -347,4 +353,57 @@ pub(crate) fn prepare_sources<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUI
     fill_all_pkgvers(dir, pkgbuilds);
     fill_all_pkgdirs(pkgbuilds);
     extract_if_need_build(pkgbuilds);
+}
+
+fn build(pkgbuild: &PKGBUILD) {
+    let mut temp_name = pkgbuild.pkgdir.file_name().expect("Failed to get file name").to_os_string();
+    temp_name.push(".temp");
+    let temp_pkgdir = pkgbuild.pkgdir.with_file_name(temp_name);
+    let _ = create_dir_all(&temp_pkgdir);
+    Command::new("/usr/bin/makepkg")
+        .current_dir(&pkgbuild.build)
+        .env_clear()
+        .env("PATH", env::var_os("PATH").expect("Failed to get PATH env"))
+        .env("PKGDEST", &temp_pkgdir.canonicalize().expect("Failed to get absolute path of pkgdir"))
+        .env("PKGEXT", ".pkg.tar")
+        .arg("--holdver")
+        .arg("--noextract")
+        .arg("--ignorearch")
+        .spawn()
+        .expect("Failed to spawn makepkg")
+        .wait()
+        .expect("Failed to wait for makepkg");
+    let _ = remove_dir_all(&pkgbuild.pkgdir);
+    rename(&temp_pkgdir, &pkgbuild.pkgdir).expect("Failed to move result pkgdir");
+    let mut rel = PathBuf::from("..");
+    rel.push(&pkgbuild.pkgid);
+    let updated = PathBuf::from("pkgs/updated");
+    for entry in pkgbuild.pkgdir.read_dir().expect("Failed to read dir") {
+        if let Ok(entry) = entry {
+            let original = rel.join(entry.file_name());
+            let link = updated.join(entry.file_name());
+            let _ = symlink(original, link);
+        }
+    }
+}
+
+pub(crate) fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
+    let _ = remove_dir_all("pkgs/updated");
+    let _ = create_dir_all("pkgs/updated");
+    let mut threads = vec![];
+    for pkgbuild in pkgbuilds.iter() {
+        if ! pkgbuild.extract {
+            continue
+        }
+        let pkgbuild = pkgbuild.clone();
+        wait_if_too_busy(&mut threads, 3);
+        threads.push(thread::spawn(move || build(&pkgbuild)));
+    }
+    for thread in threads {
+        thread.join().expect("Failed to join finished builder thread");
+    }
+    // let latest = PathBuf::from("pkgs/latest");
+    // for pkgbuild in pkgbuilds.iter() {
+    //     for entry in 
+    // }
 }

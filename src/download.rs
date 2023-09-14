@@ -2,6 +2,7 @@ use std::{path::Path, process::Command};
 
 pub(crate) fn file(url: &str, path: &Path) {
     Command::new("/usr/bin/curl")
+        .env_clear()
         .arg("-qgC")
         .arg("-")
         .arg("-o")
@@ -15,6 +16,7 @@ pub(crate) fn file(url: &str, path: &Path) {
 
 pub(crate) fn ftp(url: &str, path: &Path) {
     Command::new("/usr/bin/curl")
+        .env_clear()
         .arg("-qgfC")
         .arg("-")
         .arg("--ftp-pasv")
@@ -58,6 +60,7 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) {
 
 pub(crate) fn rsync(url: &str, path: &Path) {
     Command::new("/usr/bin/rsync")
+        .env_clear()
         .arg("--no-motd")
         .arg("-z")
         .arg(url)
@@ -70,6 +73,7 @@ pub(crate) fn rsync(url: &str, path: &Path) {
 
 pub(crate) fn scp(url: &str, path: &Path) {
     Command::new("/usr/bin/scp")
+        .env_clear()
         .arg("-C")
         .arg(url)
         .arg(path)
