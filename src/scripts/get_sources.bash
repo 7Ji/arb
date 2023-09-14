@@ -5,6 +5,19 @@ source "${LIBRARY}/"source.sh
 source_makepkg_config
 source $1
 get_all_sources_for_arch 'all_sources'
+get_all_vars_for_arch() { # 1: arrayname, 2: varname
+	local aggregate l
+	if array_build l "$2"; then
+		aggregate+=("${l[@]}")
+	fi
+	if array_build l "${2}_${CARCH}"; then
+		aggregate+=("${l[@]}")
+	fi
+	array_build "$1" "aggregate"
+}
+for _integ in {ck,md5,sha{1,224,256,384,512},b2}; do
+  get_all_vars_for_arch "all_${_integ}sums" "${_integ}sums"
+done
 i=0
 for source in "${all_sources[@]}"; do
   echo '[source]'
@@ -42,7 +55,7 @@ for source in "${all_sources[@]}"; do
   esac
   echo "url:${url}"
   for _integ in {ck,md5,sha{1,224,256,384,512},b2}; do
-    declare -n checksums="${_integ}sums"
+    declare -n checksums="all_${_integ}sums"
     checksum="${checksums[$i]}"
     case "${checksum}" in
     ''|'SKIP') :;;
