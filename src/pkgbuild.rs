@@ -404,6 +404,7 @@ pub(crate) fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
     for thread in threads {
         thread.join().expect("Failed to join finished builder thread");
     }
+    let thread_cleaner = thread::spawn(|| remove_dir_all("build"));
     let rel = PathBuf::from("..");
     let latest = PathBuf::from("pkgs/latest");
     for pkgbuild in pkgbuilds.iter() {
@@ -416,4 +417,5 @@ pub(crate) fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
             }
         }
     }
+    let _ = thread_cleaner.join().expect("Failed to join cleaner thread");
 }
