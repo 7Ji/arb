@@ -115,8 +115,10 @@ fn push_source(
     if let None = sha384 {
     if let None = sha512 {
     if let None = b2 {
+    if let Some(protocol) = &protocol {
+    if let Protocol::Netfile { protocol: _ } = protocol {
         return
-    }}}}}}}}
+    }}}}}}}}}}
     if let Some(name) = name {
         if let Some(protocol) = protocol {
             if let Some(url) = url {
