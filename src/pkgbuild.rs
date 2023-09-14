@@ -338,10 +338,12 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
 }
 
 pub(crate) fn prepare_sources<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>, holdgit: bool, skipint: bool, proxy: Option<&str>) {
+    let thread_cleaner = thread::spawn(|| remove_dir_all("build"));
     dump_pkgbuilds(&dir, pkgbuilds);
     let (netfile_sources, git_sources, local_sources) 
         = get_all_sources(&dir, pkgbuilds);
     source::cache_sources_mt(&netfile_sources, &git_sources, holdgit, skipint, proxy);
+    let _ = thread_cleaner.join().expect("Failed to join cleaner thread");
     fill_all_pkgvers(dir, pkgbuilds);
     fill_all_pkgdirs(pkgbuilds);
     extract_if_need_build(pkgbuilds);
