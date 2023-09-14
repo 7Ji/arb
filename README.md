@@ -37,12 +37,15 @@ yaopenvfd: https://aur.archlinux.org/yaopenvfd.git
 
 ## Internal
 The builder does the following to save a great chunk of build time and resource:
- 1. All PKGBUILDs are maintained locally as bare git repos under `sources/PKGBUILDs`, are these repos are updated multi-threadedly, 1 thread per domain (I don't want to put too much load on AUR server)
+ 1. All PKGBUILDs are maintained locally as bare git repos under `sources/PKGBUILDs`, and these repos are updated multi-threadedly, 1 thread per domain (I don't want to put too much load on AUR server)
  2. All git sources are cached locally under `sources/git`, and the update process could take 4 thread per domain.
  3. All network file sources, as long as they have integrity checksums, are cached locally under `sources/file-[integ name]`, and the download process could take 4 thread per domain. And if a file source has multiple checksums, it would only be downloaded once, all remaining cache files are just hard-linked from the first one.
  4. The git and netfile cacher run simultaneously
- 5. Build folders `build/[package]` are only populated if either:
+ 5. Build folders `build/[package]` are only populated (also multi-threaded) if either:
     1. The corresponding package has a `pkgver()` function which could only be run after complete source extraction
     2. The corresponding pkgdir `pkg/[pkgid]` is missing, in which `[pkgid]` is generated with `[name]-[commit](-[pkgver])`
- 6. Build folder is populated from lightweight checkout (no `.git`) from the local PKGBUILDs bare repos, and symlinks of cached sources. Only vcs sources not in git protocol and netfile sources that do not have integrity checks need to be downloaded for each build.
+ 6. Build folder is populated via lightweight checkout (no `.git`) from the local PKGBUILDs bare repos, and symlinks of cached sources. Only vcs sources not with git protocol and netfile sources that do not have integrity checks need to be downloaded for each build.
  7. Packages are not compressed directly, and stored under `pkg/[pkgid]`. Two folders, `pkg/updated` and `pkg/latest` are created with symlinks, `updated` containing links to packages built during the current run, and `latest` containing links to all latest packages.
+    1. `updated` is useful when partial update is wanted
+    2. `latest` is useful when full update is wanted
+    3. Either case, compression is halted until actual update to your repo is wanted
