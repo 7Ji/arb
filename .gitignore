@@ -1,1 +1,6 @@
-/target
+build/
+sources/
+target/
+Cargo.lock
+pkgbuilds*.yaml
+
