@@ -1,4 +1,4 @@
-use std::{path::{PathBuf, Path}, collections::{BTreeMap, HashMap}, thread::{self, sleep, JoinHandle}, io::Write, process::Command, fs::{DirBuilder, remove_dir_all, create_dir_all, rename}, time::Duration, os::unix::{prelude::OsStrExt, fs::symlink}, env};
+use std::{path::{PathBuf, Path}, collections::{BTreeMap, HashMap}, thread::{self, sleep, JoinHandle}, io::{Write, Stdout}, process::{Command, Stdio}, fs::{DirBuilder, remove_dir_all, create_dir_all, rename}, time::Duration, os::unix::{prelude::OsStrExt, fs::symlink}, env, ffi::OsString};
 
 use git2::{Repository, Oid};
 use hex::ToHex;
@@ -166,11 +166,95 @@ where
     }
 }
 
-fn get_all_sources<P> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) 
-    -> (Vec<source::Source>, Vec<source::Source>, Vec<source::Source>)
-where 
-    P: AsRef<Path> 
-{
+fn get_dep<P: AsRef<Path>> (pkgbuild: P) -> Vec<String> {
+    const SCRIPT: &str = include_str!("scripts/get_depends.bash");
+    let output = Command::new("/bin/bash")
+        .env_clear()
+        .arg("-ec")
+        .arg(SCRIPT)
+        .arg("Depends reader")
+        .arg(pkgbuild.as_ref())
+        .output()
+        .expect("Failed to run depends reader");
+    let mut deps = vec![];
+    for line in output.stdout.split(|byte| byte == &b'\n') {
+        if line.len() == 0 {
+            continue;
+        }
+        deps.push(String::from_utf8_lossy(line).into_owned());
+    }
+    deps
+}
+
+fn ensure_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
+    let mut threads: Vec<JoinHandle<Vec<String>>> = vec![];
+    let mut deps = vec![];
+    for pkgbuild in pkgbuilds.iter() {
+        let pkgbuild_file = dir.as_ref().join(&pkgbuild.name);
+        threading::wait_if_too_busy_with_callback(&mut threads, 30, |mut other| {
+            deps.append(&mut other);
+        });
+        threads.push(thread::spawn(move || get_dep(&pkgbuild_file)));
+    }
+    for thread in threads {
+        let mut other = thread.join().expect("Failed to join finished thread");
+        deps.append(&mut other);
+    }
+    if deps.len() == 0 {
+        return
+    }
+    deps.sort();
+    deps.dedup();
+    println!("Ensuring {} deps: {:?}", deps.len(), deps);
+    let output = Command::new("/usr/bin/pacman")
+        .env_clear()
+        .arg("-T")
+        .args(&deps)
+        .output()
+        .expect("Failed to run pacman to get missing deps");
+    match output.status.code() {
+        Some(code) => match code {
+            0 => return,
+            127 => (),
+            _ => {
+                eprintln!("Pacman returned unexpected {} which marks fatal error", code);
+                panic!("Pacman fatal error");
+            }
+        },
+        None => panic!("Failed to get return code from pacman"),
+    }
+    deps.clear();
+    for line in output.stdout.split(|byte| *byte == b'\n') {
+        if line.len() == 0 {
+            continue;
+        }
+        deps.push(String::from_utf8_lossy(line).into_owned());
+    }
+    if deps.len() == 0 {
+        return;
+    }
+
+    println!("Installing {} missing deps: {:?}", deps.len(), deps);
+    let mut child = Command::new("/usr/bin/sudo")
+        .env_clear()
+        .arg("/usr/bin/pacman")
+        .arg("-S")
+        .arg("--noconfirm")
+        .args(&deps)
+        .spawn()
+        .expect("Failed to run sudo pacman to install missing deps");
+    let exit_status = child.wait().expect("Failed to wait for child sudo pacman process");
+    if let Some(code) = exit_status.code() {
+        if code == 0 {
+            return
+        }
+        println!("Failed to run sudo pacman, return: {}", code);
+    }
+    panic!("Sudo pacman process not successful");
+}
+
+fn get_all_sources<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) 
+    -> (Vec<source::Source>, Vec<source::Source>, Vec<source::Source>) {
     let mut sources_non_unique = vec![];
     for pkgbuild in pkgbuilds.iter_mut() {
         pkgbuild.sources = source::get_sources::<P>(&dir.as_ref().join(&pkgbuild.name))
@@ -217,7 +301,7 @@ fn extract_source<P: AsRef<Path>>(dir: P, repo: P, sources: &Vec<source::Source>
         .env_clear()
         .arg("-ec")
         .arg(SCRIPT)
-        .arg("Source reader")
+        .arg("Source extractor")
         .arg(dir.as_ref().canonicalize().expect("Failed to canonicalize dir"))
         .spawn()
         .expect("Failed to run script")
@@ -231,7 +315,7 @@ fn extract_source_and_get_pkgver<P: AsRef<Path>>(dir: P, repo: P, sources: &Vec<
         .env_clear()
         .arg("-ec")
         .arg("cd $1; source ../PKGBUILD; pkgver")
-        .arg("Source reader")
+        .arg("Pkgver runner")
         .arg(dir.as_ref().join("src").canonicalize().expect("Failed to canonicalize dir"))
         .output()
         .expect("Failed to run script");
@@ -266,8 +350,8 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
         let dir = pkgbuild.build.clone();
         let repo = pkgbuild.git.clone();
         let sources = pkgbuild.sources.clone();
-        let mut thread_id_finished = None;
         if pkgbuild_threads.len() > 20 {
+            let mut thread_id_finished = None;
             loop {
                 for (thread_id, pkgbuild_thread) in pkgbuild_threads.iter().enumerate() {
                     if pkgbuild_thread.thread.is_finished() {
@@ -346,6 +430,7 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
 pub(crate) fn prepare_sources<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>, holdgit: bool, skipint: bool, proxy: Option<&str>) {
     let thread_cleaner = thread::spawn(|| remove_dir_all("build"));
     dump_pkgbuilds(&dir, pkgbuilds);
+    ensure_deps(&dir, pkgbuilds);
     let (netfile_sources, git_sources, local_sources) 
         = get_all_sources(&dir, pkgbuilds);
     source::cache_sources_mt(&netfile_sources, &git_sources, holdgit, skipint, proxy);
