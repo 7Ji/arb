@@ -382,14 +382,16 @@ fn build(pkgbuild: &PKGBUILD) {
         if let Ok(entry) = entry {
             let original = rel.join(entry.file_name());
             let link = updated.join(entry.file_name());
-            let _ = symlink(original, link);
+            symlink(original, link).expect("Failed to symlink");
         }
     }
 }
 
 pub(crate) fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
     let _ = remove_dir_all("pkgs/updated");
+    let _ = remove_dir_all("pkgs/latest");
     let _ = create_dir_all("pkgs/updated");
+    let _ = create_dir_all("pkgs/latest");
     let mut threads = vec![];
     for pkgbuild in pkgbuilds.iter() {
         if ! pkgbuild.extract {
@@ -402,8 +404,16 @@ pub(crate) fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
     for thread in threads {
         thread.join().expect("Failed to join finished builder thread");
     }
-    // let latest = PathBuf::from("pkgs/latest");
-    // for pkgbuild in pkgbuilds.iter() {
-    //     for entry in 
-    // }
+    let rel = PathBuf::from("..");
+    let latest = PathBuf::from("pkgs/latest");
+    for pkgbuild in pkgbuilds.iter() {
+        let rel = rel.join(&pkgbuild.pkgid);
+        for entry in pkgbuild.pkgdir.read_dir().expect("Failed to read dir") {
+            if let Ok(entry) = entry {
+                let original = rel.join(entry.file_name());
+                let link = latest.join(entry.file_name());
+                let _ = symlink(original, link);
+            }
+        }
+    }
 }
