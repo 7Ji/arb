@@ -1,4 +1,4 @@
-use std::{path::{Path, PathBuf}, process::Command, collections::HashMap, str::FromStr, thread::{self, JoinHandle, sleep}, time::Duration, fs::DirBuilder, os::unix::fs::symlink};
+use std::{path::{Path, PathBuf}, process::Command, collections::HashMap, str::FromStr, thread::{self, JoinHandle}, fs::DirBuilder, os::unix::fs::symlink};
 use hex::FromHex;
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -36,7 +36,7 @@ enum Protocol {
 }
 
 impl Protocol {
-    fn from_string(value: &str) -> Protocol {
+    fn _from_string(value: &str) -> Protocol {
         match value {
             "file" => Protocol::Netfile { protocol: NetfileProtocol::File },
             "ftp" => Protocol::Netfile { protocol: NetfileProtocol::Ftp },

@@ -1,7 +1,6 @@
-use std::{path::{PathBuf, Path}, collections::{BTreeMap, HashMap}, thread::{self, sleep, JoinHandle}, io::{Write, Stdout}, process::{Command, Stdio}, fs::{DirBuilder, remove_dir_all, create_dir_all, rename}, time::Duration, os::unix::{prelude::OsStrExt, fs::symlink}, env, ffi::OsString};
+use std::{path::{PathBuf, Path}, collections::{BTreeMap, HashMap}, thread::{self, sleep, JoinHandle}, io::Write, process::Command, fs::{DirBuilder, remove_dir_all, create_dir_all, rename}, time::Duration, os::unix::fs::symlink, env};
 
 use git2::{Repository, Oid};
-use hex::ToHex;
 use url::Url;
 use xxhash_rust::xxh3::xxh3_64;
 use crate::{git, source, threading::{self, wait_if_too_busy}};
@@ -16,7 +15,6 @@ enum Pkgver {
 pub(crate) struct PKGBUILD {
     name: String,
     url: String,
-    hash_url: u64,
     hash_domain: u64,
     build: PathBuf,
     git: PathBuf,
@@ -48,14 +46,12 @@ where
             Some(domain) => xxh3_64(domain.as_bytes()),
             None => 0,
         };
-        let hash_url = xxh3_64(url.as_bytes());
         let mut build = PathBuf::from("build");
         build.push(name);
         let git = PathBuf::from(format!("sources/PKGBUILDs/{}", name));
         PKGBUILD {
             name: name.clone(),
             url: url.clone(),
-            hash_url,
             hash_domain,
             build,
             git,
@@ -431,7 +427,7 @@ pub(crate) fn prepare_sources<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUI
     let thread_cleaner = thread::spawn(|| remove_dir_all("build"));
     dump_pkgbuilds(&dir, pkgbuilds);
     ensure_deps(&dir, pkgbuilds);
-    let (netfile_sources, git_sources, local_sources) 
+    let (netfile_sources, git_sources, _) 
         = get_all_sources(&dir, pkgbuilds);
     source::cache_sources_mt(&netfile_sources, &git_sources, holdgit, skipint, proxy);
     let _ = thread_cleaner.join().expect("Failed to join cleaner thread");
