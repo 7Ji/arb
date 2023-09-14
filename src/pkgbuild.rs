@@ -4,7 +4,7 @@ use git2::{Repository, Oid};
 use hex::ToHex;
 use url::Url;
 use xxhash_rust::xxh3::xxh3_64;
-use crate::{git, source, threading};
+use crate::{git, source, threading::{self, wait_if_too_busy}};
 
 #[derive(Clone)]
 enum Pkgver {
@@ -232,31 +232,6 @@ fn extract_source_and_get_pkgver<P: AsRef<Path>>(dir: P, repo: P) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-// fn fill_pkgver<P: AsRef<Path>>(pkgbuild: &mut PKGBUILD, pkgbuild_file: P) {
-//     let output = Command::new("/bin/bash")
-//         .arg("-c")
-//         .arg(". \"$1\"; type -t pkgver")
-//         .arg("Type Identifier")
-//         .arg(pkgbuild_file.as_ref())
-//         .output()
-//         .expect("Failed to run script");
-//     let mut pkgname = format!("{}-{}", pkgbuild.name, pkgbuild.commit);
-//     match output.stdout.as_slice() {
-//         b"function\n" => {
-//             println!("{}'s pkgver is a function, a full deploy is needed to run it", pkgbuild.name);
-//             let pkgver = String::new();
-//             pkgname.push('-');
-//             pkgname.push_str(&pkgver);
-//             pkgbuild.pkgver = Pkgver::Func { pkgver };
-//         },
-//         _ => {
-//             pkgbuild.pkgver = Pkgver::Plain
-//         }
-//     }
-//     pkgbuild.pkg.push(pkgname);
-// }
-
-
 fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
     let _ = remove_dir_all("build");
     let dir = dir.as_ref();
@@ -314,19 +289,6 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
     }
 }
 
-// fn need_build(pkgbuild: &PKGBUILD) -> bool {
-
-//     // pkg = PathBuf::from(format!("pkgs/{}/{}", pkgbuild.name, pkgbuild.commit));
-//     // pkgbuild.pkg
-//     // if pkgbuild.pkg.exists() {
-//     //     let entries = pkgbuild.pkg.read_dir().iter().count();
-//     //     if entries > 2 {
-//     //         return false
-//     //     }
-//     // }
-//     true
-// }
-
 fn fill_all_pkgdirs(pkgbuilds: &mut Vec<PKGBUILD>) {
     for pkgbuild in pkgbuilds.iter_mut() {
         let mut name = format!("{}-{}", pkgbuild.name, pkgbuild.commit);
@@ -336,6 +298,36 @@ fn fill_all_pkgdirs(pkgbuilds: &mut Vec<PKGBUILD>) {
         }
         pkgbuild.pkgdir.push(&name);
         println!("PKGDIR: '{}' -> '{}'", pkgbuild.name, pkgbuild.pkgdir.display());
+    }
+}
+
+fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
+    let mut threads = vec![];
+    for pkgbuild in pkgbuilds.iter_mut() {
+        let mut pkgcount = 0;
+        if let Ok(dir) = pkgbuild.pkgdir.read_dir() {
+            pkgcount = dir.count();
+        }
+        if pkgcount > 0 { // Does not need build
+            println!("'{}' already built, no need to build", pkgbuild.pkgdir.display());
+            if pkgbuild.extract {
+                let dir = pkgbuild.build.clone();
+                wait_if_too_busy(&mut threads, 20);
+                threads.push(thread::spawn(|| remove_dir_all(dir).expect("Failed to remove dir")));
+                pkgbuild.extract = false;
+            }
+        } else {
+            if ! pkgbuild.extract {
+                let dir = pkgbuild.build.clone();
+                let repo = pkgbuild.git.clone();
+                wait_if_too_busy(&mut threads, 20);
+                threads.push(thread::spawn(|| extract_source(dir, repo)));
+                pkgbuild.extract = true;
+            }
+        }
+    }
+    for thread in threads {
+        thread.join().expect("Failed to join finished thread");
     }
 }
 

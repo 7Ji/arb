@@ -33,7 +33,8 @@ struct Arg {
     skipint: bool
 }
 
-fn main() {let arg = Arg::parse();
+fn main() {
+    let arg = Arg::parse();
     let proxy = arg.proxy.as_deref();
     let mut pkgbuilds = pkgbuild::get_pkgbuilds(&arg.pkgbuilds, arg.holdpkg, proxy);
     let pkgbuilds_dir = tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
