@@ -453,6 +453,8 @@ fn build(pkgbuild: &PKGBUILD) {
         .expect("Failed to spawn makepkg")
         .wait()
         .expect("Failed to wait for makepkg");
+    let build = pkgbuild.build.clone();
+    let thread_cleaner = thread::spawn(|| remove_dir_all(build));
     let _ = remove_dir_all(&pkgbuild.pkgdir);
     rename(&temp_pkgdir, &pkgbuild.pkgdir).expect("Failed to move result pkgdir");
     let mut rel = PathBuf::from("..");
@@ -465,6 +467,7 @@ fn build(pkgbuild: &PKGBUILD) {
             symlink(original, link).expect("Failed to symlink");
         }
     }
+    let _ = thread_cleaner.join().expect("Failed to join cleaner thread");
 }
 
 pub(crate) fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
