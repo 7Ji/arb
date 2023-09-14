@@ -1,5 +1,4 @@
 use std::{path::Path, io::Write};
-
 use git2::{Repository, Progress, RemoteCallbacks, FetchOptions, ProxyOptions, Remote, Tree, Blob, Commit, Oid, build::CheckoutBuilder};
 
 fn init_bare_repo<P: AsRef<Path>> (path: P, url: &str) -> Option<Repository> {

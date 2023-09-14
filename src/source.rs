@@ -169,7 +169,6 @@ where
     let mut sha512 = None;
     let mut b2 = None;
     let mut sources = vec![];
-    // let source = sources.last();
     let mut started = false;
     for line in  output.stdout.split(|byte| byte == &b'\n') {
         if line.len() == 0 {
@@ -611,7 +610,6 @@ pub(crate) fn cache_sources_mt(netfile_sources: &Vec<Source>, git_sources: &Vec<
         };
         cache_git_sources_mt(git_sources_map, holdgit, proxy)
     });
-    // let git_thread = std::thread::spawn(move || cache_git_sources_mt(git_sources_map, proxy));
     netfile_thread.join().expect("Failed to join netfile thread");
     git_thread.join().expect("Failed to join git thread");
     println!("Finished multi-threading caching sources");

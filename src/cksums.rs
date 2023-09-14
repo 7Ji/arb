@@ -1,9 +1,6 @@
 use std::{path::{PathBuf, Path}, fs::{File, hard_link, remove_file}, io::{Read, Write}};
 use blake2::Blake2b512;
-// use generic_array::{ArrayLength, GenericArray};
-// use blake2::digest::generic_array::{GenericArray, ArrayLength};
 use crc;
-// use crypto_common::OutputSizeUser;
 use sha1::{Sha1, Digest, digest::{OutputSizeUser, generic_array::GenericArray}};
 use sha2::{Sha224, Sha256, Sha384, Sha512};
 
@@ -85,7 +82,6 @@ fn cksum(file: &mut File) -> u32 {
 fn md5sum(file: &mut File) -> [u8; 16] {
     let mut context = md5::Context::new();
     let mut buffer = vec![0; BUFFER_SIZE];
-    // file.seek(SeekFrom::Start(0)).expect("Failed to seek file");
     loop {
         let size_chunk = match file.read(&mut buffer) {
             Ok(size) => size,
@@ -106,7 +102,6 @@ fn md5sum(file: &mut File) -> [u8; 16] {
 fn generic_sum<T: Digest + OutputSizeUser>(file: &mut File) -> GenericArray<u8, T::OutputSize> {
     let mut hasher = T::new();
     let mut buffer = vec![0; BUFFER_SIZE];
-    // file.seek(SeekFrom::Start(0)).expect("Failed to seek file");
     loop {
         let size_chunk = match file.read(&mut buffer) {
             Ok(size) => size,
