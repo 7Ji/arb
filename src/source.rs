@@ -2,7 +2,7 @@ use std::{path::{Path, PathBuf}, process::Command, collections::HashMap, str::Fr
 use hex::FromHex;
 use xxhash_rust::xxh3::xxh3_64;
 
-use crate::{cksums, git, download, threading};
+use crate::{cksums, git::{self, ToReposMap}, download, threading};
 
 
 #[derive(Debug, Clone)]
@@ -91,6 +91,43 @@ pub(crate) struct Source {
     sha512: Option<[u8; 64]>,// 512-bit SHA-2
     b2: Option<[u8; 64]>,    // 512-bit Blake-2B
 }
+
+pub(crate) trait MapByDomain {
+    fn url(&self) -> &str;
+    fn map_by_domain(sources: &Vec<Self>) -> HashMap<u64, Vec<Self>> where Self: Clone + Sized{
+        let mut map = HashMap::new();
+        for source in sources.iter() {
+            let url = url::Url::from_str(source.url())
+                .expect("Failed to parse URL");
+            let domain = xxh3_64(url.domain().expect("Failed to get domain").as_bytes());
+            if ! map.contains_key(&domain) {
+                map.insert(domain, vec![]);
+            }
+            let vec = map
+                .get_mut(&domain)
+                .expect("Failed to get vec");
+            vec.push(source.clone());
+        }
+        map
+    }
+}
+
+impl MapByDomain for Source {
+    fn url(&self) -> &str {
+        self.url.as_str()
+    }
+}
+
+impl git::ToReposMap for Source {
+    fn url(&self) -> &str {
+        self.url.as_str()
+    }
+
+    fn path(&self) -> Option<&Path> {
+        None
+    }
+}
+
 
 fn push_source(
     sources: &mut Vec<Source>, 
@@ -515,82 +552,14 @@ fn cache_netfile_sources_mt(netfile_sources: HashMap<u64, Vec<Source>>, skipint:
     }
 }
 
-fn cache_git_sources_for_domain_mt(git_sources: Vec<Source>, hold: bool, proxy: Option<&str>) {
-    const REFSPECS: &[&str] = &[
-        "+refs/heads/*:refs/heads/*", 
-        "+refs/tags/*:refs/tags/*"
-    ];
-    let (proxy_string, has_proxy) = match proxy {
-        Some(proxy) => (proxy.to_owned(), true),
-        None => (String::new(), false),
-    };
-    let mut threads: Vec<JoinHandle<()>> = vec![];
-    for git_source in git_sources {
-        let path = PathBuf::from(format!("sources/git/{:016x}", xxh3_64(git_source.url.as_bytes())));
-        if hold {
-            if git::healthy_repo(&path) {
-                continue;
-            } else {
-                println!("Holdgit set but repo '{}' not healthy, still need update", path.display());
-            }
-        }
-        let proxy_string_thread = proxy_string.clone();
-        threading::wait_if_too_busy(&mut threads, 3);
-        threads.push(thread::spawn(move ||{
-            let proxy = match has_proxy {
-                true => Some(proxy_string_thread.as_str()),
-                false => None,
-            };
-            git::sync_repo(&path, &git_source.url, proxy, REFSPECS)
-        }));
-    }
-    for thread in threads.into_iter() {
-        thread.join().expect("Failed to join finished thread");
-    }
-}
-
-fn cache_git_sources_mt(git_sources: HashMap<u64, Vec<Source>>, hold: bool, proxy: Option<&str>) {
-    println!("Caching git sources with {} groups", git_sources.len());
-    let (proxy_string, has_proxy) = match proxy {
-        Some(proxy) => (proxy.to_owned(), true),
-        None => (String::new(), false),
-    };
-    let mut threads: Vec<std::thread::JoinHandle<()>> =  Vec::new();
-    for git_sources in git_sources.into_values() {
-        let proxy_string_thread = proxy_string.clone();
-        threads.push(thread::spawn(move || {
-            let proxy = match has_proxy {
-                true => Some(proxy_string_thread.as_str()),
-                false => None,
-            };
-            cache_git_sources_for_domain_mt(git_sources, hold, proxy);
-        }));
-    }
-    for thread in threads {
-        thread.join().expect("Failed to join git cacher threads");
-    }
-}
-
-fn map_sources_by_domain(sources: &Vec<Source>) -> HashMap<u64, Vec<Source>> {
-    let mut map = HashMap::new();
-    for source in sources.iter() {
-        let url = url::Url::from_str(&source.url)
-            .expect("Failed to parse URL");
-        let domain = xxh3_64(url.domain().expect("Failed to get domain").as_bytes());
-        if ! map.contains_key(&domain) {
-            map.insert(domain, vec![]);
-        }
-        let vec = map
-            .get_mut(&domain)
-            .expect("Failed to get vec");
-        vec.push(source.to_owned());
-    }
-    map
+fn cache_git_sources_mt(git_sources_map: HashMap<u64, Vec<Source>>, holdgit: bool, proxy: Option<&str>) {
+    let repos_map = Source::to_repos_map(git_sources_map, "sources/git");
+    git::Repo::sync_mt(repos_map, git::Refspecs::HeadsTags, holdgit, proxy)
 }
 
 pub(crate) fn cache_sources_mt(netfile_sources: &Vec<Source>, git_sources: &Vec<Source>, holdgit: bool, skipint: bool, proxy: Option<&str>) {
-    let netfile_sources_map = map_sources_by_domain(netfile_sources);
-    let git_sources_map = map_sources_by_domain(git_sources);
+    let netfile_sources_map = Source::map_by_domain(netfile_sources);
+    let git_sources_map = Source::map_by_domain(git_sources);
     let (proxy_string, has_proxy) = match proxy {
         Some(proxy) => (proxy.to_owned(), true),
         None => (String::new(), false),

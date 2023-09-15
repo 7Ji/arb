@@ -1,8 +1,6 @@
-use std::{path::{PathBuf, Path}, collections::{BTreeMap, HashMap}, thread::{self, sleep, JoinHandle}, io::Write, process::Command, fs::{DirBuilder, remove_dir_all, create_dir_all, rename}, time::Duration, os::unix::fs::symlink, env};
-use git2::{Repository, Oid};
-use url::Url;
-use xxhash_rust::xxh3::xxh3_64;
-use crate::{git, source, threading::{self, wait_if_too_busy}};
+use std::{path::{PathBuf, Path}, collections::BTreeMap, thread::{self, sleep, JoinHandle}, io::Write, process::Command, fs::{DirBuilder, remove_dir_all, create_dir_all, rename}, time::Duration, os::unix::fs::symlink, env};
+use git2::Oid;
+use crate::{git, source::{self, MapByDomain}, threading::{self, wait_if_too_busy}};
 
 #[derive(Clone)]
 enum Pkgver {
@@ -14,7 +12,6 @@ enum Pkgver {
 pub(crate) struct PKGBUILD {
     name: String,
     url: String,
-    hash_domain: u64,
     build: PathBuf,
     git: PathBuf,
     pkgid: String,
@@ -25,9 +22,20 @@ pub(crate) struct PKGBUILD {
     sources: Vec<source::Source>,
 }
 
-struct Repo {
-    path: PathBuf,
-    url: String,
+impl source::MapByDomain for PKGBUILD {
+    fn url(&self) -> &str {
+        self.url.as_str()
+    }
+}
+
+impl git::ToReposMap for PKGBUILD {
+    fn url(&self) -> &str {
+        self.url.as_str()
+    }
+
+    fn path(&self) -> Option<&Path> {
+        Some(&self.git.as_path())
+    }
 }
 
 fn read_pkgbuilds_yaml<P>(yaml: P) -> Vec<PKGBUILD>
@@ -40,18 +48,12 @@ where
         serde_yaml::from_reader(f)
             .expect("Failed to parse into config");
     config.iter().map(|(name, url)| {
-        let url_p = Url::parse(url).expect("Invalid URL");
-        let hash_domain = match url_p.domain() {
-            Some(domain) => xxh3_64(domain.as_bytes()),
-            None => 0,
-        };
         let mut build = PathBuf::from("build");
         build.push(name);
         let git = PathBuf::from(format!("sources/PKGBUILDs/{}", name));
         PKGBUILD {
             name: name.clone(),
             url: url.clone(),
-            hash_domain,
             build,
             git,
             pkgid: String::new(),
@@ -64,57 +66,22 @@ where
     }).collect()
 }
 
-fn sync_pkgbuilds(pkgbuilds: &Vec<PKGBUILD>, proxy: Option<&str>) {
-    let mut map: HashMap<u64, Vec<Repo>> = HashMap::new();
-    for pkgbuild in pkgbuilds.iter() {
-        if ! map.contains_key(&pkgbuild.hash_domain) {
-            println!("New domain found from PKGBUILD URL: {}", pkgbuild.url);
-            map.insert(pkgbuild.hash_domain, vec![]);
-        }
-        let vec = map
-            .get_mut(&pkgbuild.hash_domain)
-            .expect("Failed to get vec");
-        vec.push(Repo { path: pkgbuild.git.clone(), url: pkgbuild.url.clone() });
-    }
-    println!("Syncing PKGBUILDs with {} threads", map.len());
-    const REFSPECS: &[&str] = &["+refs/heads/master:refs/heads/master"];
-    let (proxy_string, has_proxy) = match proxy {
-        Some(proxy) => (proxy.to_owned(), true),
-        None => (String::new(), false),
-    };
-    let mut threads =  Vec::new();
-    for repos in map.into_values() {
-        let proxy_string_thread = proxy_string.clone();
-        threads.push(thread::spawn(move || {
-            let proxy = match has_proxy {
-                true => Some(proxy_string_thread.as_str()),
-                false => None,
-            };
-            for repo in repos {
-                git::sync_repo(&repo.path, &repo.url, proxy, REFSPECS);
-            }
-        }));
-    }
-    for thread in threads.into_iter() {
-        thread.join().expect("Failed to join");
-    }
-}
-
-fn get_pkgbuild_blob(repo: &Repository) -> Option<git2::Blob> {
-    git::get_branch_entry_blob(repo, "master", "PKGBUILD")
+fn sync_pkgbuilds(pkgbuilds: &Vec<PKGBUILD>, hold: bool, proxy: Option<&str>) {
+    let map = PKGBUILD::map_by_domain(pkgbuilds);
+    let repos_map = git::ToReposMap::to_repos_map(map, "sources/PKGBUILDs");
+    git::Repo::sync_mt(repos_map, git::Refspecs::MasterOnly, hold, proxy);
 }
 
 fn healthy_pkgbuild(pkgbuild: &mut PKGBUILD, set_commit: bool) -> bool {
-    let repo = 
-        match git::open_or_init_bare_repo(&pkgbuild.git, &pkgbuild.url) {
-            Some(repo) => repo,
-            None => {
-                eprintln!("Failed to open or init bare repo {}", pkgbuild.git.display());
-                return false
-            }
-        };
+    let repo = match git::Repo::open_bare(&pkgbuild.git, &pkgbuild.url) {
+        Some(repo) => repo,
+        None => {
+            eprintln!("Failed to open or init bare repo {}", pkgbuild.git.display());
+            return false
+        }
+    };
     if set_commit {
-        match git::get_branch_commit_id(&repo, "master") {
+        match repo.get_branch_commit_id("master") {
             Some(id) => pkgbuild.commit = id,
             None => {
                 eprintln!("Failed to set commit id for pkgbuild {}", pkgbuild.name);
@@ -123,7 +90,7 @@ fn healthy_pkgbuild(pkgbuild: &mut PKGBUILD, set_commit: bool) -> bool {
         }
     }
     println!("PKGBUILD '{}' at commit '{}'", pkgbuild.name, pkgbuild.commit);
-    match get_pkgbuild_blob(&repo) {
+    match repo.get_pkgbuild_blob() {
         Some(_) => return true,
         None => {
             eprintln!("Failed to get PKGBUILD blob");
@@ -148,11 +115,9 @@ where
     let dir = dir.as_ref();
     for pkgbuild in pkgbuilds.iter() {
         let path = dir.join(&pkgbuild.name);
-        let repo = 
-            git::open_or_init_bare_repo(&pkgbuild.git, &pkgbuild.url)
+        let repo = git::Repo::open_bare(&pkgbuild.git, &pkgbuild.url)
             .expect("Failed to open repo");
-        let blob = 
-            get_pkgbuild_blob(&repo)
+        let blob = repo.get_pkgbuild_blob()
             .expect("Failed to get PKGBUILD blob");
         let mut file = 
             std::fs::File::create(path)
@@ -279,7 +244,7 @@ where
         true
     };
     if update_pkg {
-        sync_pkgbuilds(&pkgbuilds, proxy);
+        sync_pkgbuilds(&pkgbuilds, hold, proxy);
         if ! healthy_pkgbuilds(&mut pkgbuilds, true) {
             panic!("Updating broke some of our PKGBUILDs");
         }
@@ -287,9 +252,10 @@ where
     pkgbuilds
 }
 
-fn extract_source<P: AsRef<Path>>(dir: P, repo: P, sources: &Vec<source::Source>) {
+fn extract_source<P: AsRef<Path>>(dir: P, repo_path: P, repo_url: &str, sources: &Vec<source::Source>) {
     create_dir_all(&dir).expect("Failed to create dir");
-    git::checkout_branch_from_repo(&dir, &repo, "master");
+    let repo = git::Repo::open_bare(repo_path, repo_url).expect("Failed to open repo");
+    repo.checkout_branch(&dir, "master");
     source::extract(&dir, sources);
     const SCRIPT: &str = include_str!("scripts/extract_sources.bash");
     Command::new("/bin/bash")
@@ -304,8 +270,8 @@ fn extract_source<P: AsRef<Path>>(dir: P, repo: P, sources: &Vec<source::Source>
         .expect("Failed to wait for spawned script");
 }
 
-fn extract_source_and_get_pkgver<P: AsRef<Path>>(dir: P, repo: P, sources: &Vec<source::Source>) -> String {
-    extract_source(&dir, &repo, sources);
+fn extract_source_and_get_pkgver<P: AsRef<Path>>(dir: P, repo_path: P, repo_url: &str, sources: &Vec<source::Source>) -> String {
+    extract_source(&dir, &repo_path, &repo_url, sources);
     let output = Command::new("/bin/bash")
         .env_clear()
         .arg("-ec")
@@ -343,7 +309,8 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
     let mut pkgbuild_threads: Vec<PkgbuildThread> = vec![];
     for pkgbuild in pkgbuilds.iter_mut().filter(|pkgbuild| pkgbuild.extract) {
         let dir = pkgbuild.build.clone();
-        let repo = pkgbuild.git.clone();
+        let repo_path = pkgbuild.git.clone();
+        let repo_url = pkgbuild.url.clone();
         let sources = pkgbuild.sources.clone();
         if pkgbuild_threads.len() > 20 {
             let mut thread_id_finished = None;
@@ -368,7 +335,7 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
                 panic!("Failed to get finished thread ID")
             }
         }
-        pkgbuild_threads.push(PkgbuildThread { pkgbuild, thread: thread::spawn(move || extract_source_and_get_pkgver(dir, repo, &sources))});
+        pkgbuild_threads.push(PkgbuildThread { pkgbuild, thread: thread::spawn(move || extract_source_and_get_pkgver(dir, repo_path, &repo_url, &sources))});
     }
     for pkgbuild_thread in pkgbuild_threads {
         let pkgver = pkgbuild_thread.thread.join().expect("Failed to join finished thread");
@@ -409,10 +376,11 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
         } else {
             if ! pkgbuild.extract {
                 let dir = pkgbuild.build.clone();
-                let repo = pkgbuild.git.clone();
+                let repo_path = pkgbuild.git.clone();
+                let repo_url = pkgbuild.url.clone();
                 let sources = pkgbuild.sources.clone();
                 wait_if_too_busy(&mut threads, 20);
-                threads.push(thread::spawn(move || extract_source(dir, repo, &sources)));
+                threads.push(thread::spawn(move || extract_source(dir, repo_path, &repo_url, &sources)));
                 pkgbuild.extract = true;
             }
         }
