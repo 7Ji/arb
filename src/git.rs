@@ -58,7 +58,8 @@ pub(crate) struct Repo {
 pub(crate) trait ToReposMap {
     fn url(&self) -> &str;
     fn path(&self) -> Option<&Path>;
-    fn to_repos_map(map: HashMap<u64, Vec<Self>>, parent: &str) -> HashMap<u64, Vec<Repo>> 
+    fn to_repos_map(map: HashMap<u64, Vec<Self>>, parent: &str)
+        -> HashMap<u64, Vec<Repo>> 
     where Self: Sized{
         let mut repos_map = HashMap::new();
         let parent = PathBuf::from(parent);
@@ -68,14 +69,19 @@ pub(crate) trait ToReposMap {
                 let repo = match source.path() {
                     Some(path) => Repo::open_bare(path, url),
                     None => {
-                        let path = parent.join(format!("{:016x}", xxh3_64(source.url().as_bytes())));
+                        let path = parent.join(
+                            format!(
+                                    "{:016x}",
+                                    xxh3_64(source.url().as_bytes())));
                         Repo::open_bare(&path, url)
                     },
                 };
                 match repo {
                     Some(repo) => repo,
                     None => {
-                        eprintln!("Failed to open bare repo for git source '{}'", url);
+                        eprintln!(
+                            "Failed to open bare repo for git source '{}'",
+                            url);
                         panic!("Failed to open bare repo");
                     },
                 }
@@ -90,8 +96,10 @@ pub(crate) trait ToReposMap {
 }
 
 fn gcb_transfer_progress(progress: Progress<'_>) -> bool {
-    let network_pct = (100 * progress.received_objects()) / progress.total_objects();
-    let index_pct = (100 * progress.indexed_objects()) / progress.total_objects();
+    let network_pct = 
+        (100 * progress.received_objects()) / progress.total_objects();
+    let index_pct =
+        (100 * progress.indexed_objects()) / progress.total_objects();
     let kbytes = progress.received_bytes() / 1024;
     if progress.received_objects() == progress.total_objects() {
         print!(
@@ -131,32 +139,43 @@ fn fetch_opts_init<'a>() -> FetchOptions<'a> {
     fetch_opts
 }
 
-fn fetch_remote(remote: &mut Remote, fetch_opts: &mut FetchOptions, proxy: Option<&str>, refspecs: &[&str]) {
+fn fetch_remote(
+    remote: &mut Remote,
+    fetch_opts: &mut FetchOptions, 
+    proxy: Option<&str>,
+    refspecs: &[&str]
+) {
     for _ in 0..2 {
         match remote.fetch(refspecs, Some(fetch_opts), None) {
             Ok(_) => return,
             Err(e) => {
-                eprintln!("Failed to fetch from remote '{}': {}", remote.url().expect("Failed to get URL"), e);
+                eprintln!("Failed to fetch from remote '{}': {}",
+                        remote.url().expect("Failed to get URL"), e);
             },
         }
     }
     match proxy {
         Some(proxy) => {
-            eprintln!("Failed to fetch from remote '{}'. Will use proxy to retry", remote.url().expect("Failed to get URL"));
+            eprintln!(
+                "Failed to fetch from remote '{}'. Will use proxy to retry",
+                remote.url().expect("Failed to get URL"));
             let mut proxy_opts = ProxyOptions::new();
             proxy_opts.url(proxy);
             fetch_opts.proxy_options(proxy_opts);
             for _ in 0..2 {
-                match remote.fetch(refspecs, Some(fetch_opts), None) {
+                match remote.fetch(
+                    refspecs, Some(fetch_opts), None) {
                     Ok(_) => return,
                     Err(e) => {
-                        eprintln!("Failed to fetch from remote '{}': {}", remote.url().expect("Failed to get URL"), e);
+                        eprintln!("Failed to fetch from remote '{}': {}",
+                            remote.url().expect("Failed to get URL"), e);
                     },
                 }
             }
         }
         None => {
-            eprintln!("Failed to fetch from remote '{}' after 3 retries, considered failure", remote.url().expect("Failed to get URL"));
+            eprintln!("Failed to fetch from remote '{}' after 3 retries",
+                        remote.url().expect("Failed to get URL"));
             panic!("Failed to fecth from remote and there's no proxy to retry");
         },
     }
@@ -169,7 +188,8 @@ impl Repo {
             "origin", &self.url, "+refs/*:refs/*") {
             Ok(_) => true,
             Err(e) => {
-                eprintln!("Failed to add remote {}: {}", self.path.display(), e);
+                eprintln!("Failed to add remote {}: {}",
+                            self.path.display(), e);
                 std::fs::remove_dir_all(&self.path)
                 .expect(
                     "Failed to remove dir after failed attempt");
@@ -193,13 +213,16 @@ impl Repo {
                 }
             },
             Err(e) => {
-                eprintln!("Failed to create {}: {}", &path.as_ref().display(), e);
+                eprintln!("Failed to create {}: {}", 
+                            &path.as_ref().display(), e);
                 None
             }
         }
     }
 
-    pub(crate) fn open_bare<P: AsRef<Path>>(path: P, url: &str) -> Option<Self> {
+    pub(crate) fn open_bare<P: AsRef<Path>>(path: P, url: &str) 
+        -> Option<Self> 
+    {
         match Repository::open_bare(&path) {
             Ok(repo) => Some(Self {
                 path: path.as_ref().to_owned(),
@@ -211,7 +234,8 @@ impl Repo {
                 e.code() == git2::ErrorCode::NotFound {
                     Self::init_bare(path, url)
                 } else {
-                    eprintln!("Failed to open {}: {}", path.as_ref().display(), e);
+                    eprintln!("Failed to open {}: {}", 
+                            path.as_ref().display(), e);
                     None
                 }
             },
@@ -219,18 +243,24 @@ impl Repo {
     }
 
     fn update_head(&self, remote: &Remote) {
-        for head in remote.list().expect("Failed to list remote") {
+        let heads = 
+                remote.list().expect("Failed to list remote");
+        for head in heads {
             if head.name() == "HEAD" {
                 if let Some(target) = head.symref_target() {
-                    self.repo.set_head(target).expect("Failed to set head");
+                    self.repo.set_head(target)
+                             .expect("Failed to set head");
                 }
             }
         }
     }
 
     fn sync(&self, proxy: Option<&str>, refspecs: &[&str]) {
-        println!("Syncing repo '{}' with '{}'", &self.path.display(), &self.url);
-        let mut remote = self.repo.remote_anonymous(&self.url).expect("Failed to create temporary remote");
+        println!("Syncing repo '{}' with '{}'", 
+                    &self.path.display(), &self.url);
+        let mut remote = 
+            self.repo.remote_anonymous(&self.url)
+            .expect("Failed to create temporary remote");
         let mut fetch_opts = fetch_opts_init();
         fetch_remote(&mut remote, &mut fetch_opts, proxy, refspecs);
         self.update_head(&remote);
@@ -284,7 +314,9 @@ impl Repo {
         }
     }
     
-    fn get_tree_entry_blob<'a>(&'a self, tree: &Tree, name: &str) -> Option<Blob<'a>> {
+    fn get_tree_entry_blob<'a>(&'a self, tree: &Tree, name: &str)
+        -> Option<Blob<'a>> 
+    {
         let entry = 
             match tree.get_name(name) {
                 Some(entry) => entry,
@@ -310,7 +342,9 @@ impl Repo {
         }
     }
     
-    pub(crate) fn get_branch_entry_blob<'a>(&'a self, branch: &str, name: &str) -> Option<Blob<'a>> {
+    pub(crate) fn get_branch_entry_blob<'a>(&'a self, branch: &str, name: &str)
+        -> Option<Blob<'a>> 
+    {
         let tree = match self.get_branch_tree(branch) {
             Some(tree) => tree,
             None => return None,
@@ -326,27 +360,45 @@ impl Repo {
         let head = match self.repo.head() {
             Ok(head) => head,
             Err(e) => {
-                eprintln!("Failed to get head of repo '{}': {}", self.path.display(), e);
+                eprintln!("Failed to get head of repo '{}': {}",
+                        self.path.display(), e);
                 return false 
             },
         };
         return match head.peel_to_commit() {
             Ok(_) => true,
             Err(e) => {
-                eprintln!("Failed to get head of repo '{}': {}", self.path.display(), e);
+                eprintln!("Failed to get head of repo '{}': {}",
+                        self.path.display(), e);
                 false
             },
         };
     }
     
-    pub(crate) fn checkout_branch<P: AsRef<Path>>(&self, target: P, branch: &str) {
-        let tree = self.get_branch_tree(branch).expect("Failed to get commit");
+    pub(crate) fn checkout_branch<P>(&self, target: P, branch: &str) 
+    where
+        P: AsRef<Path>
+    {
+        let tree = self.get_branch_tree(branch)
+                                 .expect("Failed to get commit");
         self.repo.cleanup_state().expect("Failed to cleanup state");
-        self.repo.set_workdir(target.as_ref(), false).expect("Failed to set work dir");
-        self.repo.checkout_tree(tree.as_object(), Some(CheckoutBuilder::new().force())).expect("Failed to checkout tree");
+        self.repo.set_workdir(
+                    target.as_ref(),
+                    false)
+                 .expect("Failed to set work dir");
+        self.repo.checkout_tree(
+                    tree.as_object(),
+                    Some(CheckoutBuilder::new().force()))
+                 .expect("Failed to checkout tree");
     }
 
-    fn sync_for_domain(repos: Vec<Self>, refspecs: Refspecs, max_threads: usize, hold: bool, proxy: Option<&str>) {
+    fn sync_for_domain(
+        repos: Vec<Self>,
+        refspecs: Refspecs,
+        max_threads: usize,
+        hold: bool,
+        proxy: Option<&str>
+    ) {
         let (proxy_string, has_proxy) = match proxy {
             Some(proxy) => (proxy.to_owned(), true),
             None => (String::new(), false),
@@ -357,7 +409,9 @@ impl Repo {
                 if repo.healthy() {
                     continue;
                 } else {
-                    println!("Holdgit set but repo '{}' not healthy, still need update", repo.path.display());
+                    println!(
+                        "Holdgit set but repo '{}' not healthy, need update",
+                        repo.path.display());
                 }
             }
             let proxy_string_thread = proxy_string.clone();
@@ -376,7 +430,12 @@ impl Repo {
         }
     }
 
-    pub(crate) fn sync_mt(repos_map: HashMap<u64, Vec<Self>>, refspecs: Refspecs, hold: bool, proxy: Option<&str>) {
+    pub(crate) fn sync_mt(
+        repos_map: HashMap<u64, Vec<Self>>,
+        refspecs: Refspecs,
+        hold: bool,
+        proxy: Option<&str>
+    ) {
         println!("Syncing repos with {} groups", repos_map.len());
         let (proxy_string, has_proxy) = match proxy {
             Some(proxy) => (proxy.to_owned(), true),
@@ -388,7 +447,8 @@ impl Repo {
                 0xb463cbdec08d6265 => 1, // aur.archlinux.org
                 _ => 4
             };
-            println!("Max {} threads syncing for domain 0x{:x}", max_threads, domain);
+            println!("Max {} threads syncing for domain 0x{:x}",
+                     max_threads, domain);
             let proxy_string_thread = proxy_string.clone();
             let refspecs = refspecs.clone();
             threads.push(thread::spawn(move || {
@@ -396,7 +456,8 @@ impl Repo {
                     true => Some(proxy_string_thread.as_str()),
                     false => None,
                 };
-                Self::sync_for_domain(repos, refspecs, max_threads, hold, proxy);
+                Self::sync_for_domain(
+                    repos, refspecs, max_threads, hold, proxy);
             }));
         }
         for thread in threads {
