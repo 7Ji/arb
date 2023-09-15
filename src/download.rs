@@ -40,7 +40,8 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) {
     let mut command = Command::new("/usr/bin/curl");
     command.env_clear();
     if let Some(proxy) = proxy {
-        command.env("http_proxy", proxy).env("https_proxy", proxy);
+        command.env("http_proxy", proxy)
+               .env("https_proxy", proxy);
     }
     command
         .arg("-qgb")
