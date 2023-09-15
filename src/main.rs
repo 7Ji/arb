@@ -44,4 +44,5 @@ fn main() {
     pkgbuild::prepare_sources(
         pkgbuilds_dir, &mut pkgbuilds, arg.holdgit, arg.skipint, proxy);
     pkgbuild::build_any_needed(&pkgbuilds);
+    pkgbuild::clean_pkgdir(&pkgbuilds);
 }

@@ -587,3 +587,12 @@ pub(crate) fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
     }
     let _ = thread_cleaner.join().expect("Failed to join cleaner thread");
 }
+
+pub(crate) fn clean_pkgdir(pkgbuilds: &Vec<PKGBUILD>) {
+    let mut used: Vec<String> = pkgbuilds.iter().map(
+        |pkgbuild| pkgbuild.pkgid.clone()).collect();
+    used.push(String::from("updated"));
+    used.push(String::from("latest"));
+    used.sort_unstable();
+    source::remove_unused("pkgs", &used);
+}
