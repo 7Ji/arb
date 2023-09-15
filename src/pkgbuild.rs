@@ -444,6 +444,7 @@ fn build(pkgbuild: &PKGBUILD) {
         .current_dir(&pkgbuild.build)
         .env_clear()
         .env("PATH", env::var_os("PATH").expect("Failed to get PATH env"))
+        .env("HOME", env::var_os("HOME").expect("Failed to get HOME env"))
         .env("PKGDEST", &temp_pkgdir.canonicalize().expect("Failed to get absolute path of pkgdir"))
         .env("PKGEXT", ".pkg.tar")
         .arg("--holdver")
