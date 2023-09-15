@@ -387,28 +387,28 @@ fn _print_source(source: &Source) {
 fn get_integ_files(source: &Source) -> Vec<cksums::IntegFile> {
     let mut integ_files = vec![];
     if let Some(ck) = source.ck {
-        integ_files.push(cksums::get_integ_file("sources/file-ck", cksums::Integ::CK { ck }))
+        integ_files.push(cksums::IntegFile::from_integ("sources/file-ck", cksums::Integ::CK { ck }))
     }
     if let Some(md5) = source.md5 {
-        integ_files.push(cksums::get_integ_file("sources/file-md5", cksums::Integ::MD5 { md5 }))
+        integ_files.push(cksums::IntegFile::from_integ("sources/file-md5", cksums::Integ::MD5 { md5 }))
     }
     if let Some(sha1) = source.sha1 {
-        integ_files.push(cksums::get_integ_file("sources/file-sha1", cksums::Integ::SHA1 { sha1 }))
+        integ_files.push(cksums::IntegFile::from_integ("sources/file-sha1", cksums::Integ::SHA1 { sha1 }))
     }
     if let Some(sha224) = source.sha224 {
-        integ_files.push(cksums::get_integ_file("sources/file-sha224", cksums::Integ::SHA224 { sha224 }))
+        integ_files.push(cksums::IntegFile::from_integ("sources/file-sha224", cksums::Integ::SHA224 { sha224 }))
     }
     if let Some(sha256) = source.sha256 {
-        integ_files.push(cksums::get_integ_file("sources/file-sha256", cksums::Integ::SHA256 { sha256 } ))
+        integ_files.push(cksums::IntegFile::from_integ("sources/file-sha256", cksums::Integ::SHA256 { sha256 } ))
     }
     if let Some(sha384) = source.sha384 {
-        integ_files.push(cksums::get_integ_file("sources/file-sha384", cksums::Integ::SHA384 { sha384 } ))
+        integ_files.push(cksums::IntegFile::from_integ("sources/file-sha384", cksums::Integ::SHA384 { sha384 } ))
     }
     if let Some(sha512) = source.sha512 {
-        integ_files.push(cksums::get_integ_file("sources/file-sha512", cksums::Integ::SHA512 { sha512 }))
+        integ_files.push(cksums::IntegFile::from_integ("sources/file-sha512", cksums::Integ::SHA512 { sha512 }))
     }
     if let Some(b2) = source.b2 {
-        integ_files.push(cksums::get_integ_file("sources/file-b2", cksums::Integ::B2 { b2 } ))
+        integ_files.push(cksums::IntegFile::from_integ("sources/file-b2", cksums::Integ::B2 { b2 } ))
     }
     integ_files
 }
@@ -431,7 +431,7 @@ fn download_netfile_source(netfile_source: &Source, integ_file: &cksums::IntegFi
             NetfileProtocol::Rsync => download::rsync(url, path),
             NetfileProtocol::Scp => download::scp(url, path),
         }
-        if cksums::valid_integ_file(integ_file, skipint) {
+        if integ_file.valid(skipint) {
             return
         }
     }
@@ -448,14 +448,12 @@ fn download_netfile_source(netfile_source: &Source, integ_file: &cksums::IntegFi
             for _  in 0..2 {
                 println!("Downloading '{}' to '{}'", netfile_source.url, path.display());
                 download::http(url, path, proxy);
-                if cksums::valid_integ_file(integ_file, skipint) {
+                if integ_file.valid(skipint) {
                     return
                 }
             }
         }
     }
-    
-
     panic!("Failed to download netfile source '{}'", netfile_source.url);
 }
 
@@ -468,7 +466,7 @@ fn cache_netfile_source(netfile_source: &Source, integ_files: &Vec<cksums::Integ
     let mut bad_files = vec![];
     for integ_file in integ_files.iter() {
         println!("'{}' <= '{}'", integ_file.get_path().display(), netfile_source.url);
-        if cksums::valid_integ_file(integ_file, skipint) {
+        if integ_file.valid(skipint) {
             good_files.push(integ_file);
         } else {
             bad_files.push(integ_file);
@@ -483,7 +481,7 @@ fn cache_netfile_source(netfile_source: &Source, integ_files: &Vec<cksums::Integ
     }
     while let Some(bad_file) = bad_files.pop() {
         match good_files.last() {
-            Some(good_file) => cksums::clone_integ_file(bad_file, good_file),
+            Some(good_file) => cksums::IntegFile::clone_files(bad_file, good_file),
             None => download_netfile_source(netfile_source, bad_file, skipint, proxy),
         }
         good_files.push(bad_file);
