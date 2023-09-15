@@ -70,7 +70,8 @@ fn _cksum(input: &[u8]) {
         len_oct.push(0);
     }
     digest.update(&len_oct);
-    println!("No length: {}, has length: {}", CKSUM.checksum(input), digest.finalize());
+    println!("No length: {}, has length: {}", 
+                CKSUM.checksum(input), digest.finalize());
 }
 
 fn cksum(file: &mut File) -> u32 {
@@ -125,7 +126,9 @@ fn md5sum(file: &mut File) -> [u8; 16] {
     context.compute().0
 }
 
-fn generic_sum<T: Digest + OutputSizeUser>(file: &mut File) -> GenericArray<u8, T::OutputSize> {
+fn generic_sum<T: Digest + OutputSizeUser>(file: &mut File) 
+    -> GenericArray<u8, T::OutputSize> 
+{
     let mut hasher = T::new();
     let mut buffer = vec![0; BUFFER_SIZE];
     loop {
@@ -169,7 +172,9 @@ fn b2sum(file: &mut File) -> [u8; 64] {
     return generic_sum::<Blake2b512>(file).into();
 }
 
-pub(crate) fn optional_equal<C:PartialEq>(a: &Option<C>, b: &Option<C>) -> bool {
+pub(crate) fn optional_equal<C:PartialEq>(a: &Option<C>, b: &Option<C>)
+    -> bool 
+{
     if let Some(a) = a {
         if let Some(b) = b {
             if a == b {
@@ -222,32 +227,44 @@ impl IntegFile {
             return false
         }
         if skipint {
-            eprintln!("Integrity check skipped for existing '{}'", self.path.display());
+            eprintln!("Integrity check skipped for existing '{}'",
+                        self.path.display());
             return true
         }
         let mut file = match File::open(&self.path) {
             Ok(file) => file,
             Err(e) => {
-                eprintln!("Failed to open file '{}': {}", self.path.display(), e);
+                eprintln!("Failed to open file '{}': {}", 
+                            self.path.display(), e);
                 match std::fs::remove_file(&self.path) {
                     Ok(_) => (),
                     Err(e) => {
-                        eprintln!("Failed to remove file '{}' that we could not access correctly: {}", self.path.display(), e);
-                        panic!("Failed to remove file we could not open correctly");
+                        eprintln!(
+                            "Failed to remove bad file '{}': {}", 
+                                  self.path.display(), e);
+                        panic!("Failed to remove bad file");
                     },
                 }
                 return false
             },
         };
         return match self.integ {
-            Integ::CK { ck } => cksum(&mut file) == ck,
-            Integ::MD5 { md5 } => md5sum(&mut file) == md5,
-            Integ::SHA1 { sha1 } => sha1sum(&mut file) == sha1,
-            Integ::SHA224 { sha224 } => sha224sum(&mut file) == sha224,
-            Integ::SHA256 { sha256 } => sha256sum(&mut file) == sha256,
-            Integ::SHA384 { sha384 } => sha384sum(&mut file) == sha384,
-            Integ::SHA512 { sha512 } => sha512sum(&mut file) == sha512,
-            Integ::B2 { b2 } => b2sum(&mut file) == b2,
+            Integ::CK { ck } => 
+                cksum(&mut file) == ck,
+            Integ::MD5 { md5 } => 
+                md5sum(&mut file) == md5,
+            Integ::SHA1 { sha1 } => 
+                sha1sum(&mut file) == sha1,
+            Integ::SHA224 { sha224 } => 
+                sha224sum(&mut file) == sha224,
+            Integ::SHA256 { sha256 } => 
+                sha256sum(&mut file) == sha256,
+            Integ::SHA384 { sha384 } => 
+                sha384sum(&mut file) == sha384,
+            Integ::SHA512 { sha512 } => 
+                sha512sum(&mut file) == sha512,
+            Integ::B2 { b2 } => 
+                b2sum(&mut file) == b2,
         }
     }
     
@@ -256,7 +273,8 @@ impl IntegFile {
             match remove_file(&target.path) {
                 Ok(_) => (),
                 Err(e) => {
-                    eprintln!("Failed to remove file {}: {}", &target.path.display(), e);
+                    eprintln!("Failed to remove file {}: {}", 
+                        &target.path.display(), e);
                     panic!("Failed to remove existing target file");
                 },
             }
@@ -264,30 +282,34 @@ impl IntegFile {
         match hard_link(&source.path, &target.path) {
             Ok(_) => (),
             Err(e) => {
-                eprintln!("Failed to link {} to {}: {}", target.path.display(), source.path.display(), e);
+                eprintln!("Failed to link {} to {}: {}",
+                            target.path.display(), source.path.display(), e);
                 let mut target_file = match File::create(&target.path) {
                     Ok(target_file) => target_file,
                     Err(e) => {
-                        eprintln!("Failed to open {} as write-only: {}", target.path.display(), e);
+                        eprintln!("Failed to open {} as write-only: {}",
+                                    target.path.display(), e);
                         panic!("Failed to open target file as write-only");
                     },
                 };
                 let mut source_file = match File::open(&source.path) {
                     Ok(source_file) => source_file,
                     Err(e) => {
-                        eprintln!("Failed to open {} as read-only: {}", source.path.display(), e);
+                        eprintln!("Failed to open {} as read-only: {}",
+                                    source.path.display(), e);
                         panic!("Failed to open source file as read-only");
                     },
                 };
                 let mut buffer = vec![0; BUFFER_SIZE];
                 loop {
-                    let size_chunk = match source_file.read(&mut buffer) {
-                        Ok(size) => size,
-                        Err(e) => {
-                            eprintln!("Failed to read file: {}", e);
-                            panic!("Failed to read file");
-                        },
-                    };
+                    let size_chunk = match 
+                        source_file.read(&mut buffer) {
+                            Ok(size) => size,
+                            Err(e) => {
+                                eprintln!("Failed to read file: {}", e);
+                                panic!("Failed to read file");
+                            },
+                        };
                     if size_chunk == 0 {
                         break
                     }
@@ -295,7 +317,9 @@ impl IntegFile {
                     match target_file.write_all(chunk) {
                         Ok(_) => (),
                         Err(e) => {
-                            eprintln!("Failed to write {} bytes into target file {}: {}", size_chunk, target.path.display(), e);
+                            eprintln!(
+                                "Failed to write {} bytes into file '{}': {}",
+                                size_chunk, target.path.display(), e);
                             panic!("Failed to write into target file");
                         },
                     }
