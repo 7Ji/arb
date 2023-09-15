@@ -1,8 +1,31 @@
-use std::{path::{Path, PathBuf}, io::Write, collections::HashMap, thread::{self, JoinHandle}};
-use git2::{Repository, Progress, RemoteCallbacks, FetchOptions, ProxyOptions, Remote, Tree, Blob, Commit, Oid, build::CheckoutBuilder, Branch};
-use xxhash_rust::xxh3::xxh3_64;
-
 use crate::threading;
+use git2::{
+        Blob,
+        Branch,
+        build::CheckoutBuilder,
+        Commit,
+        FetchOptions,
+        Oid,
+        Remote,
+        RemoteCallbacks,
+        Repository,
+        Progress,
+        ProxyOptions,
+        Tree,
+    };
+use std::{
+        collections::HashMap, 
+        io::Write, 
+        path::{
+            Path, 
+            PathBuf
+        },
+        thread::{
+            self,
+            JoinHandle
+        }
+    };
+use xxhash_rust::xxh3::xxh3_64;
 
 const REFSPECS_HEADS_TAGS: &[&str] = &[
     "+refs/heads/*:refs/heads/*", 

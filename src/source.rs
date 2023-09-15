@@ -1,8 +1,34 @@
-use std::{path::{Path, PathBuf}, process::Command, collections::HashMap, str::FromStr, thread::{self, JoinHandle}, fs::{DirBuilder, read_dir, remove_file, remove_dir_all}, os::unix::fs::symlink};
+use crate::{
+        cksums,
+        download,
+        git::{
+            self,
+            ToReposMap,
+        },
+        threading,
+    };
 use hex::FromHex;
+use std::{
+        collections::HashMap,
+        fs::{
+            DirBuilder,
+            read_dir,
+            remove_dir_all,
+            remove_file,
+        },
+        os::unix::fs::symlink,
+        path::{
+            Path, 
+            PathBuf,
+        },
+        process::Command,
+        str::FromStr,
+        thread::{
+            self,
+            JoinHandle,
+        }
+    };
 use xxhash_rust::xxh3::xxh3_64;
-
-use crate::{cksums, git::{self, ToReposMap}, download, threading};
 
 
 #[derive(Debug, Clone)]

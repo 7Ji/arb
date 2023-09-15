@@ -1,8 +1,34 @@
-use std::{path::{PathBuf, Path}, fs::{File, hard_link, remove_file}, io::{Read, Write}};
 use blake2::Blake2b512;
 use crc;
-use sha1::{Sha1, Digest, digest::{OutputSizeUser, generic_array::GenericArray}};
-use sha2::{Sha224, Sha256, Sha384, Sha512};
+use sha1::{
+        Digest,
+        digest::{
+            OutputSizeUser, 
+            generic_array::GenericArray,
+        },
+        Sha1,
+    };
+use sha2::{
+        Sha224, 
+        Sha256, 
+        Sha384, 
+        Sha512,
+    };
+use std::{
+        fs::{
+            File,
+            hard_link,
+            remove_file
+        }, 
+        io::{
+            Read,
+            Write
+        },
+        path::{
+            PathBuf, 
+            Path
+        }, 
+    };
 
 pub(crate) enum Integ {
     CK {ck: u32},

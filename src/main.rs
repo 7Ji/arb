@@ -1,12 +1,11 @@
 use clap::Parser;
-
 use tempfile::tempdir;
 
+mod cksums;
+mod download;
 mod git;
 mod pkgbuild;
 mod source;
-mod cksums;
-mod download;
 mod threading;
 
 #[derive(Parser, Debug)]

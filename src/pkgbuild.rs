@@ -1,6 +1,39 @@
-use std::{path::{PathBuf, Path}, collections::HashMap, thread::{self, sleep, JoinHandle}, io::Write, process::Command, fs::{DirBuilder, remove_dir_all, create_dir_all, rename}, time::Duration, os::unix::fs::symlink, env};
+use crate::{
+        git,
+        source::{
+            self,
+            MapByDomain,
+        },
+        threading::{
+            self,
+            wait_if_too_busy,
+        },
+    };
 use git2::Oid;
-use crate::{git, source::{self, MapByDomain}, threading::{self, wait_if_too_busy}};
+use std::{
+        collections::HashMap,
+        env,
+        fs::{ 
+            create_dir_all,
+            DirBuilder,
+            remove_dir_all,
+            rename,
+        },
+        io::Write,
+        os::unix::fs::symlink,
+        path::{
+            PathBuf,
+            Path,
+        },
+        process::Command,
+        thread::{
+            self,
+            sleep,
+            JoinHandle,
+        },
+        time::Duration,
+    };
+
 
 #[derive(Clone)]
 enum Pkgver {

@@ -1,4 +1,7 @@
-use std::{path::Path, process::Command};
+use std::{
+        path::Path, 
+        process::Command
+    };
 
 pub(crate) fn file(url: &str, path: &Path) {
     Command::new("/usr/bin/curl")
