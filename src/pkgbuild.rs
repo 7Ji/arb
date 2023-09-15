@@ -80,46 +80,54 @@ where
     let config: HashMap<String, String> = 
         serde_yaml::from_reader(f)
             .expect("Failed to parse into config");
-    let mut pkgbuilds: Vec<PKGBUILD> = config.iter().map(|(name, url)| {
-        let mut build = PathBuf::from("build");
-        build.push(name);
-        let git = PathBuf::from(format!("sources/PKGBUILD/{}", name));
-        PKGBUILD {
-            name: name.clone(),
-            url: url.clone(),
-            build,
-            git,
-            pkgid: String::new(),
-            pkgdir: PathBuf::from("pkgs"),
-            commit: Oid::zero(),
-            pkgver: Pkgver::Plain,
-            extract: false,
-            sources: vec![],
-        }
+    let mut pkgbuilds: Vec<PKGBUILD> = config.iter().map(
+        |(name, url)| {
+            let mut build = PathBuf::from("build");
+            build.push(name);
+            let git = 
+                PathBuf::from(format!("sources/PKGBUILD/{}", name));
+            PKGBUILD {
+                name: name.clone(),
+                url: url.clone(),
+                build,
+                git,
+                pkgid: String::new(),
+                pkgdir: PathBuf::from("pkgs"),
+                commit: Oid::zero(),
+                pkgver: Pkgver::Plain,
+                extract: false,
+                sources: vec![],
+            }
     }).collect();
-    pkgbuilds.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+    pkgbuilds.sort_unstable_by(
+        |a, b| a.name.cmp(&b.name));
     pkgbuilds
 }
 
 fn sync_pkgbuilds(pkgbuilds: &Vec<PKGBUILD>, hold: bool, proxy: Option<&str>) {
-    let map = PKGBUILD::map_by_domain(pkgbuilds);
-    let repos_map = git::ToReposMap::to_repos_map(map, "sources/PKGBUILD");
+    let map = 
+        PKGBUILD::map_by_domain(pkgbuilds);
+    let repos_map = 
+        git::ToReposMap::to_repos_map(map, "sources/PKGBUILD");
     git::Repo::sync_mt(repos_map, git::Refspecs::MasterOnly, hold, proxy);
 }
 
 fn healthy_pkgbuild(pkgbuild: &mut PKGBUILD, set_commit: bool) -> bool {
-    let repo = match git::Repo::open_bare(&pkgbuild.git, &pkgbuild.url) {
-        Some(repo) => repo,
-        None => {
-            eprintln!("Failed to open or init bare repo {}", pkgbuild.git.display());
-            return false
-        }
-    };
+    let repo = 
+        match git::Repo::open_bare(&pkgbuild.git, &pkgbuild.url) {
+            Some(repo) => repo,
+            None => {
+                eprintln!("Failed to open or init bare repo {}",
+                pkgbuild.git.display());
+                return false
+            }
+        };
     if set_commit {
         match repo.get_branch_commit_id("master") {
             Some(id) => pkgbuild.commit = id,
             None => {
-                eprintln!("Failed to set commit id for pkgbuild {}", pkgbuild.name);
+                eprintln!("Failed to set commit id for pkgbuild {}", 
+                            pkgbuild.name);
                 return false
             },
         }
@@ -150,7 +158,8 @@ where
     let dir = dir.as_ref();
     for pkgbuild in pkgbuilds.iter() {
         let path = dir.join(&pkgbuild.name);
-        let repo = git::Repo::open_bare(&pkgbuild.git, &pkgbuild.url)
+        let repo =
+            git::Repo::open_bare(&pkgbuild.git, &pkgbuild.url)
             .expect("Failed to open repo");
         let blob = repo.get_pkgbuild_blob()
             .expect("Failed to get PKGBUILD blob");
@@ -186,13 +195,17 @@ fn ensure_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
     let mut deps = vec![];
     for pkgbuild in pkgbuilds.iter() {
         let pkgbuild_file = dir.as_ref().join(&pkgbuild.name);
-        threading::wait_if_too_busy_with_callback(&mut threads, 30, |mut other| {
-            deps.append(&mut other);
-        });
+        threading::wait_if_too_busy_with_callback(
+            &mut threads, 30, 
+            |mut other| {
+                deps.append(&mut other);
+            }
+        );
         threads.push(thread::spawn(move || get_dep(&pkgbuild_file)));
     }
     for thread in threads {
-        let mut other = thread.join().expect("Failed to join finished thread");
+        let mut other = 
+            thread.join().expect("Failed to join finished thread");
         deps.append(&mut other);
     }
     if deps.len() == 0 {
@@ -212,7 +225,9 @@ fn ensure_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
             0 => return,
             127 => (),
             _ => {
-                eprintln!("Pacman returned unexpected {} which marks fatal error", code);
+                eprintln!(
+                    "Pacman returned unexpected {} which marks fatal error",
+                    code);
                 panic!("Pacman fatal error");
             }
         },
@@ -238,7 +253,8 @@ fn ensure_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
         .args(&deps)
         .spawn()
         .expect("Failed to run sudo pacman to install missing deps");
-    let exit_status = child.wait().expect("Failed to wait for child sudo pacman process");
+    let exit_status = child.wait()
+        .expect("Failed to wait for child sudo pacman process");
     if let Some(code) = exit_status.code() {
         if code == 0 {
             return
@@ -252,7 +268,8 @@ fn get_all_sources<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>)
     -> (Vec<source::Source>, Vec<source::Source>, Vec<source::Source>) {
     let mut sources_non_unique = vec![];
     for pkgbuild in pkgbuilds.iter_mut() {
-        pkgbuild.sources = source::get_sources::<P>(&dir.as_ref().join(&pkgbuild.name))
+        pkgbuild.sources = source::get_sources::<P>(
+            &dir.as_ref().join(&pkgbuild.name))
     }
     for pkgbuild in pkgbuilds.iter() {
         for source in pkgbuild.sources.iter() {
@@ -262,25 +279,30 @@ fn get_all_sources<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>)
     source::unique_sources(&sources_non_unique)
 }
 
-pub(crate) fn get_pkgbuilds<P>(config: P, hold: bool, proxy: Option<&str>) -> Vec<PKGBUILD>
+pub(crate) fn get_pkgbuilds<P>(config: P, hold: bool, proxy: Option<&str>)
+    -> Vec<PKGBUILD>
 where 
     P:AsRef<Path>
 {
     let mut pkgbuilds = read_pkgbuilds_yaml(config);
     let update_pkg = if hold {
         if healthy_pkgbuilds(&mut pkgbuilds, true) {
-            println!("Holdpkg set and all PKGBUILDs healthy, no need to update");
+            println!(
+                "Holdpkg set and all PKGBUILDs healthy, no need to update");
             false
         } else {
-            eprintln!("Warning: holdpkg set, but unhealthy PKGBUILDs found, still need to update");
+            eprintln!(
+                "Warning: holdpkg set, but PKGBUILDs unhealthy, need update");
             true
         }
     } else {
         true
     };
     // Should not need sort, as it's done when pkgbuilds was read
-    let used: Vec<String> = pkgbuilds.iter().map(|pkgbuild| pkgbuild.name.clone()).collect();
-    let cleaner = thread::spawn(move || source::remove_unused("sources/PKGBUILD", &used));
+    let used: Vec<String> = pkgbuilds.iter().map(
+        |pkgbuild| pkgbuild.name.clone()).collect();
+    let cleaner = thread::spawn(
+        move || source::remove_unused("sources/PKGBUILD", &used));
     if update_pkg {
         sync_pkgbuilds(&pkgbuilds, hold, proxy);
         if ! healthy_pkgbuilds(&mut pkgbuilds, true) {
@@ -291,9 +313,12 @@ where
     pkgbuilds
 }
 
-fn extract_source<P: AsRef<Path>>(dir: P, repo_path: P, repo_url: &str, sources: &Vec<source::Source>) {
+fn extract_source<P: AsRef<Path>>(
+    dir: P, repo_path: P, repo_url: &str, sources: &Vec<source::Source>
+) {
     create_dir_all(&dir).expect("Failed to create dir");
-    let repo = git::Repo::open_bare(repo_path, repo_url).expect("Failed to open repo");
+    let repo = git::Repo::open_bare(repo_path, repo_url)
+        .expect("Failed to open repo");
     repo.checkout_branch(&dir, "master");
     source::extract(&dir, sources);
     const SCRIPT: &str = include_str!("scripts/extract_sources.bash");
@@ -302,21 +327,26 @@ fn extract_source<P: AsRef<Path>>(dir: P, repo_path: P, repo_url: &str, sources:
         .arg("-ec")
         .arg(SCRIPT)
         .arg("Source extractor")
-        .arg(dir.as_ref().canonicalize().expect("Failed to canonicalize dir"))
+        .arg(dir.as_ref().canonicalize()
+            .expect("Failed to canonicalize dir"))
         .spawn()
         .expect("Failed to run script")
         .wait()
         .expect("Failed to wait for spawned script");
 }
 
-fn extract_source_and_get_pkgver<P: AsRef<Path>>(dir: P, repo_path: P, repo_url: &str, sources: &Vec<source::Source>) -> String {
+fn extract_source_and_get_pkgver<P: AsRef<Path>>(
+    dir: P, repo_path: P, repo_url: &str, sources: &Vec<source::Source>
+) -> String 
+{
     extract_source(&dir, &repo_path, &repo_url, sources);
     let output = Command::new("/bin/bash")
         .env_clear()
         .arg("-ec")
         .arg("cd $1; source ../PKGBUILD; pkgver")
         .arg("Pkgver runner")
-        .arg(dir.as_ref().join("src").canonicalize().expect("Failed to canonicalize dir"))
+        .arg(dir.as_ref().join("src").canonicalize()
+            .expect("Failed to canonicalize dir"))
         .output()
         .expect("Failed to run script");
     String::from_utf8_lossy(&output.stdout).trim().to_string()
@@ -346,7 +376,9 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
         thread: JoinHandle<String>
     }
     let mut pkgbuild_threads: Vec<PkgbuildThread> = vec![];
-    for pkgbuild in pkgbuilds.iter_mut().filter(|pkgbuild| pkgbuild.extract) {
+    for pkgbuild in pkgbuilds.iter_mut().filter(
+        |pkgbuild| pkgbuild.extract
+    ) {
         let dir = pkgbuild.build.clone();
         let repo_path = pkgbuild.git.clone();
         let repo_url = pkgbuild.url.clone();
@@ -354,7 +386,9 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
         if pkgbuild_threads.len() > 20 {
             let mut thread_id_finished = None;
             loop {
-                for (thread_id, pkgbuild_thread) in pkgbuild_threads.iter().enumerate() {
+                for (thread_id, pkgbuild_thread) in 
+                    pkgbuild_threads.iter().enumerate()
+                {
                     if pkgbuild_thread.thread.is_finished() {
                         thread_id_finished = Some(thread_id);
                         break;
@@ -367,31 +401,42 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
                 }
             }
             if let Some(thread_id_finished) = thread_id_finished {
-                let pkgbuild_thread = pkgbuild_threads.swap_remove(thread_id_finished);
-                let pkgver = pkgbuild_thread.thread.join().expect("Failed to join finished thread");
+                let pkgbuild_thread =
+                    pkgbuild_threads.swap_remove(thread_id_finished);
+                let pkgver = pkgbuild_thread.thread
+                    .join()
+                    .expect("Failed to join finished thread");
                 pkgbuild_thread.pkgbuild.pkgver = Pkgver::Func { pkgver };
             } else {
                 panic!("Failed to get finished thread ID")
             }
         }
-        pkgbuild_threads.push(PkgbuildThread { pkgbuild, thread: thread::spawn(move || extract_source_and_get_pkgver(dir, repo_path, &repo_url, &sources))});
+        pkgbuild_threads.push(PkgbuildThread {
+            pkgbuild,
+            thread: thread::spawn(
+                move || extract_source_and_get_pkgver(
+                    dir, repo_path, &repo_url, &sources))});
     }
     for pkgbuild_thread in pkgbuild_threads {
-        let pkgver = pkgbuild_thread.thread.join().expect("Failed to join finished thread");
+        let pkgver = pkgbuild_thread.thread
+            .join()
+            .expect("Failed to join finished thread");
         pkgbuild_thread.pkgbuild.pkgver = Pkgver::Func { pkgver };
     }
 }
 
 fn fill_all_pkgdirs(pkgbuilds: &mut Vec<PKGBUILD>) {
     for pkgbuild in pkgbuilds.iter_mut() {
-        let mut pkgid = format!("{}-{}", pkgbuild.name, pkgbuild.commit);
+        let mut pkgid = format!(
+            "{}-{}", pkgbuild.name, pkgbuild.commit);
         if let Pkgver::Func { pkgver } = &pkgbuild.pkgver {
             pkgid.push('-');
             pkgid.push_str(&pkgver);
         }
         pkgbuild.pkgdir.push(&pkgid);
         pkgbuild.pkgid = pkgid;
-        println!("Pkgdir for '{}': '{}'", pkgbuild.name, pkgbuild.pkgdir.display());
+        println!("Pkgdir for '{}': '{}'", 
+            pkgbuild.name, pkgbuild.pkgdir.display());
     }
 }
 
@@ -405,11 +450,14 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
             }
         }
         if built { // Does not need build
-            println!("'{}' already built, no need to build", pkgbuild.pkgdir.display());
+            println!("'{}' already built, no need to build", 
+                pkgbuild.pkgdir.display());
             if pkgbuild.extract {
                 let dir = pkgbuild.build.clone();
                 wait_if_too_busy(&mut threads, 20);
-                threads.push(thread::spawn(|| remove_dir_all(dir).expect("Failed to remove dir")));
+                threads.push(thread::spawn(||
+                    remove_dir_all(dir)
+                    .expect("Failed to remove dir")));
                 pkgbuild.extract = false;
             }
         } else {
@@ -419,7 +467,8 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
                 let repo_url = pkgbuild.url.clone();
                 let sources = pkgbuild.sources.clone();
                 wait_if_too_busy(&mut threads, 20);
-                threads.push(thread::spawn(move || extract_source(dir, repo_path, &repo_url, &sources)));
+                threads.push(thread::spawn(move ||
+                    extract_source(dir, repo_path, &repo_url, &sources)));
                 pkgbuild.extract = true;
             }
         }
@@ -429,15 +478,25 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
     }
 }
 
-pub(crate) fn prepare_sources<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>, holdgit: bool, skipint: bool, proxy: Option<&str>) {
-    let cleaner = thread::spawn(|| remove_dir_all("build"));
+pub(crate) fn prepare_sources<P: AsRef<Path>>(
+    dir: P,
+    pkgbuilds: &mut Vec<PKGBUILD>,
+    holdgit: bool,
+    skipint: bool,
+    proxy: Option<&str>
+) {
+    let cleaner = 
+        thread::spawn(|| remove_dir_all("build"));
     dump_pkgbuilds(&dir, pkgbuilds);
     ensure_deps(&dir, pkgbuilds);
     let (netfile_sources, git_sources, _) 
         = get_all_sources(&dir, pkgbuilds);
-    source::cache_sources_mt(&netfile_sources, &git_sources, holdgit, skipint, proxy);
-    let _ = cleaner.join().expect("Failed to join build dir cleaner thread");
-    let cleaners = source::cleanup(netfile_sources, git_sources);
+    source::cache_sources_mt(
+        &netfile_sources, &git_sources, holdgit, skipint, proxy);
+    let _ = cleaner.join()
+        .expect("Failed to join build dir cleaner thread");
+    let cleaners = 
+        source::cleanup(netfile_sources, git_sources);
     fill_all_pkgvers(dir, pkgbuilds);
     fill_all_pkgdirs(pkgbuilds);
     extract_if_need_build(pkgbuilds);
@@ -447,16 +506,23 @@ pub(crate) fn prepare_sources<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUI
 }
 
 fn build(pkgbuild: &PKGBUILD) {
-    let mut temp_name = pkgbuild.pkgdir.file_name().expect("Failed to get file name").to_os_string();
+    let mut temp_name = pkgbuild.pkgdir.file_name()
+        .expect("Failed to get file name").to_os_string();
     temp_name.push(".temp");
     let temp_pkgdir = pkgbuild.pkgdir.with_file_name(temp_name);
     let _ = create_dir_all(&temp_pkgdir);
     Command::new("/usr/bin/makepkg")
         .current_dir(&pkgbuild.build)
         .env_clear()
-        .env("PATH", env::var_os("PATH").expect("Failed to get PATH env"))
-        .env("HOME", env::var_os("HOME").expect("Failed to get HOME env"))
-        .env("PKGDEST", &temp_pkgdir.canonicalize().expect("Failed to get absolute path of pkgdir"))
+        .env("PATH", 
+            env::var_os("PATH")
+            .expect("Failed to get PATH env"))
+        .env("HOME",
+            env::var_os("HOME")
+            .expect("Failed to get HOME env"))
+        .env("PKGDEST", 
+            &temp_pkgdir.canonicalize()
+            .expect("Failed to get absolute path of pkgdir"))
         .env("PKGEXT", ".pkg.tar")
         .arg("--holdver")
         .arg("--noextract")
@@ -466,13 +532,17 @@ fn build(pkgbuild: &PKGBUILD) {
         .wait()
         .expect("Failed to wait for makepkg");
     let build = pkgbuild.build.clone();
-    let thread_cleaner = thread::spawn(|| remove_dir_all(build));
+    let thread_cleaner = 
+        thread::spawn(|| remove_dir_all(build));
     let _ = remove_dir_all(&pkgbuild.pkgdir);
-    rename(&temp_pkgdir, &pkgbuild.pkgdir).expect("Failed to move result pkgdir");
+    rename(&temp_pkgdir, &pkgbuild.pkgdir)
+        .expect("Failed to move result pkgdir");
     let mut rel = PathBuf::from("..");
     rel.push(&pkgbuild.pkgid);
     let updated = PathBuf::from("pkgs/updated");
-    for entry in pkgbuild.pkgdir.read_dir().expect("Failed to read dir") {
+    for entry in 
+        pkgbuild.pkgdir.read_dir().expect("Failed to read dir") 
+    {
         if let Ok(entry) = entry {
             let original = rel.join(entry.file_name());
             let link = updated.join(entry.file_name());
@@ -499,12 +569,15 @@ pub(crate) fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
     for thread in threads {
         thread.join().expect("Failed to join finished builder thread");
     }
-    let thread_cleaner = thread::spawn(|| remove_dir_all("build"));
+    let thread_cleaner =
+        thread::spawn(|| remove_dir_all("build"));
     let rel = PathBuf::from("..");
     let latest = PathBuf::from("pkgs/latest");
     for pkgbuild in pkgbuilds.iter() {
         let rel = rel.join(&pkgbuild.pkgid);
-        for entry in pkgbuild.pkgdir.read_dir().expect("Failed to read dir") {
+        for entry in 
+            pkgbuild.pkgdir.read_dir().expect("Failed to read dir") 
+        {
             if let Ok(entry) = entry {
                 let original = rel.join(entry.file_name());
                 let link = latest.join(entry.file_name());
