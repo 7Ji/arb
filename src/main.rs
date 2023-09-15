@@ -15,7 +15,7 @@ struct Arg {
     #[arg(default_value_t = String::from("PKGBUILDs.yaml"))]
     pkgbuilds: String,
 
-    /// HTTP proxy to retry for git updating and http(s) 
+    /// HTTP proxy to retry for git updating and http(s)
     /// netfiles if attempt without proxy failed
     #[arg(short, long)]
     proxy: Option<String>,
@@ -36,10 +36,10 @@ struct Arg {
 fn main() {
     let arg = Arg::parse();
     let proxy = arg.proxy.as_deref();
-    let mut pkgbuilds = 
+    let mut pkgbuilds =
         pkgbuild::get_pkgbuilds(
             &arg.pkgbuilds, arg.holdpkg, proxy);
-    let pkgbuilds_dir = 
+    let pkgbuilds_dir =
         tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
     pkgbuild::prepare_sources(
         pkgbuilds_dir, &mut pkgbuilds, arg.holdgit, arg.skipint, proxy);

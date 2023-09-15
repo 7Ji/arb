@@ -14,10 +14,10 @@ use git2::{
         Tree,
     };
 use std::{
-        collections::HashMap, 
-        io::Write, 
+        collections::HashMap,
+        io::Write,
         path::{
-            Path, 
+            Path,
             PathBuf
         },
         thread::{
@@ -28,7 +28,7 @@ use std::{
 use xxhash_rust::xxh3::xxh3_64;
 
 const REFSPECS_HEADS_TAGS: &[&str] = &[
-    "+refs/heads/*:refs/heads/*", 
+    "+refs/heads/*:refs/heads/*",
     "+refs/tags/*:refs/tags/*"
 ];
 
@@ -59,7 +59,7 @@ pub(crate) trait ToReposMap {
     fn url(&self) -> &str;
     fn path(&self) -> Option<&Path>;
     fn to_repos_map(map: HashMap<u64, Vec<Self>>, parent: &str)
-        -> HashMap<u64, Vec<Repo>> 
+        -> HashMap<u64, Vec<Repo>>
     where Self: Sized{
         let mut repos_map = HashMap::new();
         let parent = PathBuf::from(parent);
@@ -96,7 +96,7 @@ pub(crate) trait ToReposMap {
 }
 
 fn gcb_transfer_progress(progress: Progress<'_>) -> bool {
-    let network_pct = 
+    let network_pct =
         (100 * progress.received_objects()) / progress.total_objects();
     let index_pct =
         (100 * progress.indexed_objects()) / progress.total_objects();
@@ -130,7 +130,7 @@ fn fetch_opts_init<'a>() -> FetchOptions<'a> {
             true
         });
     cbs.transfer_progress(gcb_transfer_progress);
-    let mut fetch_opts = 
+    let mut fetch_opts =
         FetchOptions::new();
     fetch_opts.download_tags(git2::AutotagOption::All)
         .prune(git2::FetchPrune::On)
@@ -141,7 +141,7 @@ fn fetch_opts_init<'a>() -> FetchOptions<'a> {
 
 fn fetch_remote(
     remote: &mut Remote,
-    fetch_opts: &mut FetchOptions, 
+    fetch_opts: &mut FetchOptions,
     proxy: Option<&str>,
     refspecs: &[&str]
 ) {
@@ -213,15 +213,15 @@ impl Repo {
                 }
             },
             Err(e) => {
-                eprintln!("Failed to create {}: {}", 
+                eprintln!("Failed to create {}: {}",
                             &path.as_ref().display(), e);
                 None
             }
         }
     }
 
-    pub(crate) fn open_bare<P: AsRef<Path>>(path: P, url: &str) 
-        -> Option<Self> 
+    pub(crate) fn open_bare<P: AsRef<Path>>(path: P, url: &str)
+        -> Option<Self>
     {
         match Repository::open_bare(&path) {
             Ok(repo) => Some(Self {
@@ -234,7 +234,7 @@ impl Repo {
                 e.code() == git2::ErrorCode::NotFound {
                     Self::init_bare(path, url)
                 } else {
-                    eprintln!("Failed to open {}: {}", 
+                    eprintln!("Failed to open {}: {}",
                             path.as_ref().display(), e);
                     None
                 }
@@ -243,7 +243,7 @@ impl Repo {
     }
 
     fn update_head(&self, remote: &Remote) {
-        let heads = 
+        let heads =
                 remote.list().expect("Failed to list remote");
         for head in heads {
             if head.name() == "HEAD" {
@@ -256,9 +256,9 @@ impl Repo {
     }
 
     fn sync(&self, proxy: Option<&str>, refspecs: &[&str]) {
-        println!("Syncing repo '{}' with '{}'", 
+        println!("Syncing repo '{}' with '{}'",
                     &self.path.display(), &self.url);
-        let mut remote = 
+        let mut remote =
             self.repo.remote_anonymous(&self.url)
             .expect("Failed to create temporary remote");
         let mut fetch_opts = fetch_opts_init();
@@ -289,14 +289,14 @@ impl Repo {
             },
         }
     }
-    
+
     pub(crate) fn get_branch_commit_id(&self, branch: &str) -> Option<Oid> {
         match self.get_branch_commit(branch) {
             Some(commit) => Some(commit.id()),
             None => None,
         }
     }
-    
+
     fn get_branch_tree<'a>(&'a self, branch: &str) -> Option<Tree<'a>> {
         let commit = match self.get_branch_commit(branch) {
             Some(commit) => commit,
@@ -313,11 +313,11 @@ impl Repo {
             },
         }
     }
-    
+
     fn get_tree_entry_blob<'a>(&'a self, tree: &Tree, name: &str)
-        -> Option<Blob<'a>> 
+        -> Option<Blob<'a>>
     {
-        let entry = 
+        let entry =
             match tree.get_name(name) {
                 Some(entry) => entry,
                 None => {
@@ -325,7 +325,7 @@ impl Repo {
                     return None
                 },
             };
-        let object = 
+        let object =
             match entry.to_object(&self.repo) {
                 Ok(object) => object,
                 Err(e) => {
@@ -341,9 +341,9 @@ impl Repo {
             },
         }
     }
-    
+
     pub(crate) fn get_branch_entry_blob<'a>(&'a self, branch: &str, name: &str)
-        -> Option<Blob<'a>> 
+        -> Option<Blob<'a>>
     {
         let tree = match self.get_branch_tree(branch) {
             Some(tree) => tree,
@@ -352,17 +352,17 @@ impl Repo {
         self.get_tree_entry_blob(&tree, name)
     }
 
-    pub(crate) fn get_pkgbuild_blob(&self) -> Option<git2::Blob> {        
+    pub(crate) fn get_pkgbuild_blob(&self) -> Option<git2::Blob> {
         self.get_branch_entry_blob("master", "PKGBUILD")
     }
-    
+
     pub(crate) fn healthy(&self) -> bool {
         let head = match self.repo.head() {
             Ok(head) => head,
             Err(e) => {
                 eprintln!("Failed to get head of repo '{}': {}",
                         self.path.display(), e);
-                return false 
+                return false
             },
         };
         return match head.peel_to_commit() {
@@ -374,8 +374,8 @@ impl Repo {
             },
         };
     }
-    
-    pub(crate) fn checkout_branch<P>(&self, target: P, branch: &str) 
+
+    pub(crate) fn checkout_branch<P>(&self, target: P, branch: &str)
     where
         P: AsRef<Path>
     {

@@ -3,15 +3,15 @@ use crc;
 use sha1::{
         Digest,
         digest::{
-            OutputSizeUser, 
+            OutputSizeUser,
             generic_array::GenericArray,
         },
         Sha1,
     };
 use sha2::{
-        Sha224, 
-        Sha256, 
-        Sha384, 
+        Sha224,
+        Sha256,
+        Sha384,
         Sha512,
     };
 use std::{
@@ -19,15 +19,15 @@ use std::{
             File,
             hard_link,
             remove_file
-        }, 
+        },
         io::{
             Read,
             Write
         },
         path::{
-            PathBuf, 
+            PathBuf,
             Path
-        }, 
+        },
     };
 
 pub(crate) enum Integ {
@@ -70,7 +70,7 @@ fn _cksum(input: &[u8]) {
         len_oct.push(0);
     }
     digest.update(&len_oct);
-    println!("No length: {}, has length: {}", 
+    println!("No length: {}, has length: {}",
                 CKSUM.checksum(input), digest.finalize());
 }
 
@@ -126,8 +126,8 @@ fn md5sum(file: &mut File) -> [u8; 16] {
     context.compute().0
 }
 
-fn generic_sum<T: Digest + OutputSizeUser>(file: &mut File) 
-    -> GenericArray<u8, T::OutputSize> 
+fn generic_sum<T: Digest + OutputSizeUser>(file: &mut File)
+    -> GenericArray<u8, T::OutputSize>
 {
     let mut hasher = T::new();
     let mut buffer = vec![0; BUFFER_SIZE];
@@ -173,7 +173,7 @@ fn b2sum(file: &mut File) -> [u8; 64] {
 }
 
 pub(crate) fn optional_equal<C:PartialEq>(a: &Option<C>, b: &Option<C>)
-    -> bool 
+    -> bool
 {
     if let Some(a) = a {
         if let Some(b) = b {
@@ -185,7 +185,7 @@ pub(crate) fn optional_equal<C:PartialEq>(a: &Option<C>, b: &Option<C>)
     false
 }
 
-pub(crate) fn optional_update<C>(target: &mut Option<C>, source: &Option<C>) 
+pub(crate) fn optional_update<C>(target: &mut Option<C>, source: &Option<C>)
 where C: PartialEq + Clone {
     if let Some(target) = target {
         if let Some(source) = source {
@@ -234,13 +234,13 @@ impl IntegFile {
         let mut file = match File::open(&self.path) {
             Ok(file) => file,
             Err(e) => {
-                eprintln!("Failed to open file '{}': {}", 
+                eprintln!("Failed to open file '{}': {}",
                             self.path.display(), e);
                 match std::fs::remove_file(&self.path) {
                     Ok(_) => (),
                     Err(e) => {
                         eprintln!(
-                            "Failed to remove bad file '{}': {}", 
+                            "Failed to remove bad file '{}': {}",
                                   self.path.display(), e);
                         panic!("Failed to remove bad file");
                     },
@@ -249,31 +249,31 @@ impl IntegFile {
             },
         };
         return match self.integ {
-            Integ::CK { ck } => 
+            Integ::CK { ck } =>
                 cksum(&mut file) == ck,
-            Integ::MD5 { md5 } => 
+            Integ::MD5 { md5 } =>
                 md5sum(&mut file) == md5,
-            Integ::SHA1 { sha1 } => 
+            Integ::SHA1 { sha1 } =>
                 sha1sum(&mut file) == sha1,
-            Integ::SHA224 { sha224 } => 
+            Integ::SHA224 { sha224 } =>
                 sha224sum(&mut file) == sha224,
-            Integ::SHA256 { sha256 } => 
+            Integ::SHA256 { sha256 } =>
                 sha256sum(&mut file) == sha256,
-            Integ::SHA384 { sha384 } => 
+            Integ::SHA384 { sha384 } =>
                 sha384sum(&mut file) == sha384,
-            Integ::SHA512 { sha512 } => 
+            Integ::SHA512 { sha512 } =>
                 sha512sum(&mut file) == sha512,
-            Integ::B2 { b2 } => 
+            Integ::B2 { b2 } =>
                 b2sum(&mut file) == b2,
         }
     }
-    
+
     pub(crate) fn clone_files(target: &Self, source: &Self) {
         if target.path.exists() {
             match remove_file(&target.path) {
                 Ok(_) => (),
                 Err(e) => {
-                    eprintln!("Failed to remove file {}: {}", 
+                    eprintln!("Failed to remove file {}: {}",
                         &target.path.display(), e);
                     panic!("Failed to remove existing target file");
                 },
@@ -302,7 +302,7 @@ impl IntegFile {
                 };
                 let mut buffer = vec![0; BUFFER_SIZE];
                 loop {
-                    let size_chunk = match 
+                    let size_chunk = match
                         source_file.read(&mut buffer) {
                             Ok(size) => size,
                             Err(e) => {

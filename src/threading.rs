@@ -2,7 +2,7 @@ use std::{
         thread::{
             JoinHandle,
             sleep,
-        }, 
+        },
         time::Duration,
     };
 
@@ -12,8 +12,8 @@ pub(crate) fn wait_if_too_busy<T>(
     if threads.len() >= max_threads {
         let mut thread_id_finished = None;
         loop {
-            for (thread_id, thread) in 
-                threads.iter().enumerate() 
+            for (thread_id, thread) in
+                threads.iter().enumerate()
             {
                 if thread.is_finished() {
                     thread_id_finished = Some(thread_id);
@@ -43,8 +43,8 @@ pub(crate) fn wait_if_too_busy_with_callback<T, F: FnMut(T)>(
     if threads.len() >= max_threads {
         let mut thread_id_finished = None;
         loop {
-            for (thread_id, thread) in 
-                threads.iter().enumerate() 
+            for (thread_id, thread) in
+                threads.iter().enumerate()
             {
                 if thread.is_finished() {
                     thread_id_finished = Some(thread_id);

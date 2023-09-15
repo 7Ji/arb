@@ -18,7 +18,7 @@ use std::{
         },
         os::unix::fs::symlink,
         path::{
-            Path, 
+            Path,
             PathBuf,
         },
         process::Command,
@@ -108,7 +108,7 @@ pub(crate) struct Source {
     protocol: Protocol,
     url: String,
     hash_url: u64,
-    ck: Option<u32>,     // 32-bit CRC 
+    ck: Option<u32>,     // 32-bit CRC
     md5: Option<[u8; 16]>,   // 128-bit MD5
     sha1: Option<[u8; 20]>,  // 160-bit SHA-1
     sha224: Option<[u8; 28]>,// 224-bit SHA-2
@@ -121,12 +121,12 @@ pub(crate) struct Source {
 pub(crate) trait MapByDomain {
     fn url(&self) -> &str;
     fn map_by_domain(sources: &Vec<Self>) -> HashMap<u64, Vec<Self>>
-    where 
+    where
         Self: Clone + Sized
     {
         let mut map = HashMap::new();
         for source in sources.iter() {
-            let url = 
+            let url =
                 url::Url::from_str(source.url())
                 .expect("Failed to parse URL");
             let domain = xxh3_64(
@@ -162,12 +162,12 @@ impl git::ToReposMap for Source {
 
 
 fn push_source(
-    sources: &mut Vec<Source>, 
-    name: Option<String>, 
+    sources: &mut Vec<Source>,
+    name: Option<String>,
     protocol: Option<Protocol>,
     url: Option<String>,
     hash_url: u64,
-    ck: Option<u32>,     // 32-bit CRC 
+    ck: Option<u32>,     // 32-bit CRC
     md5: Option<[u8; 16]>,   // 128-bit MD5
     sha1: Option<[u8; 20]>,  // 160-bit SHA-1
     sha224: Option<[u8; 28]>,// 224-bit SHA-2
@@ -245,10 +245,10 @@ where
         }
         if line == b"[source]" {
             if started {
-                push_source(&mut sources, 
+                push_source(&mut sources,
                     name, protocol, url, hash_url,
-                    ck, md5, sha1, 
-                    sha224, sha256, sha384, sha512, 
+                    ck, md5, sha1,
+                    sha224, sha256, sha384, sha512,
                     b2);
                 name = None;
                 protocol = None;
@@ -267,7 +267,7 @@ where
             }
             continue;
         }
-        let mut it = 
+        let mut it =
             line.splitn(2, |byte| byte == &b':');
         let key = it.next().expect("Failed to get key");
         let value = it.next().expect("Failed to get value");
@@ -328,10 +328,10 @@ where
             }
         }
     }
-    push_source(&mut sources, 
+    push_source(&mut sources,
         name, protocol, url, hash_url,
-        ck, md5, sha1, 
-        sha224, sha256, sha384, sha512, 
+        ck, md5, sha1,
+        sha224, sha256, sha384, sha512,
         b2);
     sources
 }
@@ -393,15 +393,15 @@ fn push_git_sources(git_sources: &mut Vec<Source>, source: &Source) {
     git_sources.push(source.clone())
 }
 
-pub(crate) fn unique_sources(sources: &Vec<&Source>) 
-    -> (Vec<Source>, Vec<Source>, Vec<Source>) 
+pub(crate) fn unique_sources(sources: &Vec<&Source>)
+    -> (Vec<Source>, Vec<Source>, Vec<Source>)
 {
     let mut local_sources: Vec<Source> = vec![];
     let mut git_sources: Vec<Source> = vec![];
     let mut netfile_sources: Vec<Source> = vec![];
     for source in sources.iter() {
         match &source.protocol {
-            Protocol::Netfile { protocol: _ } => 
+            Protocol::Netfile { protocol: _ } =>
                 push_netfile_sources(&mut netfile_sources, source),
             Protocol::Vcs { protocol } => {
                 match protocol {  // Ignore VCS sources we do not support
@@ -493,7 +493,7 @@ fn download_netfile_source(
 ) {
     let protocol = match &netfile_source.protocol {
         Protocol::Netfile { protocol } => protocol.clone(),
-        Protocol::Vcs { protocol: _ } => 
+        Protocol::Vcs { protocol: _ } =>
             panic!("VCS source encountered by netfile cacher"),
         Protocol::Local => panic!("Local source encountered by netfile cacher"),
     };
@@ -526,7 +526,7 @@ fn download_netfile_source(
             println!("Failed to download '{}' to '{}' after 3 tries, use proxy",
                     netfile_source.url, path.display());
             for _  in 0..2 {
-                println!("Downloading '{}' to '{}'", 
+                println!("Downloading '{}' to '{}'",
                         netfile_source.url, path.display());
                 download::http(url, path, proxy);
                 if integ_file.valid(skipint) {
@@ -551,7 +551,7 @@ fn cache_netfile_source(
     let mut good_files = vec![];
     let mut bad_files = vec![];
     for integ_file in integ_files.iter() {
-        println!("'{}' <= '{}'", 
+        println!("'{}' <= '{}'",
             integ_file.get_path().display(),
             netfile_source.url);
         if integ_file.valid(skipint) {
@@ -570,7 +570,7 @@ fn cache_netfile_source(
     }
     while let Some(bad_file) = bad_files.pop() {
         match good_files.last() {
-            Some(good_file) => 
+            Some(good_file) =>
                 cksums::IntegFile::clone_files(
                     bad_file, good_file),
             None => download_netfile_source(
@@ -608,7 +608,7 @@ fn cache_netfile_sources_for_domain_mt(
 fn ensure_netfile_parents() {
     let mut dir_builder = DirBuilder::new();
     dir_builder.recursive(true);
-    for integ in 
+    for integ in
         ["ck", "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "b2"]
     {
         let folder = format!("sources/file-{}", integ);
@@ -668,9 +668,9 @@ pub(crate) fn cache_sources_mt(
     skipint: bool,
     proxy: Option<&str>
 ) {
-    let netfile_sources_map = 
+    let netfile_sources_map =
         Source::map_by_domain(netfile_sources);
-    let git_sources_map = 
+    let git_sources_map =
         Source::map_by_domain(git_sources);
     let (proxy_string, has_proxy) = match proxy {
         Some(proxy) => (proxy.to_owned(), true),
@@ -707,7 +707,7 @@ pub(crate) fn extract<P: AsRef<Path>>(dir: P, sources: &Vec<Source>) {
                     original = Some(rel.join(integ_file.get_path()));
                 }
             },
-            Protocol::Vcs { protocol } => 
+            Protocol::Vcs { protocol } =>
                 if let VcsProtocol::Git = protocol {
                     original = Some(rel
                         .join(format!("sources/git/{:016x}",
@@ -716,7 +716,7 @@ pub(crate) fn extract<P: AsRef<Path>>(dir: P, sources: &Vec<Source>) {
             Protocol::Local => (),
         }
         if let Some(original) = original {
-            symlink(original, 
+            symlink(original,
                 dir.as_ref().join(&source.name))
                 .expect("Failed to symlink")
         }
@@ -736,7 +736,7 @@ pub(crate) fn remove_unused<P: AsRef<Path>>(dir: P, used: &Vec<String>) {
                     Ok(metadata) => metadata,
                     Err(_) => continue,
                 };
-                let name = 
+                let name =
                     entry.file_name().to_string_lossy().into_owned();
                 match used.binary_search(&name) {
                     Ok(_) => continue,
@@ -798,13 +798,13 @@ fn clean_netfile_sources(sources: &Vec<Source>) -> Vec<JoinHandle<()>>{
     cleaners.push(thread::spawn(move ||
         remove_unused("sources/file-ck", &ck_used)));
     md5_used.sort_unstable();
-    cleaners.push(thread::spawn(move || 
+    cleaners.push(thread::spawn(move ||
         remove_unused("sources/file-md5", &md5_used)));
     sha1_used.sort_unstable();
-    cleaners.push(thread::spawn(move || 
+    cleaners.push(thread::spawn(move ||
         remove_unused("sources/file-sha1", &sha1_used)));
     sha224_used.sort_unstable();
-    cleaners.push(thread::spawn(move || 
+    cleaners.push(thread::spawn(move ||
         remove_unused("sources/file-sha224", &sha224_used)));
     sha256_used.sort_unstable();
     cleaners.push(thread::spawn(move ||
@@ -833,7 +833,7 @@ fn clean_git_sources(sources: &Vec<Source>) {
 pub(crate) fn cleanup(netfile_sources: Vec<Source>, git_sources: Vec<Source>)
     -> Vec<JoinHandle<()>>
 {
-    let mut cleaners = 
+    let mut cleaners =
         clean_netfile_sources(&netfile_sources);
     cleaners.push(thread::spawn(move||clean_git_sources(&git_sources)));
     cleaners

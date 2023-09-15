@@ -1,5 +1,5 @@
 use std::{
-        path::Path, 
+        path::Path,
         process::Command
     };
 
@@ -33,7 +33,7 @@ pub(crate) fn ftp(url: &str, path: &Path) {
         .spawn()
         .expect("Failed to run curl command to download ftp file")
         .wait()
-        .expect("Failed to wait for spawned curl command");    
+        .expect("Failed to wait for spawned curl command");
 }
 
 pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) {
