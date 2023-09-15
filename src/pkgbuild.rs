@@ -1,4 +1,4 @@
-use std::{path::{PathBuf, Path}, collections::BTreeMap, thread::{self, sleep, JoinHandle}, io::Write, process::Command, fs::{DirBuilder, remove_dir_all, create_dir_all, rename}, time::Duration, os::unix::fs::symlink, env};
+use std::{path::{PathBuf, Path}, collections::HashMap, thread::{self, sleep, JoinHandle}, io::Write, process::Command, fs::{DirBuilder, remove_dir_all, create_dir_all, rename}, time::Duration, os::unix::fs::symlink, env};
 use git2::Oid;
 use crate::{git, source::{self, MapByDomain}, threading::{self, wait_if_too_busy}};
 
@@ -44,13 +44,13 @@ where
 {
     let f = std::fs::File::open(yaml)
             .expect("Failed to open pkgbuilds YAML config");
-    let config: BTreeMap<String, String> = 
+    let config: HashMap<String, String> = 
         serde_yaml::from_reader(f)
             .expect("Failed to parse into config");
-    config.iter().map(|(name, url)| {
+    let mut pkgbuilds: Vec<PKGBUILD> = config.iter().map(|(name, url)| {
         let mut build = PathBuf::from("build");
         build.push(name);
-        let git = PathBuf::from(format!("sources/PKGBUILDs/{}", name));
+        let git = PathBuf::from(format!("sources/PKGBUILD/{}", name));
         PKGBUILD {
             name: name.clone(),
             url: url.clone(),
@@ -63,12 +63,14 @@ where
             extract: false,
             sources: vec![],
         }
-    }).collect()
+    }).collect();
+    pkgbuilds.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+    pkgbuilds
 }
 
 fn sync_pkgbuilds(pkgbuilds: &Vec<PKGBUILD>, hold: bool, proxy: Option<&str>) {
     let map = PKGBUILD::map_by_domain(pkgbuilds);
-    let repos_map = git::ToReposMap::to_repos_map(map, "sources/PKGBUILDs");
+    let repos_map = git::ToReposMap::to_repos_map(map, "sources/PKGBUILD");
     git::Repo::sync_mt(repos_map, git::Refspecs::MasterOnly, hold, proxy);
 }
 
@@ -243,12 +245,16 @@ where
     } else {
         true
     };
+    // Should not need sort, as it's done when pkgbuilds was read
+    let used: Vec<String> = pkgbuilds.iter().map(|pkgbuild| pkgbuild.name.clone()).collect();
+    let cleaner = thread::spawn(move || source::remove_unused("sources/PKGBUILD", &used));
     if update_pkg {
         sync_pkgbuilds(&pkgbuilds, hold, proxy);
         if ! healthy_pkgbuilds(&mut pkgbuilds, true) {
             panic!("Updating broke some of our PKGBUILDs");
         }
     }
+    cleaner.join().expect("Failed to join PKGBUILDs cleaner thread");
     pkgbuilds
 }
 
@@ -391,16 +397,20 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
 }
 
 pub(crate) fn prepare_sources<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>, holdgit: bool, skipint: bool, proxy: Option<&str>) {
-    let thread_cleaner = thread::spawn(|| remove_dir_all("build"));
+    let cleaner = thread::spawn(|| remove_dir_all("build"));
     dump_pkgbuilds(&dir, pkgbuilds);
     ensure_deps(&dir, pkgbuilds);
     let (netfile_sources, git_sources, _) 
         = get_all_sources(&dir, pkgbuilds);
     source::cache_sources_mt(&netfile_sources, &git_sources, holdgit, skipint, proxy);
-    let _ = thread_cleaner.join().expect("Failed to join cleaner thread");
+    let _ = cleaner.join().expect("Failed to join build dir cleaner thread");
+    let cleaners = source::cleanup(netfile_sources, git_sources);
     fill_all_pkgvers(dir, pkgbuilds);
     fill_all_pkgdirs(pkgbuilds);
     extract_if_need_build(pkgbuilds);
+    for cleaner in cleaners {
+        cleaner.join().expect("Failed to join sources cleaner thread");
+    }
 }
 
 fn build(pkgbuild: &PKGBUILD) {
@@ -433,7 +443,7 @@ fn build(pkgbuild: &PKGBUILD) {
         if let Ok(entry) = entry {
             let original = rel.join(entry.file_name());
             let link = updated.join(entry.file_name());
-            symlink(original, link).expect("Failed to symlink");
+            let _ = symlink(original, link);
         }
     }
     let _ = thread_cleaner.join().expect("Failed to join cleaner thread");

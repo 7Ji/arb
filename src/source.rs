@@ -1,4 +1,4 @@
-use std::{path::{Path, PathBuf}, process::Command, collections::HashMap, str::FromStr, thread::{self, JoinHandle}, fs::DirBuilder, os::unix::fs::symlink};
+use std::{path::{Path, PathBuf}, process::Command, collections::HashMap, str::FromStr, thread::{self, JoinHandle}, fs::{DirBuilder, read_dir, remove_file, remove_dir_all}, os::unix::fs::symlink};
 use hex::FromHex;
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -509,7 +509,6 @@ fn cache_netfile_sources_for_domain_mt(netfile_sources: Vec<Source>, skipint:boo
     for thread in threads.into_iter() {
         thread.join().expect("Failed to join finished thread");
     }
-
 }
 
 fn ensure_netfile_parents() {
@@ -602,4 +601,122 @@ pub(crate) fn extract<P: AsRef<Path>>(dir: P, sources: &Vec<Source>) {
             symlink(original, dir.as_ref().join(&source.name)).expect("Failed to symlink")
         }
     }
+}
+
+// Used must be already sorted
+pub(crate) fn remove_unused<P: AsRef<Path>>(dir: P, used: &Vec<String>) {
+    let readdir = match read_dir(dir) {
+        Ok(readdir) => readdir,
+        Err(_) => return,
+    };
+    for entry in readdir {
+        match entry {
+            Ok(entry) => {
+                let metadata = match entry.metadata() {
+                    Ok(metadata) => metadata,
+                    Err(_) => continue,
+                };
+                let name = entry.file_name().to_string_lossy().into_owned();
+                match used.binary_search(&name) {
+                    Ok(_) => continue,
+                    Err(_) => (),
+                }
+                if metadata.is_dir() {
+                    println!("Removing '{}' not used any more", entry.path().display());
+                    let _ = remove_dir_all(entry.path());
+                }
+                if metadata.is_file() || metadata.is_symlink() {
+                    println!("Removing '{}' not used any more", entry.path().display());
+                    let _ = remove_file(entry.path());
+                }
+            },
+            Err(_) => return,
+        }
+    }
+}
+
+fn clean_netfile_sources(sources: &Vec<Source>) -> Vec<JoinHandle<()>>{
+    let mut ck_used = vec![];
+    let mut md5_used = vec![];
+    let mut sha1_used = vec![];
+    let mut sha224_used = vec![];
+    let mut sha256_used = vec![];
+    let mut sha384_used = vec![];
+    let mut sha512_used = vec![];
+    let mut b2_used = vec![];
+    let mut cleaners = vec![];
+    for source in sources.iter() {
+        if let Some(ck) = source.ck {
+            ck_used.push(format!("{:08x}", ck));
+        }
+        if let Some(md5) = source.md5 {
+            md5_used.push(cksums::string_from(&md5));
+        }
+        if let Some(sha1) = source.sha1 {
+            sha1_used.push(cksums::string_from(&sha1));
+        }
+        if let Some(sha224) = source.sha224 {
+            sha224_used.push(cksums::string_from(&sha224));
+        }
+        if let Some(sha256) = source.sha256 {
+            sha256_used.push(cksums::string_from(&sha256));
+        }
+        if let Some(sha384) = source.sha384 {
+            sha384_used.push(cksums::string_from(&sha384));
+        }
+        if let Some(sha512) = source.sha512 {
+            sha512_used.push(cksums::string_from(&sha512));
+        }
+        if let Some(b2) = source.b2 {
+            b2_used.push(cksums::string_from(&b2));
+        }
+    }
+    if ck_used.len() > 0 {
+        ck_used.sort_unstable();
+        cleaners.push(thread::spawn(move || remove_unused("sources/file-ck", &ck_used)));
+    }
+    if md5_used.len() > 0 {
+        md5_used.sort_unstable();
+        cleaners.push(thread::spawn(move || remove_unused("sources/file-md5", &md5_used)));
+    }
+    if sha1_used.len() > 0 {
+        sha1_used.sort_unstable();
+        cleaners.push(thread::spawn(move || remove_unused("sources/file-sha1", &sha1_used)));
+    }
+    if sha224_used.len() > 0 {
+        sha224_used.sort_unstable();
+        cleaners.push(thread::spawn(move || remove_unused("sources/file-sha224", &sha224_used)));
+    }
+    if sha256_used.len() > 0 {
+        sha256_used.sort_unstable();
+        cleaners.push(thread::spawn(move || remove_unused("sources/file-sha256", &sha256_used)));
+    }
+    if sha384_used.len() > 0 {
+        sha384_used.sort_unstable();
+        cleaners.push(thread::spawn(move || remove_unused("sources/file-sha384", &sha384_used)));
+    }
+    if sha512_used.len() > 0 {
+        sha512_used.sort_unstable();
+        cleaners.push(thread::spawn(move || remove_unused("sources/file-sha512", &sha512_used)));
+    }
+    if b2_used.len() > 0 {
+        b2_used.sort_unstable();
+        cleaners.push(thread::spawn(move || remove_unused("sources/file-b2", &b2_used)));
+    }
+    cleaners
+}
+
+fn clean_git_sources(sources: &Vec<Source>) {
+    let mut hashes: Vec<u64> = sources.iter().map(|source| xxh3_64(source.url.as_bytes())).collect();
+    hashes.sort_unstable();
+    let used: Vec<String> = hashes.iter().map(|hash| format!("{:016x}", hash)).collect();
+    remove_unused("sources/git", &used);
+}
+
+pub(crate) fn cleanup(netfile_sources: Vec<Source>, git_sources: Vec<Source>) -> Vec<JoinHandle<()>> {
+    let mut cleaners = clean_netfile_sources(&netfile_sources);
+    if git_sources.len() > 0 {
+        cleaners.push(thread::spawn(move||clean_git_sources(&git_sources)))
+    };
+    cleaners
 }
