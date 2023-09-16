@@ -33,6 +33,7 @@ use std::{
         },
         time::Duration,
     };
+use tempfile::tempdir;
 
 
 #[derive(Clone)]
@@ -279,7 +280,7 @@ fn get_all_sources<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>)
     source::unique_sources(&sources_non_unique)
 }
 
-pub(crate) fn get_pkgbuilds<P>(config: P, hold: bool, proxy: Option<&str>)
+fn get_pkgbuilds<P>(config: P, hold: bool, proxy: Option<&str>)
     -> Vec<PKGBUILD>
 where
     P:AsRef<Path>
@@ -478,7 +479,7 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
     }
 }
 
-pub(crate) fn prepare_sources<P: AsRef<Path>>(
+fn prepare_sources<P: AsRef<Path>>(
     dir: P,
     pkgbuilds: &mut Vec<PKGBUILD>,
     holdgit: bool,
@@ -551,7 +552,7 @@ fn build(pkgbuild: &PKGBUILD) {
     let _ = thread_cleaner.join().expect("Failed to join cleaner thread");
 }
 
-pub(crate) fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
+fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
     let _ = remove_dir_all("pkgs/updated");
     let _ = remove_dir_all("pkgs/latest");
     let _ = create_dir_all("pkgs/updated");
@@ -587,11 +588,33 @@ pub(crate) fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
     let _ = thread_cleaner.join().expect("Failed to join cleaner thread");
 }
 
-pub(crate) fn clean_pkgdir(pkgbuilds: &Vec<PKGBUILD>) {
+fn clean_pkgdir(pkgbuilds: &Vec<PKGBUILD>) {
     let mut used: Vec<String> = pkgbuilds.iter().map(
         |pkgbuild| pkgbuild.pkgid.clone()).collect();
     used.push(String::from("updated"));
     used.push(String::from("latest"));
     used.sort_unstable();
     source::remove_unused("pkgs", &used);
+}
+
+pub(crate) fn work<P: AsRef<Path>>(
+    pkgbuilds_yaml: P,
+    proxy: Option<&str>,
+    holdpkg: bool,
+    holdgit: bool,
+    skipint: bool,
+    nobuild: bool
+) {
+    let mut pkgbuilds =
+        get_pkgbuilds(
+            &pkgbuilds_yaml, holdpkg, proxy);
+    let pkgbuilds_dir =
+        tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
+    prepare_sources(
+        pkgbuilds_dir, &mut pkgbuilds, holdgit, skipint, proxy);
+    if nobuild {
+        return;
+    }
+    build_any_needed(&pkgbuilds);
+    clean_pkgdir(&pkgbuilds);
 }

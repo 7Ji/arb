@@ -1,6 +1,4 @@
 use clap::Parser;
-use tempfile::tempdir;
-
 mod cksums;
 mod download;
 mod git;
@@ -29,20 +27,22 @@ struct Arg {
     holdgit: bool,
 
     /// Skip integrity check for netfile sources if they're found
-    #[arg(short='s', long, default_value_t = false)]
-    skipint: bool
+    #[arg(short='I', long, default_value_t = false)]
+    skipint: bool,
+
+    /// Do not actually build the packages
+    #[arg(short='B', long, default_value_t = false)]
+    nobuild: bool,
 }
 
 fn main() {
     let arg = Arg::parse();
-    let proxy = arg.proxy.as_deref();
-    let mut pkgbuilds =
-        pkgbuild::get_pkgbuilds(
-            &arg.pkgbuilds, arg.holdpkg, proxy);
-    let pkgbuilds_dir =
-        tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
-    pkgbuild::prepare_sources(
-        pkgbuilds_dir, &mut pkgbuilds, arg.holdgit, arg.skipint, proxy);
-    pkgbuild::build_any_needed(&pkgbuilds);
-    pkgbuild::clean_pkgdir(&pkgbuilds);
+    pkgbuild::work(
+        &arg.pkgbuilds, 
+        arg.proxy.as_deref(),
+        arg.holdpkg,
+        arg.holdgit,
+        arg.skipint,
+        arg.nobuild);
+
 }
