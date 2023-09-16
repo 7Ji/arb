@@ -523,7 +523,6 @@ fn build(pkgbuild: &PKGBUILD) {
         .env("PKGDEST",
             &temp_pkgdir.canonicalize()
             .expect("Failed to get absolute path of pkgdir"))
-        .env("PKGEXT", ".pkg.tar")
         .arg("--holdver")
         .arg("--noextract")
         .arg("--ignorearch")
