@@ -280,7 +280,7 @@ fn get_all_sources<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>)
     source::unique_sources(&sources_non_unique)
 }
 
-fn get_pkgbuilds<P>(config: P, hold: bool, proxy: Option<&str>)
+fn get_pkgbuilds<P>(config: P, hold: bool, noclean: bool, proxy: Option<&str>)
     -> Vec<PKGBUILD>
 where
     P:AsRef<Path>
@@ -302,15 +302,20 @@ where
     // Should not need sort, as it's done when pkgbuilds was read
     let used: Vec<String> = pkgbuilds.iter().map(
         |pkgbuild| pkgbuild.name.clone()).collect();
-    let cleaner = thread::spawn(
-        move || source::remove_unused("sources/PKGBUILD", &used));
+    let cleaner = match noclean {
+        true => None,
+        false => Some(thread::spawn(move || 
+                    source::remove_unused("sources/PKGBUILD", &used))),
+    };
     if update_pkg {
         sync_pkgbuilds(&pkgbuilds, hold, proxy);
         if ! healthy_pkgbuilds(&mut pkgbuilds, true) {
             panic!("Updating broke some of our PKGBUILDs");
         }
     }
-    cleaner.join().expect("Failed to join PKGBUILDs cleaner thread");
+    if let Some(cleaner) = cleaner {
+        cleaner.join().expect("Failed to join PKGBUILDs cleaner thread");
+    }
     pkgbuilds
 }
 
@@ -484,6 +489,7 @@ fn prepare_sources<P: AsRef<Path>>(
     pkgbuilds: &mut Vec<PKGBUILD>,
     holdgit: bool,
     skipint: bool,
+    noclean: bool,
     proxy: Option<&str>
 ) {
     let cleaner =
@@ -496,13 +502,17 @@ fn prepare_sources<P: AsRef<Path>>(
         &netfile_sources, &git_sources, holdgit, skipint, proxy);
     let _ = cleaner.join()
         .expect("Failed to join build dir cleaner thread");
-    let cleaners =
-        source::cleanup(netfile_sources, git_sources);
+    let cleaners = match noclean {
+        true => None,
+        false => Some(source::cleanup(netfile_sources, git_sources)),
+    };
     fill_all_pkgvers(dir, pkgbuilds);
     fill_all_pkgdirs(pkgbuilds);
     extract_if_need_build(pkgbuilds);
-    for cleaner in cleaners {
-        cleaner.join().expect("Failed to join sources cleaner thread");
+    if let Some(cleaners) = cleaners {
+        for cleaner in cleaners {
+            cleaner.join().expect("Failed to join sources cleaner thread");
+        }
     }
 }
 
@@ -630,18 +640,22 @@ pub(crate) fn work<P: AsRef<Path>>(
     holdpkg: bool,
     holdgit: bool,
     skipint: bool,
-    nobuild: bool
+    nobuild: bool,
+    noclean: bool,
 ) {
     let mut pkgbuilds =
         get_pkgbuilds(
-            &pkgbuilds_yaml, holdpkg, proxy);
+            &pkgbuilds_yaml, holdpkg, noclean, proxy);
     let pkgbuilds_dir =
         tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
     prepare_sources(
-        pkgbuilds_dir, &mut pkgbuilds, holdgit, skipint, proxy);
+        pkgbuilds_dir, &mut pkgbuilds, holdgit, skipint, noclean, proxy);
     if nobuild {
         return;
     }
     build_any_needed(&pkgbuilds);
+    if noclean {
+        return;
+    }
     clean_pkgdir(&pkgbuilds);
 }

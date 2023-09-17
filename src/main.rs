@@ -1,4 +1,5 @@
 use clap::Parser;
+
 mod cksums;
 mod download;
 mod git;
@@ -33,6 +34,10 @@ struct Arg {
     /// Do not actually build the packages
     #[arg(short='B', long, default_value_t = false)]
     nobuild: bool,
+
+    /// Do not clean unused sources
+    #[arg(short='C', long, default_value_t = false)]
+    noclean: bool,
 }
 
 fn main() {
@@ -43,6 +48,6 @@ fn main() {
         arg.holdpkg,
         arg.holdgit,
         arg.skipint,
-        arg.nobuild);
-
+        arg.nobuild,
+        arg.noclean);
 }
