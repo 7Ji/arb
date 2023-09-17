@@ -511,26 +511,52 @@ fn build(pkgbuild: &PKGBUILD) {
         .expect("Failed to get file name").to_os_string();
     temp_name.push(".temp");
     let temp_pkgdir = pkgbuild.pkgdir.with_file_name(temp_name);
-    let _ = create_dir_all(&temp_pkgdir);
-    Command::new("/usr/bin/makepkg")
-        .current_dir(&pkgbuild.build)
-        .env_clear()
-        .env("PATH",
-            env::var_os("PATH")
-            .expect("Failed to get PATH env"))
-        .env("HOME",
-            env::var_os("HOME")
-            .expect("Failed to get HOME env"))
-        .env("PKGDEST",
-            &temp_pkgdir.canonicalize()
-            .expect("Failed to get absolute path of pkgdir"))
-        .arg("--holdver")
-        .arg("--noextract")
-        .arg("--ignorearch")
-        .spawn()
-        .expect("Failed to spawn makepkg")
-        .wait()
-        .expect("Failed to wait for makepkg");
+    for i in 1..3 {
+        println!("Building '{}', try {}/{}", &pkgbuild.pkgid, i , 3);
+        let _ = create_dir_all(&temp_pkgdir);
+        let exit_status = Command::new("/usr/bin/makepkg")
+            .current_dir(&pkgbuild.build)
+            .env_clear()
+            .env("PATH",
+                env::var_os("PATH")
+                .expect("Failed to get PATH env"))
+            .env("HOME",
+                env::var_os("HOME")
+                .expect("Failed to get HOME env"))
+            .env("PKGDEST",
+                &temp_pkgdir.canonicalize()
+                .expect("Failed to get absolute path of pkgdir"))
+            .arg("--holdver")
+            .arg("--noextract")
+            .arg("--ignorearch")
+            .spawn()
+            .expect("Failed to spawn makepkg")
+            .wait()
+            .expect("Failed to wait for makepkg");
+        match exit_status.code() {
+            Some(0) => {
+                println!("Successfully built '{}'", temp_pkgdir.display());
+                break
+            },
+            _ => {
+                eprintln!("Failed to build '{}'", temp_pkgdir.display());
+                let _ = remove_dir_all(&pkgbuild.pkgdir);
+                let _ = remove_dir_all(&temp_pkgdir);
+                if i == 3 {
+                    eprintln!("Failed to build '{}' after all tries",
+                            temp_pkgdir.display());
+                    return
+                }
+                let _ = remove_dir_all(&pkgbuild.build);
+                extract_source(
+                    &pkgbuild.build,
+                    &pkgbuild.git,
+                    &pkgbuild.url,
+                    &pkgbuild.sources)
+            }
+        }
+    }
+    println!("Finishing building '{}'", &pkgbuild.pkgid);
     let build = pkgbuild.build.clone();
     let thread_cleaner =
         thread::spawn(|| remove_dir_all(build));
@@ -550,6 +576,7 @@ fn build(pkgbuild: &PKGBUILD) {
         }
     }
     let _ = thread_cleaner.join().expect("Failed to join cleaner thread");
+    println!("Finished building '{}'", &pkgbuild.pkgid);
 }
 
 fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
