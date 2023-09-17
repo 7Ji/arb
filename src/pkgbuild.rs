@@ -13,6 +13,7 @@ use git2::Oid;
 use std::{
         collections::HashMap,
         env,
+        ffi::OsString,
         fs::{
             create_dir_all,
             DirBuilder,
@@ -20,7 +21,10 @@ use std::{
             rename,
         },
         io::Write,
-        os::unix::fs::symlink,
+        os::unix::{
+            fs::symlink,
+            process::CommandExt
+        },
         path::{
             PathBuf,
             Path,
@@ -328,8 +332,13 @@ fn extract_source<P: AsRef<Path>>(
     repo.checkout_branch(&dir, "master");
     source::extract(&dir, sources);
     const SCRIPT: &str = include_str!("scripts/extract_sources.bash");
+    let name = dir.as_ref().file_name().expect("Failed to get build name");
+    let mut arg0 = OsString::from("[EXTRACTOR/");
+    arg0.push(name);
+    arg0.push("] /bin/bash");
     Command::new("/bin/bash")
         .env_clear()
+        .arg0(&arg0)
         .arg("-ec")
         .arg(SCRIPT)
         .arg("Source extractor")
@@ -492,16 +501,27 @@ fn prepare_sources<P: AsRef<Path>>(
     noclean: bool,
     proxy: Option<&str>
 ) {
-    let cleaner =
-        thread::spawn(|| remove_dir_all("build"));
+    let build = PathBuf::from("build");
+    let cleaner = match build.exists() {
+        true => Some(thread::spawn(|| remove_dir_all("build"))),
+        false => None,
+    };
     dump_pkgbuilds(&dir, pkgbuilds);
     ensure_deps(&dir, pkgbuilds);
     let (netfile_sources, git_sources, _)
         = get_all_sources(&dir, pkgbuilds);
     source::cache_sources_mt(
         &netfile_sources, &git_sources, holdgit, skipint, proxy);
-    let _ = cleaner.join()
-        .expect("Failed to join build dir cleaner thread");
+    if let Some(cleaner) = cleaner {
+        match cleaner.join()
+            .expect("Failed to join build dir cleaner thread") {
+            Ok(_) => (),
+            Err(e) => {
+                eprintln!("Failed to clean build dir: {}", e);
+                panic!("Failed to clean build dir");
+            },
+        }
+    }
     let cleaners = match noclean {
         true => None,
         false => Some(source::cleanup(netfile_sources, git_sources)),
@@ -524,9 +544,10 @@ fn build(pkgbuild: &PKGBUILD) {
     for i in 1..3 {
         println!("Building '{}', try {}/{}", &pkgbuild.pkgid, i , 3);
         let _ = create_dir_all(&temp_pkgdir);
-        let exit_status = Command::new("/usr/bin/makepkg")
+        let exit_status = Command::new("/bin/bash")
             .current_dir(&pkgbuild.build)
             .env_clear()
+            .arg0(format!("[BUILDER/{}] /bin/bash", pkgbuild.pkgid))
             .env("PATH",
                 env::var_os("PATH")
                 .expect("Failed to get PATH env"))
@@ -536,6 +557,7 @@ fn build(pkgbuild: &PKGBUILD) {
             .env("PKGDEST",
                 &temp_pkgdir.canonicalize()
                 .expect("Failed to get absolute path of pkgdir"))
+            .arg("/usr/bin/makepkg")
             .arg("--holdver")
             .arg("--noextract")
             .arg("--ignorearch")
