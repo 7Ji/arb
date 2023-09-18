@@ -358,7 +358,7 @@ fn extract_source_and_get_pkgver<P: AsRef<Path>>(
     let output = Command::new("/bin/bash")
         .env_clear()
         .arg("-ec")
-        .arg("cd $1; source ../PKGBUILD; pkgver")
+        .arg("srcdir=\"$1\"; cd \"$1\"; source ../PKGBUILD; pkgver")
         .arg("Pkgver runner")
         .arg(dir.as_ref().join("src").canonicalize()
             .expect("Failed to canonicalize dir"))
