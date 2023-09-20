@@ -10,7 +10,9 @@ pub(crate) fn wait_if_too_busy_with_callback<T, F: FnMut(T)>(
     threads: &mut Vec<JoinHandle<T>>, max_threads: usize, job: &str, mut callback: F
 ) {
     if threads.len() >= max_threads {
-        println!("Waiting for {} threads {} ...", threads.len(), job);
+        if max_threads > 1 {
+            println!("Waiting for {} threads {} ...", threads.len(), job);
+        }
         let mut thread_id_finished = None;
         loop {
             for (thread_id, thread) in
