@@ -70,8 +70,12 @@ pub(crate) fn wait_if_too_busy_with_callback<T, F: FnMut(T)>(
 }
 
 pub(crate) fn wait_also_print<T>(mut threads: Vec<JoinHandle<T>>, job: &str) {
+    let mut changed = true;
     while threads.len() > 0 {
-        print!("Waiting for {} threads {} ...", threads.len(), job);
+        if changed {
+            println!("Waiting for {} threads {} ...", threads.len(), job);
+        }
+        changed = false;
         let mut thread_id_finished = None;
         for (thread_id, thread) in
             threads.iter().enumerate()
@@ -87,6 +91,7 @@ pub(crate) fn wait_also_print<T>(mut threads: Vec<JoinHandle<T>>, job: &str) {
                     .swap_remove(thread_id)
                     .join()
                     .expect("Failed to join finished thread");
+                changed = true;
             },
             None => sleep(Duration::from_millis(10)),
         }
