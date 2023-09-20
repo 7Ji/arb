@@ -481,8 +481,6 @@ impl Repo {
                     repos, refspecs, max_threads, hold, proxy);
             }));
         }
-        for thread in threads {
-            thread.join().expect("Failed to join git cacher threads");
-        }
+        threading::wait_also_print(threads, "syncing git repos");
     }
 }
