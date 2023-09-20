@@ -393,6 +393,15 @@ impl Repo {
                  .expect("Failed to checkout tree");
     }
 
+    fn get_domain(&self) -> String {
+        if let Ok(url) = Url::parse(&self.url) {
+            if let Some(domain) = url.domain() {
+                return domain.to_string()
+            }
+        }
+        format!("of url {}", &self.url)
+    }
+
     fn sync_for_domain(
         repos: Vec<Self>,
         refspecs: Refspecs,
@@ -405,6 +414,8 @@ impl Repo {
             None => (String::new(), false),
         };
         let mut threads: Vec<JoinHandle<()>> = vec![];
+        let domain = repos.last()
+            .expect("Failed to get repo").get_domain();
         for repo in repos {
             if hold {
                 if repo.healthy() {
@@ -426,9 +437,8 @@ impl Repo {
                 repo.sync(proxy, refspecs.get())
             }));
         }
-        for thread in threads.into_iter() {
-            thread.join().expect("Failed to join finished thread");
-        }
+        threading::wait_also_print(threads, 
+            format!("syncing git repos from domain {}", domain).as_str());
     }
 
     pub(crate) fn sync_mt(
@@ -445,31 +455,12 @@ impl Repo {
         let mut threads: Vec<std::thread::JoinHandle<()>> =  Vec::new();
         for (domain, repos) in repos_map {
             let max_threads = match domain {
-                0xb463cbdec08d6265 => {
-                    println!("Max 1 thread syncing from AUR");
-                    1 // aur.archlinux.org
-                },
-                _ => {
-                    let domain_print = match repos.last() {
-                        Some(repo) => match Url::parse(&repo.url) {
-                            Ok(url) => match url.domain() {
-                                Some(domain) => {
-                                    println!("Max 10 threads from domain '{}'", 
-                                             domain);
-                                    true
-                                },
-                                None => false,
-                            },
-                            Err(_) => false,
-                        },
-                        None => false,
-                    };
-                    if ! domain_print {
-                        println!("Max 10 threads from domain 0x{:x}", domain);
-                    }
-                    10
-                }
+                0xb463cbdec08d6265 => 1, // aur.archlinux.org,
+                _ => 10,
             };
+            println!("Max {} threads from domain {}", max_threads,
+                        repos.last().expect("Failed to get repo")
+                        .get_domain());
             let proxy_string_thread = proxy_string.clone();
             let refspecs = refspecs.clone();
             threads.push(thread::spawn(move || {
@@ -481,6 +472,6 @@ impl Repo {
                     repos, refspecs, max_threads, hold, proxy);
             }));
         }
-        threading::wait_also_print(threads, "syncing git repos");
+        threading::wait_also_print(threads, "syncing git repo groups");
     }
 }
