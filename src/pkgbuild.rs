@@ -559,6 +559,7 @@ fn build(pkgbuild: &PKGBUILD) {
                 .expect("Failed to get absolute path of pkgdir"))
             .arg("/usr/bin/makepkg")
             .arg("--holdver")
+            .arg("--nodeps")
             .arg("--noextract")
             .arg("--ignorearch")
             .spawn()
