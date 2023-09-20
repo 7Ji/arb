@@ -201,18 +201,18 @@ fn ensure_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
     for pkgbuild in pkgbuilds.iter() {
         let pkgbuild_file = dir.as_ref().join(&pkgbuild.name);
         threading::wait_if_too_busy_with_callback(
-            &mut threads, 50,
+            &mut threads, 50, "getting pkgbuild deps",
             |mut other| {
                 deps.append(&mut other);
             }
         );
         threads.push(thread::spawn(move || get_dep(&pkgbuild_file)));
     }
-    for thread in threads {
-        let mut other =
-            thread.join().expect("Failed to join finished thread");
-        deps.append(&mut other);
-    }
+    threading::wait_remaining_with_callback(
+        threads, "getting pkgbuild deps", 
+        |mut other| {
+            deps.append(&mut other);
+        });
     if deps.len() == 0 {
         return
     }
@@ -469,7 +469,8 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
                 pkgbuild.pkgdir.display());
             if pkgbuild.extract {
                 let dir = pkgbuild.build.clone();
-                wait_if_too_busy(&mut threads, 30);
+                wait_if_too_busy(&mut threads, 30, 
+                    "extracting sources");
                 threads.push(thread::spawn(||
                     remove_dir_all(dir)
                     .expect("Failed to remove dir")));
@@ -481,16 +482,15 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
                 let repo_path = pkgbuild.git.clone();
                 let repo_url = pkgbuild.url.clone();
                 let sources = pkgbuild.sources.clone();
-                wait_if_too_busy(&mut threads, 30);
+                wait_if_too_busy(&mut threads, 30,
+                    "extracting sources");
                 threads.push(thread::spawn(move ||
                     extract_source(dir, repo_path, &repo_url, &sources)));
                 pkgbuild.extract = true;
             }
         }
     }
-    for thread in threads {
-        thread.join().expect("Failed to join finished thread");
-    }
+    threading::wait_remaining(threads, "extaracting sources");
 }
 
 fn prepare_sources<P: AsRef<Path>>(
@@ -622,12 +622,10 @@ fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
             continue
         }
         let pkgbuild = pkgbuild.clone();
-        wait_if_too_busy(&mut threads, 5);
+        wait_if_too_busy(&mut threads, 5, "building packages");
         threads.push(thread::spawn(move || build(&pkgbuild)));
     }
-    for thread in threads {
-        thread.join().expect("Failed to join finished builder thread");
-    }
+    threading::wait_remaining(threads, "building packages");
     let thread_cleaner =
         thread::spawn(|| remove_dir_all("build"));
     let rel = PathBuf::from("..");

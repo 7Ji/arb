@@ -591,7 +591,8 @@ fn cache_netfile_sources_for_domain_mt(
     for netfile_source in netfile_sources {
         let integ_files = get_integ_files(&netfile_source);
         let proxy_string_thread = proxy_string.clone();
-        threading::wait_if_too_busy(&mut threads, 10);
+        threading::wait_if_too_busy(&mut threads, 10,
+            "caching network files");
         threads.push(thread::spawn(move ||{
             let proxy = match has_proxy {
                 true => Some(proxy_string_thread.as_str()),
@@ -600,9 +601,7 @@ fn cache_netfile_sources_for_domain_mt(
             cache_netfile_source(&netfile_source, &integ_files, skipint, proxy)
         }));
     }
-    for thread in threads.into_iter() {
-        thread.join().expect("Failed to join finished thread");
-    }
+    threading::wait_remaining(threads, "caching network files");
 }
 
 fn ensure_netfile_parents() {

@@ -414,8 +414,8 @@ impl Repo {
             None => (String::new(), false),
         };
         let mut threads: Vec<JoinHandle<()>> = vec![];
-        let domain = repos.last()
-            .expect("Failed to get repo").get_domain();
+        let job = format!("syncing git repos from domain '{}'", 
+            repos.last().expect("Failed to get repo").get_domain());
         for repo in repos {
             if hold {
                 if repo.healthy() {
@@ -427,7 +427,7 @@ impl Repo {
                 }
             }
             let proxy_string_thread = proxy_string.clone();
-            threading::wait_if_too_busy(&mut threads, max_threads);
+            threading::wait_if_too_busy(&mut threads, max_threads, &job);
             let refspecs = refspecs.clone();
             threads.push(thread::spawn(move ||{
                 let proxy = match has_proxy {
@@ -437,8 +437,7 @@ impl Repo {
                 repo.sync(proxy, refspecs.get())
             }));
         }
-        threading::wait_also_print(threads, 
-            format!("syncing git repos from domain {}", domain).as_str());
+        threading::wait_remaining(threads, &job);
     }
 
     pub(crate) fn sync_mt(
@@ -472,6 +471,6 @@ impl Repo {
                     repos, refspecs, max_threads, hold, proxy);
             }));
         }
-        threading::wait_also_print(threads, "syncing git repo groups");
+        threading::wait_remaining(threads, "syncing git repo groups");
     }
 }
