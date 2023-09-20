@@ -444,11 +444,15 @@ impl Repo {
         let mut threads: Vec<std::thread::JoinHandle<()>> =  Vec::new();
         for (domain, repos) in repos_map {
             let max_threads = match domain {
-                0xb463cbdec08d6265 => 1, // aur.archlinux.org
-                _ => 10
+                0xb463cbdec08d6265 => {
+                    println!("Max 1 thread syncing from AUR");
+                    1 // aur.archlinux.org
+                },
+                _ => {
+                    println!("Max 10 threads syncing from domain '{}'", domain);
+                    10
+                }
             };
-            println!("Max {} threads syncing for domain 0x{:x}",
-                     max_threads, domain);
             let proxy_string_thread = proxy_string.clone();
             let refspecs = refspecs.clone();
             threads.push(thread::spawn(move || {
