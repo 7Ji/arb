@@ -201,7 +201,7 @@ fn ensure_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
     for pkgbuild in pkgbuilds.iter() {
         let pkgbuild_file = dir.as_ref().join(&pkgbuild.name);
         threading::wait_if_too_busy_with_callback(
-            &mut threads, 30,
+            &mut threads, 50,
             |mut other| {
                 deps.append(&mut other);
             }
@@ -469,7 +469,7 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
                 pkgbuild.pkgdir.display());
             if pkgbuild.extract {
                 let dir = pkgbuild.build.clone();
-                wait_if_too_busy(&mut threads, 20);
+                wait_if_too_busy(&mut threads, 30);
                 threads.push(thread::spawn(||
                     remove_dir_all(dir)
                     .expect("Failed to remove dir")));
@@ -481,7 +481,7 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
                 let repo_path = pkgbuild.git.clone();
                 let repo_url = pkgbuild.url.clone();
                 let sources = pkgbuild.sources.clone();
-                wait_if_too_busy(&mut threads, 20);
+                wait_if_too_busy(&mut threads, 30);
                 threads.push(thread::spawn(move ||
                     extract_source(dir, repo_path, &repo_url, &sources)));
                 pkgbuild.extract = true;
@@ -622,7 +622,7 @@ fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
             continue
         }
         let pkgbuild = pkgbuild.clone();
-        wait_if_too_busy(&mut threads, 3);
+        wait_if_too_busy(&mut threads, 5);
         threads.push(thread::spawn(move || build(&pkgbuild)));
     }
     for thread in threads {

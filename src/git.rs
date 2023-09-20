@@ -445,7 +445,7 @@ impl Repo {
         for (domain, repos) in repos_map {
             let max_threads = match domain {
                 0xb463cbdec08d6265 => 1, // aur.archlinux.org
-                _ => 4
+                _ => 10
             };
             println!("Max {} threads syncing for domain 0x{:x}",
                      max_threads, domain);

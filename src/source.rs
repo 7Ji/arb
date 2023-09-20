@@ -591,7 +591,7 @@ fn cache_netfile_sources_for_domain_mt(
     for netfile_source in netfile_sources {
         let integ_files = get_integ_files(&netfile_source);
         let proxy_string_thread = proxy_string.clone();
-        threading::wait_if_too_busy(&mut threads, 3);
+        threading::wait_if_too_busy(&mut threads, 10);
         threads.push(thread::spawn(move ||{
             let proxy = match has_proxy {
                 true => Some(proxy_string_thread.as_str()),
