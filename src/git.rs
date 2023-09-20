@@ -13,6 +13,7 @@ use git2::{
         ProxyOptions,
         Tree,
     };
+use url::Url;
 use std::{
         collections::HashMap,
         io::Write,
@@ -449,7 +450,23 @@ impl Repo {
                     1 // aur.archlinux.org
                 },
                 _ => {
-                    println!("Max 10 threads syncing from domain '{}'", domain);
+                    let domain_print = match repos.last() {
+                        Some(repo) => match Url::parse(&repo.url) {
+                            Ok(url) => match url.domain() {
+                                Some(domain) => {
+                                    println!("Max 10 threads from domain '{}'", 
+                                             domain);
+                                    true
+                                },
+                                None => false,
+                            },
+                            Err(_) => false,
+                        },
+                        None => false,
+                    };
+                    if ! domain_print {
+                        println!("Max 10 threads from domain 0x{:x}", domain);
+                    }
                     10
                 }
             };
