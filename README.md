@@ -7,11 +7,12 @@ Run the following command inside this folder
 ```
 cargo build --release
 ```
-Optionally, strip the binary so it would take less space
-```
-strip target/release/arch_repo_builder -o somewhere/convenient/to/run/it/from
-```
 The output binary would be `target/release/arch_repo_builder`
+
+Optionally, strip the binary so it would take less space, and place it to somewhere convenient to run (e.g. ~/bin)
+```
+strip target/release/arch_repo_builder -o output/path
+```
 
 ## Usage
 ```
@@ -36,6 +37,13 @@ ampart: https://aur.archlinux.org/ampart.git/
 chormium-mpp: https://aur.archlinux.org/chromium-mpp.git
 yaopenvfd: https://aur.archlinux.org/yaopenvfd.git
 ```
+
+## TODO
+ - [ ] Resolve inter-dependencies if necessary, to both:
+   - trigger builds if some of our pacakges changed which are deps of other pacakges
+   - trigger builds if some of system pacakges changed which are deps of our pacakages
+   - doing this would also mean splitting builds into multiple steps (build -> install -> build)
+ - [ ] Improve
 
 ## Internal
 The builder does the following to save a great chunk of build time and resource:
