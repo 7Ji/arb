@@ -70,17 +70,16 @@ pub(crate) fn wait_if_too_busy_with_callback<T, F: FnMut(T)>(
 }
 
 pub(crate) fn wait_also_print<T>(mut threads: Vec<JoinHandle<T>>, job: &str) {
-    let mut ender = '.';
+    let mut ender = '🕐';
     while threads.len() > 0 {
         ender = match ender {
-            '.' => '╱',
-            '╱' => '━',
-            '━' => '╲',
-            '╲' => '│',
-            '|' => '╱',
+            '🕐' => '🕒',
+            '🕒' => '🕕',
+            '🕕' => '🕘',
+            '🕘' => '🕐',
             _ => panic!("Unexpected character")
         };
-        print!("Waiting for {} threads {} ... {}", threads.len(), job, ender);
+        print!("Waiting for {} threads {} ... {}\r", threads.len(), job, ender);
         let mut thread_id_finished = None;
         for (thread_id, thread) in
             threads.iter().enumerate()
