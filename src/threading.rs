@@ -7,11 +7,15 @@ use std::{
     };
 
 pub(crate) fn wait_if_too_busy_with_callback<T, F: FnMut(T)>(
-    threads: &mut Vec<JoinHandle<T>>, max_threads: usize, job: &str, mut callback: F
+    threads: &mut Vec<JoinHandle<T>>, 
+    max_threads: usize, 
+    job: &str, 
+    mut callback: F
 ) {
     if threads.len() >= max_threads {
         if max_threads > 1 {
-            println!("Waiting for {} threads {} ...", threads.len(), job);
+            println!("Waiting for any one of {} threads {} ...", 
+                    threads.len(), job);
         }
         let mut thread_id_finished = None;
         loop {
@@ -30,6 +34,7 @@ pub(crate) fn wait_if_too_busy_with_callback<T, F: FnMut(T)>(
             }
         }
         if let Some(thread_id_finished) = thread_id_finished {
+            println!("One of {} threads {} ended", threads.len(), job);
             let r = threads
                         .swap_remove(thread_id_finished)
                         .join()
@@ -53,7 +58,7 @@ pub(crate) fn wait_remaining_with_callback<T, F: FnMut(T)>(
     let mut changed = true;
     while threads.len() > 0 {
         if changed {
-            println!("Waiting for {} threads {} ...", threads.len(), job);
+            println!("Waiting for all {} threads {} ...", threads.len(), job);
         }
         changed = false;
         let mut thread_id_finished = None;
@@ -67,6 +72,7 @@ pub(crate) fn wait_remaining_with_callback<T, F: FnMut(T)>(
         }
         match thread_id_finished {
             Some(thread_id) => {
+                println!("One of {} threads {} ended", threads.len(), job);
                 let r = threads
                     .swap_remove(thread_id)
                     .join()
@@ -77,6 +83,7 @@ pub(crate) fn wait_remaining_with_callback<T, F: FnMut(T)>(
             None => sleep(Duration::from_millis(10)),
         }
     }
+    println!("Finished waiting for all threads {}", job);
 }
 
 pub(crate) fn wait_remaining<T>(threads: Vec<JoinHandle<T>>, job: &str) {
