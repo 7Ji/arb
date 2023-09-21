@@ -1,3 +1,4 @@
+use reqwest::{self, Client, ClientBuilder, Proxy};
 use std::{
         fs::{
             File,
@@ -106,6 +107,20 @@ pub(crate) fn ftp(url: &str, path: &Path) {
 }
 
 pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) {
+    let client = match proxy {
+        Some(proxy) => {
+            let client_builder = 
+                ClientBuilder::new()
+                .proxy(Proxy::http(proxy)
+                .expect("Failed to create http proxy"));
+            client_builder.build().expect("Failed to build client")
+        },
+        None => {
+            Client::new()
+        },
+    };
+    let request = client.get(url).build()
+                    .expect("Failed to build response");
     let mut command = Command::new("/usr/bin/curl");
     command.env_clear();
     if let Some(proxy) = proxy {
