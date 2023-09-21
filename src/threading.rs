@@ -34,7 +34,9 @@ pub(crate) fn wait_if_too_busy_with_callback<T, F: FnMut(T)>(
             }
         }
         if let Some(thread_id_finished) = thread_id_finished {
-            println!("One of {} threads {} ended", threads.len(), job);
+            if max_threads > 1 {
+                println!("One of {} threads {} ended", threads.len(), job);
+            }
             let r = threads
                         .swap_remove(thread_id_finished)
                         .join()
