@@ -1,4 +1,7 @@
-use reqwest::{self, Client, ClientBuilder, Proxy};
+use reqwest::{
+        ClientBuilder, 
+        Proxy,
+    };
 use std::{
         fs::{
             File,
@@ -107,43 +110,44 @@ pub(crate) fn ftp(url: &str, path: &Path) {
 }
 
 pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) {
-    let client = match proxy {
-        Some(proxy) => {
-            let client_builder = 
-                ClientBuilder::new()
-                .proxy(Proxy::http(proxy)
-                .expect("Failed to create http proxy"));
-            client_builder.build().expect("Failed to build client")
-        },
-        None => {
-            Client::new()
+    let mut target = match File::create(path) {
+        Ok(target) => target,
+        Err(e) => {
+            eprintln!("Failed to open {} as write-only: {}",
+                        path.display(), e);
+            panic!("Failed to open target file as write-only");
         },
     };
-    let request = client.get(url).build()
-                    .expect("Failed to build response");
-    let mut command = Command::new("/usr/bin/curl");
-    command.env_clear();
-    if let Some(proxy) = proxy {
-        command.env("http_proxy", proxy)
-               .env("https_proxy", proxy);
-    }
-    command
-        .arg("-qgb")
-        .arg("")
-        .arg("-fLC")
-        .arg("-")
-        .arg("--retry")
-        .arg("3")
-        .arg("--retry-delay")
-        .arg("3")
-        .arg("-o")
-        .arg(path)
-        .arg(url)
-        .spawn()
-        .expect("Failed to run curl command to download file")
-        .wait()
-        .expect("Failed to wait for spawned curl command");
-
+    let future = async {
+        let mut response = match proxy {
+            Some(proxy) => {
+                let client_builder = 
+                    ClientBuilder::new()
+                    .proxy(Proxy::http(proxy)
+                    .expect("Failed to create http proxy"));
+                let client = 
+                    client_builder.build()
+                    .expect("Failed to build client");
+                let request = 
+                    client.get(url).build()
+                    .expect("Failed to build request");
+                client.execute(request).await
+            },
+            None => {
+                reqwest::get(url).await
+            },
+        }.expect("Failed to get response");
+        while let Some(chunk) = 
+            response.chunk().await.expect("Failed to get response chunk") 
+        {
+            target.write_all(&chunk).expect("Failed to write to file");
+        }
+    };
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(future);
 }
 
 pub(crate) fn rsync(url: &str, path: &Path) {
