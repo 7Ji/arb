@@ -226,41 +226,43 @@ impl IntegFile {
                         self.path.display());
             return true
         }
-        let mut file = match File::open(&self.path) {
-            Ok(file) => file,
+        let valid = match File::open(&self.path) {
+            Ok(mut file) => match self.integ {
+                Integ::CK { ck } =>
+                    cksum(&mut file) == ck,
+                Integ::MD5 { md5 } =>
+                    md5sum(&mut file) == md5,
+                Integ::SHA1 { sha1 } =>
+                    sha1sum(&mut file) == sha1,
+                Integ::SHA224 { sha224 } =>
+                    sha224sum(&mut file) == sha224,
+                Integ::SHA256 { sha256 } =>
+                    sha256sum(&mut file) == sha256,
+                Integ::SHA384 { sha384 } =>
+                    sha384sum(&mut file) == sha384,
+                Integ::SHA512 { sha512 } =>
+                    sha512sum(&mut file) == sha512,
+                Integ::B2 { b2 } =>
+                    b2sum(&mut file) == b2,
+            },
             Err(e) => {
                 eprintln!("Failed to open file '{}': {}",
                             self.path.display(), e);
-                match std::fs::remove_file(&self.path) {
-                    Ok(_) => (),
-                    Err(e) => {
-                        eprintln!(
-                            "Failed to remove bad file '{}': {}",
-                                  self.path.display(), e);
-                        panic!("Failed to remove bad file");
-                    },
-                }
-                return false
+                false
             },
         };
-        return match self.integ {
-            Integ::CK { ck } =>
-                cksum(&mut file) == ck,
-            Integ::MD5 { md5 } =>
-                md5sum(&mut file) == md5,
-            Integ::SHA1 { sha1 } =>
-                sha1sum(&mut file) == sha1,
-            Integ::SHA224 { sha224 } =>
-                sha224sum(&mut file) == sha224,
-            Integ::SHA256 { sha256 } =>
-                sha256sum(&mut file) == sha256,
-            Integ::SHA384 { sha384 } =>
-                sha384sum(&mut file) == sha384,
-            Integ::SHA512 { sha512 } =>
-                sha512sum(&mut file) == sha512,
-            Integ::B2 { b2 } =>
-                b2sum(&mut file) == b2,
+        if ! valid {
+            match std::fs::remove_file(&self.path) {
+                Ok(_) => (),
+                Err(e) => {
+                    eprintln!(
+                        "Failed to remove bad file '{}': {}",
+                              self.path.display(), e);
+                    panic!("Failed to remove bad file");
+                },
+            }
         }
+        return valid;
     }
 
     pub(crate) fn clone_file_from(&self, source: &Self) {
