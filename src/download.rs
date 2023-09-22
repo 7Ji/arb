@@ -109,7 +109,7 @@ pub(crate) fn ftp(url: &str, path: &Path) {
         .expect("Failed to wait for spawned curl command");
 }
 
-pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) {
+fn http_native(url: &str, path: &Path, proxy: Option<&str>) {
     let mut target = match File::create(path) {
         Ok(target) => target,
         Err(e) => {
@@ -163,6 +163,39 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) {
         .build()
         .unwrap()
         .block_on(future);
+}
+
+fn http_curl(url: &str, path: &Path, proxy: Option<&str>) {
+    let mut command = Command::new("/usr/bin/curl");
+    command.env_clear();
+    if let Some(proxy) = proxy {
+        command.env("http_proxy", proxy)
+               .env("https_proxy", proxy);
+    }
+    command
+        .arg("-qgb")
+        .arg("")
+        .arg("-fLC")
+        .arg("-")
+        .arg("--retry")
+        .arg("3")
+        .arg("--retry-delay")
+        .arg("3")
+        .arg("-o")
+        .arg(path)
+        .arg(url)
+        .spawn()
+        .expect("Failed to run curl command to download file")
+        .wait()
+        .expect("Failed to wait for spawned curl command");
+}
+
+pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>, native: bool) {
+    if native {
+        http_native(url, path, proxy);
+    } else {
+        http_curl(url, path, proxy);
+    }
 }
 
 pub(crate) fn rsync(url: &str, path: &Path) {
