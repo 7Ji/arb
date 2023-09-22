@@ -123,6 +123,8 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) {
             Some(proxy) => {
                 let client_builder = 
                     ClientBuilder::new()
+                    .proxy(Proxy::https(proxy)
+                    .expect("Failed to create https proxy"))
                     .proxy(Proxy::http(proxy)
                     .expect("Failed to create http proxy"));
                 let client = 
