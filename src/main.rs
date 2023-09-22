@@ -35,7 +35,7 @@ struct Arg {
     #[arg(short='B', long, default_value_t = false)]
     nobuild: bool,
 
-    /// Do not clean unused sources
+    /// Do not clean unused sources and outdated packages
     #[arg(short='C', long, default_value_t = false)]
     noclean: bool,
 }

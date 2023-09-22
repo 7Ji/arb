@@ -27,7 +27,7 @@ Options:
   -G, --holdgit        Hold versions of git sources, do not update them
   -I, --skipint        Skip integrity check for netfile sources if they're found
   -B, --nobuild        Do not actually build the packages
-  -C, --noclean        Do not clean unused sources
+  -C, --noclean        Do not clean unused sources and outdated packages
   -h, --help           Print help
   -V, --version        Print version
 ```
