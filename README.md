@@ -58,3 +58,15 @@ The builder does the following to save a great chunk of build time and resource:
  7. Packages are stored under `pkg/[pkgid]`. Two folders, `pkg/updated` and `pkg/latest` are created with symlinks, `updated` containing links to packages built during the current run, and `latest` containing links to all latest packages.
     1. `updated` is useful when partial update is wanted
     2. `latest` is useful when full update is wanted
+
+### Git source
+It might seem redundant that PKGBUILDs and git sources are maintained seperately as bare git repos, although they're both just bare git repos. But the internal logic do treat them differently, as:
+  - The PKGBUILDs's bare git repos only track `refs/heads/master` (master branch), and the repos are just stored as `sources/PKGBUILD/[pkgname]`. This means they're both lightweight, taking as little space as possible, and easy for humans to lookup. As we're not storing their work directories, the latter is important when you need to dig the PKGBUILD history and other stuffs.
+  - The 'normal' git sources, i.e. those listed in `sources(_[arch])` array in all PKGBUILDs, track both `refs/heads/*` (all branches) and `refs/tags/*` (all tags), but not all `refs/*`. They're stored as `sources/git/[url hash]`. They're more lightweight than those maintained by `makepkg` as the mirror repos it maintain track all `refs/*`. As makepkg could only use branch/tag/commit, the other refs like `refs/pulls/*` (mostly from github repos), `refs/remotes/*`, etc, are meaningless and are killer for our disk space.
+
+### Network file source
+We maintain a series of different folders `sources/file-[integ]` to store network file sources that have integrity checksums defined. They're populated after all PKGBUILDs parsed and we got a de-duplicated list of all sources. That means:
+  - For future build, network file sources do not need to be re-downloaded, and they can just be symlinked from `sources/file-[integ]`.
+  - For any netfile sources, if they're implicity shared between multiple pacakges, as long as they have the same integrity checksum, even with different URLs, they're only downloaded once.
+  - For one netfile source, if it has multiple integrity checksums, it would only need to be downloaded once, as long as the other integrity checksums passed the remaining alternatives are just hard-linked.
+  - This automatically avoids the case where upstream PKGBUILD maintainer updates a source but kept the file name. Because network files are not tracked by their name nor URL, but only their integrity checksums.
