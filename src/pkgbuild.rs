@@ -16,7 +16,6 @@ use std::{
         ffi::OsString,
         fs::{
             create_dir_all,
-            DirBuilder,
             remove_dir_all,
             rename,
         },
@@ -34,12 +33,8 @@ use std::{
             Command, 
             Stdio
         },
-        thread::{
-            self,
-            sleep,
-            JoinHandle,
-        },
-        time::Duration,
+        thread,
+        iter::zip,
     };
 use tempfile::tempdir;
 
@@ -197,7 +192,9 @@ fn ensure_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
     for child in children {
         let output = child.wait_with_output()
             .expect("Failed to wait for child");
-        for line in output.stdout.split(|byte| byte == &b'\n') {
+        for line in 
+            output.stdout.split(|byte| byte == &b'\n') 
+        {
             if line.len() == 0 {
                 continue;
             }
@@ -314,18 +311,17 @@ where
     pkgbuilds
 }
 
-fn extract_source<P: AsRef<Path>>(
-    dir: P, repo_path: P, repo_url: &str, sources: &Vec<source::Source>
-) {
-    create_dir_all(&dir).expect("Failed to create dir");
-    let repo = git::Repo::open_bare(repo_path, repo_url)
-        .expect("Failed to open repo");
-    repo.checkout_branch(&dir, "master");
-    source::extract(&dir, sources);
+fn extractor_source(pkgbuild: &PKGBUILD) -> Child {
     const SCRIPT: &str = include_str!("scripts/extract_sources.bash");
-    let name = dir.as_ref().file_name().expect("Failed to get build name");
+    create_dir_all(&pkgbuild.build)
+        .expect("Failed to create build dir");
+    let repo = 
+        git::Repo::open_bare(&pkgbuild.git, &pkgbuild.url)
+        .expect("Failed to open repo");
+    repo.checkout_branch(&pkgbuild.build, "master");
+    source::extract(&pkgbuild.build, &pkgbuild.sources);
     let mut arg0 = OsString::from("[EXTRACTOR/");
-    arg0.push(name);
+    arg0.push(&pkgbuild.name);
     arg0.push("] /bin/bash");
     Command::new("/bin/bash")
         .env_clear()
@@ -333,101 +329,69 @@ fn extract_source<P: AsRef<Path>>(
         .arg("-ec")
         .arg(SCRIPT)
         .arg("Source extractor")
-        .arg(dir.as_ref().canonicalize()
-            .expect("Failed to canonicalize dir"))
+        .arg(&pkgbuild.build)
         .spawn()
         .expect("Failed to run script")
-        .wait()
-        .expect("Failed to wait for spawned script");
 }
 
-fn extract_source_and_get_pkgver<P: AsRef<Path>>(
-    dir: P, repo_path: P, repo_url: &str, sources: &Vec<source::Source>
-) -> String
-{
-    extract_source(&dir, &repo_path, &repo_url, sources);
-    let output = Command::new("/bin/bash")
-        .env_clear()
-        .arg("-ec")
-        .arg("srcdir=\"$1\"; cd \"$1\"; source ../PKGBUILD; pkgver")
-        .arg("Pkgver runner")
-        .arg(dir.as_ref().join("src").canonicalize()
-            .expect("Failed to canonicalize dir"))
-        .output()
-        .expect("Failed to run script");
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
+fn extract_sources(pkgbuilds: &mut [&mut PKGBUILD]) {
+    let children: Vec<Child> = pkgbuilds.iter_mut().map(
+    |pkgbuild| 
+    {
+        pkgbuild.extract = true;
+        extractor_source(pkgbuild)
+    }).collect();
+    for mut child in children {
+        child.wait().expect("Failed to wait for child");
+    }
 }
 
 fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
     let _ = remove_dir_all("build");
     let dir = dir.as_ref();
-    for pkgbuild in pkgbuilds.iter_mut() {
-        let output = Command::new("/bin/bash")
+    let children: Vec<Child> = pkgbuilds.iter().map(|pkgbuild| 
+        Command::new("/bin/bash")
             .env_clear()
             .arg("-c")
             .arg(". \"$1\"; type -t pkgver")
             .arg("Type Identifier")
             .arg(dir.join(&pkgbuild.name))
-            .output()
-            .expect("Failed to run script");
-        pkgbuild.extract = match output.stdout.as_slice() {
-            b"function\n" => true,
-            _ => false,
-        }
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("Failed to run script")
+    ).collect();
+    let mut pkgbuilds_with_pkgver_func = vec![];
+    for (child, pkgbuild) in 
+        zip(children, pkgbuilds.iter_mut()) 
+    {
+        let output = child.wait_with_output()
+            .expect("Failed to wait for spanwed script");
+        if output.stdout.as_slice() ==  b"function\n" {
+            pkgbuilds_with_pkgver_func.push(pkgbuild);
+        };
     }
-    let mut dir_builder = DirBuilder::new();
-    dir_builder.recursive(true);
-    struct PkgbuildThread<'a> {
-        pkgbuild: &'a mut PKGBUILD,
-        thread: JoinHandle<String>
-    }
-    let mut pkgbuild_threads: Vec<PkgbuildThread> = vec![];
-    for pkgbuild in pkgbuilds.iter_mut().filter(
-        |pkgbuild| pkgbuild.extract
-    ) {
-        let dir = pkgbuild.build.clone();
-        let repo_path = pkgbuild.git.clone();
-        let repo_url = pkgbuild.url.clone();
-        let sources = pkgbuild.sources.clone();
-        if pkgbuild_threads.len() > 20 {
-            let mut thread_id_finished = None;
-            loop {
-                for (thread_id, pkgbuild_thread) in
-                    pkgbuild_threads.iter().enumerate()
-                {
-                    if pkgbuild_thread.thread.is_finished() {
-                        thread_id_finished = Some(thread_id);
-                        break;
-                    }
-                }
-                if let None = thread_id_finished {
-                    sleep(Duration::from_millis(10));
-                } else {
-                    break
-                }
-            }
-            if let Some(thread_id_finished) = thread_id_finished {
-                let pkgbuild_thread =
-                    pkgbuild_threads.swap_remove(thread_id_finished);
-                let pkgver = pkgbuild_thread.thread
-                    .join()
-                    .expect("Failed to join finished thread");
-                pkgbuild_thread.pkgbuild.pkgver = Pkgver::Func { pkgver };
-            } else {
-                panic!("Failed to get finished thread ID")
-            }
-        }
-        pkgbuild_threads.push(PkgbuildThread {
-            pkgbuild,
-            thread: thread::spawn(
-                move || extract_source_and_get_pkgver(
-                    dir, repo_path, &repo_url, &sources))});
-    }
-    for pkgbuild_thread in pkgbuild_threads {
-        let pkgver = pkgbuild_thread.thread
-            .join()
-            .expect("Failed to join finished thread");
-        pkgbuild_thread.pkgbuild.pkgver = Pkgver::Func { pkgver };
+    extract_sources(&mut pkgbuilds_with_pkgver_func);
+    let children: Vec<Child> = pkgbuilds_with_pkgver_func.iter().map(
+    |pkgbuild|
+        Command::new("/bin/bash")
+            .env_clear()
+            .arg("-ec")
+            .arg("srcdir=\"$1\"; cd \"$1\"; source ../PKGBUILD; pkgver")
+            .arg("Pkgver runner")
+            .arg(pkgbuild.build.join("src")
+                .canonicalize()
+                .expect("Failed to canonicalize dir"))
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("Failed to run script")
+    ).collect();
+    for (child, pkgbuild) in 
+        zip(children, pkgbuilds_with_pkgver_func.iter_mut()) 
+    {
+        let output = child.wait_with_output()
+            .expect("Failed to wait for child");
+        pkgbuild.pkgver = Pkgver::Func { pkgver:
+            String::from_utf8_lossy(&output.stdout).trim().to_string()}
     }
 }
 
@@ -447,7 +411,8 @@ fn fill_all_pkgdirs(pkgbuilds: &mut Vec<PKGBUILD>) {
 }
 
 fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
-    let mut threads = vec![];
+    let mut pkgbuilds_need_build = vec![];
+    let mut cleaners = vec![];
     for pkgbuild in pkgbuilds.iter_mut() {
         let mut built = false;
         if let Ok(mut dir) = pkgbuild.pkgdir.read_dir() {
@@ -460,28 +425,22 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
                 pkgbuild.pkgdir.display());
             if pkgbuild.extract {
                 let dir = pkgbuild.build.clone();
-                wait_if_too_busy(&mut threads, 30, 
-                    "extracting sources");
-                threads.push(thread::spawn(||
+                wait_if_too_busy(&mut cleaners, 30, 
+                    "cleaning builddir");
+                cleaners.push(thread::spawn(||
                     remove_dir_all(dir)
                     .expect("Failed to remove dir")));
                 pkgbuild.extract = false;
             }
         } else {
             if ! pkgbuild.extract {
-                let dir = pkgbuild.build.clone();
-                let repo_path = pkgbuild.git.clone();
-                let repo_url = pkgbuild.url.clone();
-                let sources = pkgbuild.sources.clone();
-                wait_if_too_busy(&mut threads, 30,
-                    "extracting sources");
-                threads.push(thread::spawn(move ||
-                    extract_source(dir, repo_path, &repo_url, &sources)));
                 pkgbuild.extract = true;
+                pkgbuilds_need_build.push(pkgbuild);
             }
         }
     }
-    threading::wait_remaining(threads, "extaracting sources");
+    extract_sources(&mut pkgbuilds_need_build);
+    threading::wait_remaining(cleaners, "cleaning builddirs");
 }
 
 fn prepare_sources<P: AsRef<Path>>(
@@ -572,11 +531,8 @@ fn build(pkgbuild: &PKGBUILD) {
                     return
                 }
                 let _ = remove_dir_all(&pkgbuild.build);
-                extract_source(
-                    &pkgbuild.build,
-                    &pkgbuild.git,
-                    &pkgbuild.url,
-                    &pkgbuild.sources)
+                extractor_source(&pkgbuild).wait()
+                    .expect("Failed re-extract source");
             }
         }
     }
