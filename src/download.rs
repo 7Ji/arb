@@ -119,7 +119,7 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) {
         },
     };
     let future = async {
-        let mut response = match proxy {
+        let mut response = match match proxy {
             Some(proxy) => {
                 let client_builder = 
                     ClientBuilder::new()
@@ -136,11 +136,24 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) {
             None => {
                 reqwest::get(url).await
             },
-        }.expect("Failed to get response");
-        while let Some(chunk) = 
-            response.chunk().await.expect("Failed to get response chunk") 
-        {
-            target.write_all(&chunk).expect("Failed to write to file");
+        } {
+            Ok(response) => response,
+            Err(e) => {
+                eprintln!("Failed to get response from '{}': {}", url, e);
+                return
+            },
+        };
+        match response.chunk().await {
+            Ok(chunk) => {
+                while let Some(chunk) = &chunk {
+                    target.write_all(&chunk)
+                        .expect("Failed to write to file");
+                }
+            },
+            Err(e) => {
+                eprintln!("Failed to get response chunk from '{}': {}", url, e);
+                return
+            },
         }
     };
     tokio::runtime::Builder::new_current_thread()
