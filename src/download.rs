@@ -1,20 +1,89 @@
 use std::{
-        path::Path,
-        process::Command
+        fs::{
+            File,
+            hard_link,
+            remove_file,
+        },
+        io::{
+            Read,
+            Write,
+        },
+        path::{
+            Path,
+            PathBuf
+        },
+        process::Command, 
     };
 
+const BUFFER_SIZE: usize = 0x400000; // 4M
+
+pub(crate) fn clone_file(source: &Path, target: &Path) {
+    if target.exists() {
+        match remove_file(&target) {
+            Ok(_) => (),
+            Err(e) => {
+                eprintln!("Failed to remove file {}: {}",
+                    &target.display(), e);
+                panic!("Failed to remove existing target file");
+            },
+        }
+    }
+    match hard_link(&source, &target) {
+        Ok(_) => (),
+        Err(e) => {
+            eprintln!("Failed to link {} to {}: {}, trying heavy copy",
+                        target.display(), source.display(), e);
+            let mut target_file = match File::create(&target) {
+                Ok(target_file) => target_file,
+                Err(e) => {
+                    eprintln!("Failed to open {} as write-only: {}",
+                                target.display(), e);
+                    panic!("Failed to open target file as write-only");
+                },
+            };
+            let mut source_file = match File::open(&source) {
+                Ok(source_file) => source_file,
+                Err(e) => {
+                    eprintln!("Failed to open {} as read-only: {}",
+                                source.display(), e);
+                    panic!("Failed to open source file as read-only");
+                },
+            };
+            let mut buffer = vec![0; BUFFER_SIZE];
+            loop {
+                let size_chunk = match
+                    source_file.read(&mut buffer) {
+                        Ok(size) => size,
+                        Err(e) => {
+                            eprintln!("Failed to read file: {}", e);
+                            panic!("Failed to read file");
+                        },
+                    };
+                if size_chunk == 0 {
+                    break
+                }
+                let chunk = &buffer[0..size_chunk];
+                match target_file.write_all(chunk) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        eprintln!(
+                            "Failed to write {} bytes into file '{}': {}",
+                            size_chunk, target.display(), e);
+                        panic!("Failed to write into target file");
+                    },
+                }
+            }
+        },
+    }
+    println!("Cloned '{}' to '{}'", source.display(), target.display());
+}
+
 pub(crate) fn file(url: &str, path: &Path) {
-    Command::new("/usr/bin/curl")
-        .env_clear()
-        .arg("-qgC")
-        .arg("-")
-        .arg("-o")
-        .arg(path)
-        .arg(url)
-        .spawn()
-        .expect("Failed to run curl command to download file")
-        .wait()
-        .expect("Failed to wait for spawned curl command");
+    if ! url.starts_with("file://") {
+        eprintln!("URL '{}' does not start with file://", url);
+        panic!("URL does not start with file://");
+    }
+    clone_file(&PathBuf::from(&url[7..]), path);
 }
 
 pub(crate) fn ftp(url: &str, path: &Path) {

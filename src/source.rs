@@ -571,8 +571,7 @@ fn cache_netfile_source(
     while let Some(bad_file) = bad_files.pop() {
         match good_files.last() {
             Some(good_file) =>
-                cksums::IntegFile::clone_files(
-                    bad_file, good_file),
+                bad_file.clone_file_from(good_file),
             None => download_netfile_source(
                 netfile_source, bad_file, skipint, proxy),
         }

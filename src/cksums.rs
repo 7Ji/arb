@@ -15,20 +15,15 @@ use sha2::{
         Sha512,
     };
 use std::{
-        fs::{
-            File,
-            hard_link,
-            remove_file
-        },
-        io::{
-            Read,
-            Write
-        },
+        fs::File,
+        io::Read,
         path::{
             PathBuf,
             Path
         },
     };
+
+use crate::download;
 
 pub(crate) enum Integ {
     CK {ck: u32},
@@ -268,65 +263,9 @@ impl IntegFile {
         }
     }
 
-    pub(crate) fn clone_files(target: &Self, source: &Self) {
-        if target.path.exists() {
-            match remove_file(&target.path) {
-                Ok(_) => (),
-                Err(e) => {
-                    eprintln!("Failed to remove file {}: {}",
-                        &target.path.display(), e);
-                    panic!("Failed to remove existing target file");
-                },
-            }
-        }
-        match hard_link(&source.path, &target.path) {
-            Ok(_) => (),
-            Err(e) => {
-                eprintln!("Failed to link {} to {}: {}",
-                            target.path.display(), source.path.display(), e);
-                let mut target_file = match File::create(&target.path) {
-                    Ok(target_file) => target_file,
-                    Err(e) => {
-                        eprintln!("Failed to open {} as write-only: {}",
-                                    target.path.display(), e);
-                        panic!("Failed to open target file as write-only");
-                    },
-                };
-                let mut source_file = match File::open(&source.path) {
-                    Ok(source_file) => source_file,
-                    Err(e) => {
-                        eprintln!("Failed to open {} as read-only: {}",
-                                    source.path.display(), e);
-                        panic!("Failed to open source file as read-only");
-                    },
-                };
-                let mut buffer = vec![0; BUFFER_SIZE];
-                loop {
-                    let size_chunk = match
-                        source_file.read(&mut buffer) {
-                            Ok(size) => size,
-                            Err(e) => {
-                                eprintln!("Failed to read file: {}", e);
-                                panic!("Failed to read file");
-                            },
-                        };
-                    if size_chunk == 0 {
-                        break
-                    }
-                    let chunk = &buffer[0..size_chunk];
-                    match target_file.write_all(chunk) {
-                        Ok(_) => (),
-                        Err(e) => {
-                            eprintln!(
-                                "Failed to write {} bytes into file '{}': {}",
-                                size_chunk, target.path.display(), e);
-                            panic!("Failed to write into target file");
-                        },
-                    }
-                }
-            },
-        }
-        if ! target.valid(false) {
+    pub(crate) fn clone_file_from(&self, source: &Self) {
+        download::clone_file(&source.path, &self.path);
+        if ! self.valid(false) {
             panic!("Cloned integ file not healthy");
         }
     }
