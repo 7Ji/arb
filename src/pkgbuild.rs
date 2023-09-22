@@ -29,7 +29,11 @@ use std::{
             PathBuf,
             Path,
         },
-        process::Command,
+        process::{
+            Child,
+            Command, 
+            Stdio
+        },
         thread::{
             self,
             sleep,
@@ -175,44 +179,31 @@ where
     }
 }
 
-fn get_dep<P: AsRef<Path>> (pkgbuild: P) -> Vec<String> {
-    const SCRIPT: &str = include_str!("scripts/get_depends.bash");
-    let output = Command::new("/bin/bash")
-        .env_clear()
-        .arg("-ec")
-        .arg(SCRIPT)
-        .arg("Depends reader")
-        .arg(pkgbuild.as_ref())
-        .output()
-        .expect("Failed to run depends reader");
-    let mut deps = vec![];
-    for line in output.stdout.split(|byte| byte == &b'\n') {
-        if line.len() == 0 {
-            continue;
-        }
-        deps.push(String::from_utf8_lossy(line).into_owned());
-    }
-    deps
-}
-
 fn ensure_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
-    let mut threads: Vec<JoinHandle<Vec<String>>> = vec![];
-    let mut deps = vec![];
-    for pkgbuild in pkgbuilds.iter() {
+    const SCRIPT: &str = include_str!("scripts/get_depends.bash");
+    let children: Vec<Child> = pkgbuilds.iter().map(|pkgbuild| {
         let pkgbuild_file = dir.as_ref().join(&pkgbuild.name);
-        threading::wait_if_too_busy_with_callback(
-            &mut threads, 50, "getting pkgbuild deps",
-            |mut other| {
-                deps.append(&mut other);
+        Command::new("/bin/bash")
+            .env_clear()
+            .arg("-ec")
+            .arg(SCRIPT)
+            .arg("Depends reader")
+            .arg(&pkgbuild_file)
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("Failed to spawn depends reader")
+    }).collect();
+    let mut deps = vec![];
+    for child in children {
+        let output = child.wait_with_output()
+            .expect("Failed to wait for child");
+        for line in output.stdout.split(|byte| byte == &b'\n') {
+            if line.len() == 0 {
+                continue;
             }
-        );
-        threads.push(thread::spawn(move || get_dep(&pkgbuild_file)));
+            deps.push(String::from_utf8_lossy(line).into_owned());
+        }
     }
-    threading::wait_remaining_with_callback(
-        threads, "getting pkgbuild deps", 
-        |mut other| {
-            deps.append(&mut other);
-        });
     if deps.len() == 0 {
         return
     }
