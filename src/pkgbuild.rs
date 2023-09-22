@@ -329,7 +329,8 @@ fn extractor_source(pkgbuild: &PKGBUILD) -> Child {
         .arg("-ec")
         .arg(SCRIPT)
         .arg("Source extractor")
-        .arg(&pkgbuild.build)
+        .arg(&pkgbuild.build.canonicalize()
+            .expect("Failed to cannicalize build dir"))
         .spawn()
         .expect("Failed to run script")
 }
