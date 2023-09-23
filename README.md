@@ -28,6 +28,7 @@ Options:
   -I, --skipint        Skip integrity check for netfile sources if they're found
   -B, --nobuild        Do not actually build the packages
   -C, --noclean        Do not clean unused sources and outdated packages
+  -N, --nonet          Disallow any network connection during makepkg's build routine
   -h, --help           Print help
   -V, --version        Print version
 ```
@@ -70,3 +71,8 @@ We maintain a series of different folders `sources/file-[integ]` to store networ
   - For any netfile sources, if they're implicity shared between multiple pacakges, as long as they have the same integrity checksum, even with different URLs, they're only downloaded once.
   - For one netfile source, if it has multiple integrity checksums, it would only need to be downloaded once, as long as the other integrity checksums passed the remaining alternatives are just hard-linked.
   - This automatically avoids the case where upstream PKGBUILD maintainer updates a source but kept the file name. Because network files are not tracked by their name nor URL, but only their integrity checksums.
+
+### No network build
+There're some bad-behaving packages that acessses the network during their `build()` function, which adds break points to `build()` that not even should be there. This also violates our designing principle that download, extraction and building should happen each in their seperate stages.
+
+The argument `--nonet` could be set to catch such packages, it is achieved by two recursive `unshare` calls, one to unshare the host network namespace while mapping the host non-root user into the container root so a new lo interface could be set up, another recursive one to map the container root back to the host non-root user. 
