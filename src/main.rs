@@ -38,6 +38,10 @@ struct Arg {
     /// Do not clean unused sources and outdated packages
     #[arg(short='C', long, default_value_t = false)]
     noclean: bool,
+
+    /// Disallow any network connection during makepkg's build routine
+    #[arg(short='N', long, default_value_t = false)]
+    nonet: bool,
 }
 
 fn main() {
@@ -49,5 +53,6 @@ fn main() {
         arg.holdgit,
         arg.skipint,
         arg.nobuild,
-        arg.noclean);
+        arg.noclean,
+        arg.nonet);
 }

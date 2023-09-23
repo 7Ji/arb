@@ -487,32 +487,50 @@ fn prepare_sources<P: AsRef<Path>>(
     }
 }
 
-fn build(pkgbuild: &PKGBUILD) {
+fn build(pkgbuild: &PKGBUILD, nonet: bool) {
     let mut temp_name = pkgbuild.pkgdir.file_name()
         .expect("Failed to get file name").to_os_string();
     temp_name.push(".temp");
     let temp_pkgdir = pkgbuild.pkgdir.with_file_name(temp_name);
-    for i in 1..3 {
-        println!("Building '{}', try {}/{}", &pkgbuild.pkgid, i , 3);
-        let _ = create_dir_all(&temp_pkgdir);
-        let exit_status = Command::new("/bin/bash")
-            .current_dir(&pkgbuild.build)
-            .env_clear()
-            .arg0(format!("[BUILDER/{}] /bin/bash", pkgbuild.pkgid))
-            .env("PATH",
-                env::var_os("PATH")
-                .expect("Failed to get PATH env"))
-            .env("HOME",
-                env::var_os("HOME")
-                .expect("Failed to get HOME env"))
-            .env("PKGDEST",
-                &temp_pkgdir.canonicalize()
-                .expect("Failed to get absolute path of pkgdir"))
-            .arg("/usr/bin/makepkg")
+    let _ = create_dir_all(&temp_pkgdir);
+    let mut command = if nonet {
+        let mut command = Command::new("/usr/bin/unshare");
+        command.arg("--map-root-user")
+            .arg("--net")
+            .arg("--")
+            .arg("sh")
+            .arg("-c")
+            .arg(format!(
+                "ip link set dev lo up
+                unshare --map-users={}:0:1 --map-groups={}:0:1 -- \
+                    makepkg --holdver --nodeps --noextract --ignorearch", 
+                unsafe {libc::getuid()}, unsafe {libc::getgid()}));
+        command
+    } else {
+        let mut command = Command::new("/bin/bash");
+        command.arg("/usr/bin/makepkg")
             .arg("--holdver")
             .arg("--nodeps")
             .arg("--noextract")
-            .arg("--ignorearch")
+            .arg("--ignorearch");
+        command
+    };
+    command.current_dir(&pkgbuild.build)
+        .env_clear()
+        .arg0(format!("[BUILDER/{}] /bin/bash", pkgbuild.pkgid))
+        .env("PATH",
+            env::var_os("PATH")
+            .expect("Failed to get PATH env"))
+        .env("HOME",
+            env::var_os("HOME")
+            .expect("Failed to get HOME env"))
+        .env("PKGDEST",
+            &temp_pkgdir.canonicalize()
+            .expect("Failed to get absolute path of pkgdir"));
+    for i in 1..3 {
+        println!("Building '{}', try {}/{}", &pkgbuild.pkgid, i , 3);
+        let _ = create_dir_all(&temp_pkgdir);
+        let exit_status = command
             .spawn()
             .expect("Failed to spawn makepkg")
             .wait()
@@ -560,7 +578,7 @@ fn build(pkgbuild: &PKGBUILD) {
     println!("Finished building '{}'", &pkgbuild.pkgid);
 }
 
-fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
+fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>, nonet: bool) {
     let _ = remove_dir_all("pkgs/updated");
     let _ = remove_dir_all("pkgs/latest");
     let _ = create_dir_all("pkgs/updated");
@@ -572,7 +590,7 @@ fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>) {
         }
         let pkgbuild = pkgbuild.clone();
         wait_if_too_busy(&mut threads, 5, "building packages");
-        threads.push(thread::spawn(move || build(&pkgbuild)));
+        threads.push(thread::spawn(move || build(&pkgbuild, nonet)));
     }
     threading::wait_remaining(threads, "building packages");
     let thread_cleaner =
@@ -611,6 +629,7 @@ pub(crate) fn work<P: AsRef<Path>>(
     skipint: bool,
     nobuild: bool,
     noclean: bool,
+    nonet: bool,
 ) {
     let mut pkgbuilds =
         get_pkgbuilds(
@@ -622,7 +641,7 @@ pub(crate) fn work<P: AsRef<Path>>(
     if nobuild {
         return;
     }
-    build_any_needed(&pkgbuilds);
+    build_any_needed(&pkgbuilds, nonet);
     if noclean {
         return;
     }
