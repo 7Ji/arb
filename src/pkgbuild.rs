@@ -179,7 +179,6 @@ fn ensure_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
     let children: Vec<Child> = pkgbuilds.iter().map(|pkgbuild| {
         let pkgbuild_file = dir.as_ref().join(&pkgbuild.name);
         Command::new("/bin/bash")
-            .env_clear()
             .arg("-ec")
             .arg(SCRIPT)
             .arg("Depends reader")
@@ -208,7 +207,6 @@ fn ensure_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
     deps.dedup();
     println!("Ensuring {} deps: {:?}", deps.len(), deps);
     let output = Command::new("/usr/bin/pacman")
-        .env_clear()
         .arg("-T")
         .args(&deps)
         .output()
@@ -239,7 +237,6 @@ fn ensure_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
 
     println!("Installing {} missing deps: {:?}", deps.len(), deps);
     let mut child = Command::new("/usr/bin/sudo")
-        .env_clear()
         .arg("/usr/bin/pacman")
         .arg("-S")
         .arg("--noconfirm")
@@ -324,7 +321,6 @@ fn extractor_source(pkgbuild: &PKGBUILD) -> Child {
     arg0.push(&pkgbuild.name);
     arg0.push("] /bin/bash");
     Command::new("/bin/bash")
-        .env_clear()
         .arg0(&arg0)
         .arg("-ec")
         .arg(SCRIPT)
@@ -352,7 +348,6 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
     let dir = dir.as_ref();
     let children: Vec<Child> = pkgbuilds.iter().map(|pkgbuild| 
         Command::new("/bin/bash")
-            .env_clear()
             .arg("-c")
             .arg(". \"$1\"; type -t pkgver")
             .arg("Type Identifier")
@@ -375,7 +370,6 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
     let children: Vec<Child> = pkgbuilds_with_pkgver_func.iter().map(
     |pkgbuild|
         Command::new("/bin/bash")
-            .env_clear()
             .arg("-ec")
             .arg("srcdir=\"$1\"; cd \"$1\"; source ../PKGBUILD; pkgver")
             .arg("Pkgver runner")
@@ -516,7 +510,6 @@ fn build(pkgbuild: &PKGBUILD, nonet: bool) {
         command
     };
     command.current_dir(&pkgbuild.build)
-        .env_clear()
         .arg0(format!("[BUILDER/{}] /bin/bash", pkgbuild.pkgid))
         .env("PATH",
             env::var_os("PATH")

@@ -92,7 +92,6 @@ pub(crate) fn file(url: &str, path: &Path) {
 
 pub(crate) fn ftp(url: &str, path: &Path) {
     Command::new("/usr/bin/curl")
-        .env_clear()
         .arg("-qgfC")
         .arg("-")
         .arg("--ftp-pasv")
@@ -167,10 +166,13 @@ fn http_native(url: &str, path: &Path, proxy: Option<&str>) {
 
 fn http_curl(url: &str, path: &Path, proxy: Option<&str>) {
     let mut command = Command::new("/usr/bin/curl");
-    command.env_clear();
     if let Some(proxy) = proxy {
         command.env("http_proxy", proxy)
                .env("https_proxy", proxy);
+    } else {
+        command
+            .env_remove("http_proxy")
+            .env_remove("https_proxy");
     }
     command
         .arg("-qgb")
@@ -200,7 +202,6 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>, native: bool) {
 
 pub(crate) fn rsync(url: &str, path: &Path) {
     Command::new("/usr/bin/rsync")
-        .env_clear()
         .arg("--no-motd")
         .arg("-z")
         .arg(url)
@@ -213,7 +214,6 @@ pub(crate) fn rsync(url: &str, path: &Path) {
 
 pub(crate) fn scp(url: &str, path: &Path) {
     Command::new("/usr/bin/scp")
-        .env_clear()
         .arg("-C")
         .arg(url)
         .arg(path)
