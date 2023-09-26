@@ -37,6 +37,7 @@ use std::{
         iter::zip,
     };
 use tempfile::tempdir;
+use xxhash_rust::xxh3::xxh3_64;
 
 
 #[derive(Clone)]
@@ -54,6 +55,7 @@ pub(crate) struct PKGBUILD {
     pkgid: String,
     pkgdir: PathBuf,
     commit: git2::Oid,
+    dephash: u64,
     pkgver: Pkgver,
     extract: bool,
     sources: Vec<source::Source>,
@@ -98,6 +100,7 @@ where
                 pkgid: String::new(),
                 pkgdir: PathBuf::from("pkgs"),
                 commit: Oid::zero(),
+                dephash: 0,
                 pkgver: Pkgver::Plain,
                 extract: false,
                 sources: vec![],
@@ -174,7 +177,8 @@ where
     }
 }
 
-fn ensure_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
+fn get_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &Vec<PKGBUILD>) 
+    -> (Vec<Vec<String>>, Vec<String>) {
     const SCRIPT: &str = include_str!("scripts/get_depends.bash");
     let children: Vec<Child> = pkgbuilds.iter().map(|pkgbuild| {
         let pkgbuild_file = dir.as_ref().join(&pkgbuild.name);
@@ -187,28 +191,34 @@ fn ensure_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
             .spawn()
             .expect("Failed to spawn depends reader")
     }).collect();
-    let mut deps = vec![];
+    let mut pkgs_deps = vec![];
+    let mut all_deps = vec![];
     for child in children {
         let output = child.wait_with_output()
             .expect("Failed to wait for child");
+        let mut pkg_deps = vec![];
         for line in 
             output.stdout.split(|byte| byte == &b'\n') 
         {
             if line.len() == 0 {
                 continue;
             }
-            deps.push(String::from_utf8_lossy(line).into_owned());
+            let dep = String::from_utf8_lossy(line).into_owned();
+            all_deps.push(dep.clone());
+            pkg_deps.push(dep);
         }
+        pkgs_deps.push(pkg_deps);
     }
-    if deps.len() == 0 {
-        return
-    }
-    deps.sort();
-    deps.dedup();
-    println!("Ensuring {} deps: {:?}", deps.len(), deps);
+    all_deps.sort();
+    all_deps.dedup();
+    (pkgs_deps, all_deps)
+}
+
+fn install_deps(deps: &Vec<String>) {
+    println!("Checking if needed to install {} deps: {:?}", deps.len(), deps);
     let output = Command::new("/usr/bin/pacman")
         .arg("-T")
-        .args(&deps)
+        .args(deps)
         .output()
         .expect("Failed to run pacman to get missing deps");
     match output.status.code() {
@@ -224,34 +234,75 @@ fn ensure_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
         },
         None => panic!("Failed to get return code from pacman"),
     }
-    deps.clear();
+    let mut missing_deps = vec![];
+    missing_deps.clear();
     for line in output.stdout.split(|byte| *byte == b'\n') {
         if line.len() == 0 {
             continue;
         }
-        deps.push(String::from_utf8_lossy(line).into_owned());
+        missing_deps.push(String::from_utf8_lossy(line).into_owned());
     }
-    if deps.len() == 0 {
-        return;
+    if missing_deps.len() == 0 {
+        return
     }
-
-    println!("Installing {} missing deps: {:?}", deps.len(), deps);
+    println!("Installing {} missing deps: {:?}",
+            missing_deps.len(), missing_deps);
     let mut child = Command::new("/usr/bin/sudo")
         .arg("/usr/bin/pacman")
         .arg("-S")
         .arg("--noconfirm")
-        .args(&deps)
+        .args(&missing_deps)
         .spawn()
         .expect("Failed to run sudo pacman to install missing deps");
     let exit_status = child.wait()
         .expect("Failed to wait for child sudo pacman process");
-    if let Some(code) = exit_status.code() {
-        if code == 0 {
-            return
-        }
-        println!("Failed to run sudo pacman, return: {}", code);
+    if match exit_status.code() {
+        Some(code) => {
+            if code == 0 {
+                true
+            } else {
+                println!("Failed to run sudo pacman, return: {}", code);
+                false
+            }
+        },
+        None => false,
+    } {
+        println!("Successfully installed {} missing deps", missing_deps.len());
+    } else {
+        panic!("Failed to install missing deps");
     }
-    panic!("Sudo pacman process not successful");
+}
+
+fn calc_dep_hashes(pkgbuilds: &mut Vec<PKGBUILD>, pkgs_deps: &Vec<Vec<String>>
+) {
+    assert!(pkgbuilds.len() == pkgs_deps.len());
+    let children: Vec<Child> = pkgs_deps.iter().map(|pkg_deps| {
+        Command::new("/usr/bin/pacman")
+            .arg("-Qi")
+            .env("LANG", "C")
+            .args(pkg_deps)
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("Failed to spawn dep info reader")
+    }).collect();
+    assert!(pkgbuilds.len() == children.len());
+    for (pkgbuild, child) in 
+        zip(pkgbuilds.iter_mut(), children) 
+    {
+        let output = child.wait_with_output()
+            .expect("Failed to wait for child");
+        pkgbuild.dephash = xxh3_64(output.stdout.as_slice());
+    }
+}
+
+
+fn check_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
+    let (pkgs_deps, all_deps) 
+        = get_deps(dir, pkgbuilds);
+    if all_deps.len() > 0 {
+        install_deps(&all_deps);
+    }
+    calc_dep_hashes(pkgbuilds, &pkgs_deps);
 }
 
 fn get_all_sources<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>)
@@ -393,7 +444,7 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
 fn fill_all_pkgdirs(pkgbuilds: &mut Vec<PKGBUILD>) {
     for pkgbuild in pkgbuilds.iter_mut() {
         let mut pkgid = format!(
-            "{}-{}", pkgbuild.name, pkgbuild.commit);
+            "{}-{}-{:016x}", pkgbuild.name, pkgbuild.commit, pkgbuild.dephash);
         if let Pkgver::Func { pkgver } = &pkgbuild.pkgver {
             pkgid.push('-');
             pkgid.push_str(&pkgver);
@@ -453,7 +504,7 @@ fn prepare_sources<P: AsRef<Path>>(
         false => None,
     };
     dump_pkgbuilds(&dir, pkgbuilds);
-    ensure_deps(&dir, pkgbuilds);
+    check_deps(&dir, pkgbuilds);
     let (netfile_sources, git_sources, _)
         = get_all_sources(&dir, pkgbuilds);
     source::cache_sources_mt(
