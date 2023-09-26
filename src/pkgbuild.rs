@@ -16,7 +16,10 @@ use std::{
         ffi::OsString,
         fs::{
             create_dir_all,
+            read_dir,
+            remove_dir,
             remove_dir_all,
+            remove_file,
             rename,
         },
         io::Write,
@@ -491,6 +494,43 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
     threading::wait_remaining(cleaners, "cleaning builddirs");
 }
 
+fn remove_dir_recursively<P: AsRef<Path>>(dir: P) -> Result<(), std::io::Error>
+{
+    for entry in read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            let er = remove_dir_recursively(&path);
+            match remove_dir(&path) {
+                Ok(_) => (),
+                Err(e) => {
+                    eprintln!("Failed to remove subdir '{}' recursively: {}", 
+                            path.display(), e);
+                    if let Err(e) = er {
+                        eprintln!("Subdir failure: {}", e)
+                    }
+                    return Err(e);
+                },
+            }
+        } else {
+            remove_file(&path)?
+        }
+    }
+    Ok(())
+}
+
+fn remove_builddir() -> Result<(), std::io::Error> {
+    // Go the simple way first
+    match remove_dir_all("build") {
+        Ok(_) => return Ok(()),
+        Err(e) => eprintln!("Failed to clean: {}", e),
+    }
+    // build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
+    // we use our only implementation
+    remove_dir_recursively("build")?;
+    Ok(())
+}
+
 fn prepare_sources<P: AsRef<Path>>(
     dir: P,
     pkgbuilds: &mut Vec<PKGBUILD>,
@@ -500,9 +540,10 @@ fn prepare_sources<P: AsRef<Path>>(
     proxy: Option<&str>,
     gmr: Option<&git::Gmr>
 ) {
-    let build = PathBuf::from("build");
-    let cleaner = match build.exists() {
-        true => Some(thread::spawn(|| remove_dir_all("build"))),
+    let cleaner = match 
+        PathBuf::from("build").exists() 
+    {
+        true => Some(thread::spawn(|| remove_builddir())),
         false => None,
     };
     dump_pkgbuilds(&dir, pkgbuilds);
