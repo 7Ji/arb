@@ -42,6 +42,11 @@ struct Arg {
     /// Disallow any network connection during makepkg's build routine
     #[arg(short='N', long, default_value_t = false)]
     nonet: bool,
+
+    /// Prefix of a 7Ji/git-mirrorer instance, e.g. git://gmr.lan,
+    /// The mirror would be tried first before actual git remote
+    #[arg(short='g', long)]
+    gmr: Option<String>,
 }
 
 fn main() {
@@ -54,5 +59,6 @@ fn main() {
         arg.skipint,
         arg.nobuild,
         arg.noclean,
-        arg.nonet);
+        arg.nonet,
+        arg.gmr.as_deref());
 }

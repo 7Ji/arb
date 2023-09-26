@@ -652,10 +652,11 @@ fn cache_netfile_sources_mt(
 fn cache_git_sources_mt(
     git_sources_map: HashMap<u64, Vec<Source>>,
     holdgit: bool,
-    proxy: Option<&str>
+    proxy: Option<&str>,
+    gmr: Option<&git::Gmr>
 ) {
     let repos_map =
-        Source::to_repos_map(git_sources_map, "sources/git");
+        Source::to_repos_map(git_sources_map, "sources/git", gmr);
     git::Repo::sync_mt(
         repos_map, git::Refspecs::HeadsTags, holdgit, proxy)
 }
@@ -665,7 +666,8 @@ pub(crate) fn cache_sources_mt(
     git_sources: &Vec<Source>,
     holdgit: bool,
     skipint: bool,
-    proxy: Option<&str>
+    proxy: Option<&str>,
+    gmr: Option<&git::Gmr>
 ) {
     let netfile_sources_map =
         Source::map_by_domain(netfile_sources);
@@ -683,15 +685,8 @@ pub(crate) fn cache_sources_mt(
         };
         cache_netfile_sources_mt(netfile_sources_map, skipint, proxy)
     });
-    let git_thread = std::thread::spawn(move || {
-        let proxy = match has_proxy {
-            true => Some(proxy_string.as_str()),
-            false => None,
-        };
-        cache_git_sources_mt(git_sources_map, holdgit, proxy)
-    });
+    cache_git_sources_mt(git_sources_map, holdgit, proxy, gmr);
     netfile_thread.join().expect("Failed to join netfile thread");
-    git_thread.join().expect("Failed to join git thread");
     println!("Finished multi-threading caching sources");
 }
 

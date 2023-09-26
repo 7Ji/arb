@@ -112,13 +112,13 @@ fn sync_pkgbuilds(pkgbuilds: &Vec<PKGBUILD>, hold: bool, proxy: Option<&str>) {
     let map =
         PKGBUILD::map_by_domain(pkgbuilds);
     let repos_map =
-        git::ToReposMap::to_repos_map(map, "sources/PKGBUILD");
+        git::ToReposMap::to_repos_map(map, "sources/PKGBUILD", None);
     git::Repo::sync_mt(repos_map, git::Refspecs::MasterOnly, hold, proxy);
 }
 
 fn healthy_pkgbuild(pkgbuild: &mut PKGBUILD, set_commit: bool) -> bool {
     let repo =
-        match git::Repo::open_bare(&pkgbuild.git, &pkgbuild.url) {
+        match git::Repo::open_bare(&pkgbuild.git, &pkgbuild.url, None) {
             Some(repo) => repo,
             None => {
                 eprintln!("Failed to open or init bare repo {}",
@@ -163,7 +163,7 @@ where
     for pkgbuild in pkgbuilds.iter() {
         let path = dir.join(&pkgbuild.name);
         let repo =
-            git::Repo::open_bare(&pkgbuild.git, &pkgbuild.url)
+            git::Repo::open_bare(&pkgbuild.git, &pkgbuild.url, None)
             .expect("Failed to open repo");
         let blob = repo.get_pkgbuild_blob()
             .expect("Failed to get PKGBUILD blob");
@@ -313,7 +313,7 @@ fn extractor_source(pkgbuild: &PKGBUILD) -> Child {
     create_dir_all(&pkgbuild.build)
         .expect("Failed to create build dir");
     let repo = 
-        git::Repo::open_bare(&pkgbuild.git, &pkgbuild.url)
+        git::Repo::open_bare(&pkgbuild.git, &pkgbuild.url, None)
         .expect("Failed to open repo");
     repo.checkout_branch(&pkgbuild.build, "master");
     source::extract(&pkgbuild.build, &pkgbuild.sources);
@@ -444,7 +444,8 @@ fn prepare_sources<P: AsRef<Path>>(
     holdgit: bool,
     skipint: bool,
     noclean: bool,
-    proxy: Option<&str>
+    proxy: Option<&str>,
+    gmr: Option<&git::Gmr>
 ) {
     let build = PathBuf::from("build");
     let cleaner = match build.exists() {
@@ -456,7 +457,7 @@ fn prepare_sources<P: AsRef<Path>>(
     let (netfile_sources, git_sources, _)
         = get_all_sources(&dir, pkgbuilds);
     source::cache_sources_mt(
-        &netfile_sources, &git_sources, holdgit, skipint, proxy);
+        &netfile_sources, &git_sources, holdgit, skipint, proxy, gmr);
     if let Some(cleaner) = cleaner {
         match cleaner.join()
             .expect("Failed to join build dir cleaner thread") {
@@ -623,14 +624,20 @@ pub(crate) fn work<P: AsRef<Path>>(
     nobuild: bool,
     noclean: bool,
     nonet: bool,
+    gmr: Option<&str>,
 ) {
+    let gmr = match gmr {
+        Some(gmr) => Some(git::Gmr::init(gmr)),
+        None => None,
+    };
     let mut pkgbuilds =
         get_pkgbuilds(
             &pkgbuilds_yaml, holdpkg, noclean, proxy);
     let pkgbuilds_dir =
         tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
     prepare_sources(
-        pkgbuilds_dir, &mut pkgbuilds, holdgit, skipint, noclean, proxy);
+        pkgbuilds_dir, &mut pkgbuilds, holdgit, skipint, noclean, proxy, 
+        gmr.as_ref());
     if nobuild {
         return;
     }
