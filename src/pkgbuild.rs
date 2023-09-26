@@ -292,6 +292,8 @@ fn calc_dep_hashes(pkgbuilds: &mut Vec<PKGBUILD>, pkgs_deps: &Vec<Vec<String>>
         let output = child.wait_with_output()
             .expect("Failed to wait for child");
         pkgbuild.dephash = xxh3_64(output.stdout.as_slice());
+        println!("PKGBUILD '{}' dephash is '{:016x}'", 
+                pkgbuild.name, pkgbuild.dephash);
     }
 }
 
