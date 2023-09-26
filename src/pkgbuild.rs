@@ -400,7 +400,7 @@ fn extract_sources(pkgbuilds: &mut [&mut PKGBUILD]) {
 }
 
 fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
-    let _ = remove_dir_all("build");
+    let _ = remove_dir_recursively("build");
     let dir = dir.as_ref();
     let children: Vec<Child> = pkgbuilds.iter().map(|pkgbuild| 
         Command::new("/bin/bash")
@@ -479,7 +479,7 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
                 wait_if_too_busy(&mut cleaners, 30, 
                     "cleaning builddir");
                 cleaners.push(thread::spawn(||
-                    remove_dir_all(dir)
+                    remove_dir_recursively(dir)
                     .expect("Failed to remove dir")));
                 pkgbuild.extract = false;
             }
@@ -637,7 +637,7 @@ fn build(pkgbuild: &PKGBUILD, nonet: bool) {
                             temp_pkgdir.display());
                     return
                 }
-                let _ = remove_dir_all(&pkgbuild.build);
+                let _ = remove_dir_recursively(&pkgbuild.build);
                 extractor_source(&pkgbuild).wait()
                     .expect("Failed re-extract source");
             }
@@ -646,7 +646,7 @@ fn build(pkgbuild: &PKGBUILD, nonet: bool) {
     println!("Finishing building '{}'", &pkgbuild.pkgid);
     let build = pkgbuild.build.clone();
     let thread_cleaner =
-        thread::spawn(|| remove_dir_all(build));
+        thread::spawn(|| remove_dir_recursively(build));
     let _ = remove_dir_all(&pkgbuild.pkgdir);
     rename(&temp_pkgdir, &pkgbuild.pkgdir)
         .expect("Failed to move result pkgdir");
@@ -682,7 +682,7 @@ fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>, nonet: bool) {
     }
     threading::wait_remaining(threads, "building packages");
     let thread_cleaner =
-        thread::spawn(|| remove_dir_all("build"));
+        thread::spawn(|| remove_dir_recursively("build"));
     let rel = PathBuf::from("..");
     let latest = PathBuf::from("pkgs/latest");
     for pkgbuild in pkgbuilds.iter() {
