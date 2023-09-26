@@ -29,6 +29,7 @@ Options:
   -B, --nobuild        Do not actually build the packages
   -C, --noclean        Do not clean unused sources and outdated packages
   -N, --nonet          Disallow any network connection during makepkg's build routine
+  -g, --gmr <GMR>      Prefix of a 7Ji/git-mirrorer instance, e.g. git://gmr.lan, The mirror would be tried first before actual git remote
   -h, --help           Print help
   -V, --version        Print version
 ```
@@ -76,3 +77,6 @@ We maintain a series of different folders `sources/file-[integ]` to store networ
 There're some bad-behaving packages that acessses the network during their `build()` function, which adds break points to `build()` that not even should be there. This also violates our designing principle that download, extraction and building should happen each in their seperate stages.
 
 The argument `--nonet` could be set to catch such packages, it is achieved by two recursive `unshare` calls, one to unshare the host network namespace while mapping the host non-root user into the container root so a new lo interface could be set up, another recursive one to map the container root back to the host non-root user. 
+
+### Git-mirrorer
+It is possible to set the builder to fetch from a [7Ji/git-mirrorer](https://github.com/7Ji/git-mirrorer) instance hosted in local LAN before the actual remote. This can further save the bandwidth usage. And it is highly recommended that you set this up if you're building a lot. Do note that PKGBUILDs won't be fetched from git-mirrorer, as the main source is considered to be AUR, and no PKGBUILD repo should be huge enough to be a problem to update frequently from AUR.
