@@ -41,11 +41,8 @@ yaopenvfd: https://aur.archlinux.org/yaopenvfd.git
 ```
 
 ## TODO
- - [ ] Resolve inter-dependencies if necessary, to both:
-   - trigger builds if some of our pacakges changed which are deps of other pacakges
-   - trigger builds if some of system pacakges changed which are deps of our pacakages
+ - [ ] Resolve inter-dependencies if necessary, to trigger builds if some of our pacakges changed which are deps of other pacakges
    - doing this would also mean splitting builds into multiple steps (build -> install -> build)
- - [ ] Improve source extraction
 
 ## Internal
 The builder does the following to save a great chunk of build time and resource:
@@ -55,7 +52,7 @@ The builder does the following to save a great chunk of build time and resource:
  4. The git and netfile cacher run simultaneously
  5. Build folders `build/[package]` are only populated (also multi-threaded) if either:
     1. The corresponding package has a `pkgver()` function which could only be run after complete source extraction
-    2. The corresponding pkgdir `pkg/[pkgid]` is missing, in which `[pkgid]` is generated with `[name]-[commit](-[pkgver])`
+    2. The corresponding pkgdir `pkg/[pkgid]` is missing, in which `[pkgid]` is generated with `[name]-[commit]-[dephash](-[pkgver])`
  6. Build folder is populated via lightweight checkout (no `.git`) from the local PKGBUILDs bare repos, and symlinks of cached sources. Only vcs sources not with git protocol and netfile sources that do not have integrity checks need to be downloaded for each build.
  7. Packages are stored under `pkg/[pkgid]`. Two folders, `pkg/updated` and `pkg/latest` are created with symlinks, `updated` containing links to packages built during the current run, and `latest` containing links to all latest packages.
     1. `updated` is useful when partial update is wanted
