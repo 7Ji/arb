@@ -505,9 +505,9 @@ fn download_netfile_source(
             NetfileProtocol::File => download::file(url, path),
             NetfileProtocol::Ftp => download::ftp(url, path),
             NetfileProtocol::Http => 
-                download::http(url, path, None, false),
+                download::http(url, path, None),
             NetfileProtocol::Https => 
-                download::http(url, path, None, false),
+                download::http(url, path, None),
             NetfileProtocol::Rsync => download::rsync(url, path),
             NetfileProtocol::Scp => download::scp(url, path),
         }
@@ -529,7 +529,7 @@ fn download_netfile_source(
             for _  in 0..2 {
                 println!("Downloading '{}' to '{}'",
                         netfile_source.url, path.display());
-                download::http(url, path, proxy, false);
+                download::http(url, path, proxy);
                 if integ_file.valid(skipint) {
                     return
                 }

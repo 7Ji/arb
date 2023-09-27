@@ -108,30 +108,53 @@ pub(crate) fn ftp(url: &str, path: &Path) {
         .expect("Failed to wait for spawned curl command");
 }
 
-fn http_native(url: &str, path: &Path, proxy: Option<&str>) {
+fn http_native(url: &str, path: &Path, proxy: Option<&str>) -> Result<(), ()> {
     let mut target = match File::create(path) {
         Ok(target) => target,
         Err(e) => {
             eprintln!("Failed to open {} as write-only: {}",
                         path.display(), e);
-            panic!("Failed to open target file as write-only");
+            return Err(())
         },
     };
     let future = async {
         let mut response = match match proxy {
             Some(proxy) => {
+                let http_proxy = match Proxy::http(proxy) {
+                    Ok(http_proxy) => http_proxy,
+                    Err(e) => {
+                        eprintln!("Failed to create http proxy '{}': {}", 
+                                    proxy, e);
+                        return Err(())
+                    },
+                };
+                let https_proxy = match Proxy::https(proxy) 
+                {
+                    Ok(https_proxy) => https_proxy,
+                    Err(e) => {
+                        eprintln!("Failed to create https proxy '{}': {}", 
+                                    proxy, e);
+                        return Err(())
+                    },
+                };
                 let client_builder = 
                     ClientBuilder::new()
-                    .proxy(Proxy::https(proxy)
-                    .expect("Failed to create https proxy"))
-                    .proxy(Proxy::http(proxy)
-                    .expect("Failed to create http proxy"));
-                let client = 
-                    client_builder.build()
-                    .expect("Failed to build client");
-                let request = 
-                    client.get(url).build()
-                    .expect("Failed to build request");
+                    .proxy(http_proxy)
+                    .proxy(https_proxy);
+                let client = match client_builder.build() {
+                    Ok(client) => client,
+                    Err(e) => {
+                        eprintln!("Failed to build client: {}", e);
+                        return Err(())
+                    },
+                };
+                let request = match client.get(url).build() {
+                    Ok(request) => request,
+                    Err(e) => {
+                        eprintln!("Failed to build request: {}", e);
+                        return Err(())
+                    },
+                };
                 client.execute(request).await
             },
             None => {
@@ -141,30 +164,36 @@ fn http_native(url: &str, path: &Path, proxy: Option<&str>) {
             Ok(response) => response,
             Err(e) => {
                 eprintln!("Failed to get response from '{}': {}", url, e);
-                return
+                return Err(())
             },
         };
         match response.chunk().await {
             Ok(chunk) => {
                 while let Some(chunk) = &chunk {
-                    target.write_all(&chunk)
-                        .expect("Failed to write to file");
+                    match target.write_all(&chunk) {
+                        Ok(_) => (),
+                        Err(e) => {
+                            eprintln!("Failed to write to target file: {}", e);
+                            return Err(())
+                        },
+                    }
                 }
             },
             Err(e) => {
                 eprintln!("Failed to get response chunk from '{}': {}", url, e);
-                return
+                return Err(())
             },
         }
+        Ok(())
     };
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap()
-        .block_on(future);
+        .block_on(future)
 }
 
-fn http_curl(url: &str, path: &Path, proxy: Option<&str>) {
+fn _http_curl(url: &str, path: &Path, proxy: Option<&str>) {
     let mut command = Command::new("/usr/bin/curl");
     if let Some(proxy) = proxy {
         command.env("http_proxy", proxy)
@@ -192,12 +221,8 @@ fn http_curl(url: &str, path: &Path, proxy: Option<&str>) {
         .expect("Failed to wait for spawned curl command");
 }
 
-pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>, native: bool) {
-    if native {
-        http_native(url, path, proxy);
-    } else {
-        http_curl(url, path, proxy);
-    }
+pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) {
+    let _ = http_native(url, path, proxy);
 }
 
 pub(crate) fn rsync(url: &str, path: &Path) {
