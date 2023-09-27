@@ -740,8 +740,8 @@ fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>, nonet: bool) {
             if let Ok(entry) = entry {
                 let original = rel.join(entry.file_name());
                 let link = latest.join(entry.file_name());
-                println!("Linking '{}' <= '{}'", 
-                        original.display(), link.display());
+                println!("Linking '{}' => '{}'", 
+                        link.display(), original.display());
                 if let Err(e) = symlink(original, link) {
                     eprintln!("Failed to link: {}", e);
                 }
