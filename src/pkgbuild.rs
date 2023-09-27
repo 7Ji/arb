@@ -456,8 +456,7 @@ fn fill_all_pkgdirs(pkgbuilds: &mut Vec<PKGBUILD>) {
         }
         pkgbuild.pkgdir.push(&pkgid);
         pkgbuild.pkgid = pkgid;
-        println!("Pkgdir for '{}': '{}'",
-            pkgbuild.name, pkgbuild.pkgdir.display());
+        println!("PKGBUILD '{}' pkgid is '{}'", pkgbuild.name, pkgbuild.pkgid);
     }
 }
 
