@@ -471,7 +471,7 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
             }
         }
         if built { // Does not need build
-            println!("'{}' already built, no need to build",
+            println!("Skipped already built '{}'",
                 pkgbuild.pkgdir.display());
             if pkgbuild.extract {
                 let dir = pkgbuild.build.clone();
