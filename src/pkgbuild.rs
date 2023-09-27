@@ -497,7 +497,7 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
 // we use our only implementation
 fn remove_dir_recursively<P: AsRef<Path>>(dir: P) -> Result<(), std::io::Error>
 {
-    for entry in read_dir(dir)? {
+    for entry in read_dir(&dir)? {
         let entry = entry?;
         let path = entry.path();
         if !path.is_symlink() && path.is_dir() {
@@ -517,7 +517,7 @@ fn remove_dir_recursively<P: AsRef<Path>>(dir: P) -> Result<(), std::io::Error>
             remove_file(&path)?
         }
     }
-    Ok(())
+    remove_dir(&dir)
 }
 
 fn remove_builddir() -> Result<(), std::io::Error> {
