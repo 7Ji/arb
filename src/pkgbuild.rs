@@ -494,6 +494,8 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
     threading::wait_remaining(cleaners, "cleaning builddirs");
 }
 
+// build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
+// we use our only implementation
 fn remove_dir_recursively<P: AsRef<Path>>(dir: P) -> Result<(), std::io::Error>
 {
     for entry in read_dir(dir)? {
@@ -576,12 +578,22 @@ fn prepare_sources<P: AsRef<Path>>(
     }
 }
 
-fn build(pkgbuild: &PKGBUILD, nonet: bool) {
-    let mut temp_name = pkgbuild.pkgdir.file_name()
-        .expect("Failed to get file name").to_os_string();
-    temp_name.push(".temp");
+fn prepare_temp_pkgdir(pkgbuild: &PKGBUILD) -> Result<PathBuf, ()> {
+    let mut temp_name = pkgbuild.pkgid.clone();
+    temp_name.push_str(".temp");
     let temp_pkgdir = pkgbuild.pkgdir.with_file_name(temp_name);
-    let _ = create_dir_all(&temp_pkgdir);
+    match create_dir_all(&temp_pkgdir) {
+        Ok(_) => Ok(temp_pkgdir),
+        Err(e) => {
+            eprintln!("Failed to create temp pkgdir: {}", e);
+            Err(())
+        },
+    }
+}
+
+fn prepare_build_command(pkgbuild: &PKGBUILD, nonet: bool, temp_pkgdir: &Path) 
+    -> Result<Command, ()> 
+{
     let mut command = if nonet {
         let mut command = Command::new("/usr/bin/unshare");
         command.arg("--map-root-user")
@@ -604,52 +616,70 @@ fn build(pkgbuild: &PKGBUILD, nonet: bool) {
             .arg("--ignorearch");
         command
     };
+    let path = env::var_os("PATH").ok_or(())?;
+    let home = env::var_os("HOME").ok_or(())?;
+    let pkgdest = temp_pkgdir.canonicalize().or(Err(()))?;
     command.current_dir(&pkgbuild.build)
         .arg0(format!("[BUILDER/{}] /bin/bash", pkgbuild.pkgid))
-        .env("PATH",
-            env::var_os("PATH")
-            .expect("Failed to get PATH env"))
-        .env("HOME",
-            env::var_os("HOME")
-            .expect("Failed to get HOME env"))
-        .env("PKGDEST",
-            &temp_pkgdir.canonicalize()
-            .expect("Failed to get absolute path of pkgdir"));
+        .env("PATH", path)
+        .env("HOME", home)
+        .env("PKGDEST", pkgdest);
+    Ok(command)
+}
+
+fn build_try(pkgbuild: &PKGBUILD, command: &mut Command, temp_pkgdir: &Path)
+    -> Result<(), ()>
+{
     for i in 1..3 {
         println!("Building '{}', try {}/{}", &pkgbuild.pkgid, i , 3);
-        let _ = create_dir_all(&temp_pkgdir);
         let exit_status = command
             .spawn()
-            .expect("Failed to spawn makepkg")
+            .or(Err(()))?
             .wait()
-            .expect("Failed to wait for makepkg");
+            .or(Err(()))?;
+        if let Err(e) = remove_dir_recursively(&pkgbuild.build) {
+            eprintln!("Failed to remove build dir '{}': {}",
+                        pkgbuild.build.display(), e);
+            return Err(())
+        }
         match exit_status.code() {
             Some(0) => {
-                println!("Successfully built '{}'", temp_pkgdir.display());
-                break
+                println!("Successfully built to '{}'", temp_pkgdir.display());
+                return Ok(())
             },
             _ => {
-                eprintln!("Failed to build '{}'", temp_pkgdir.display());
-                let _ = remove_dir_all(&pkgbuild.pkgdir);
-                let _ = remove_dir_all(&temp_pkgdir);
-                if i == 3 {
-                    eprintln!("Failed to build '{}' after all tries",
-                            temp_pkgdir.display());
-                    return
+                eprintln!("Failed to build to '{}'", temp_pkgdir.display());
+                if let Err(e) = remove_dir_all(&temp_pkgdir) {
+                    eprintln!("Failed to remove temp pkgdir '{}': {}", 
+                                temp_pkgdir.display(), e);
+                    return Err(())
                 }
-                let _ = remove_dir_recursively(&pkgbuild.build);
-                extractor_source(&pkgbuild).wait()
-                    .expect("Failed re-extract source");
+                if let Err(e) = extractor_source(&pkgbuild).wait() {
+                    eprintln!("Failed to re-extract source for '{}': {}",
+                            pkgbuild.pkgid, e);
+                    return Err(())
+                }
             }
         }
     }
+    eprintln!("Failed to build '{}' after all tries", temp_pkgdir.display());
+    Err(())
+}
+
+fn build_finish(pkgbuild: &PKGBUILD, temp_pkgdir: &Path) -> Result<(), ()> {
     println!("Finishing building '{}'", &pkgbuild.pkgid);
-    let build = pkgbuild.build.clone();
-    let thread_cleaner =
-        thread::spawn(|| remove_dir_recursively(build));
-    let _ = remove_dir_all(&pkgbuild.pkgdir);
-    rename(&temp_pkgdir, &pkgbuild.pkgdir)
-        .expect("Failed to move result pkgdir");
+    if pkgbuild.pkgdir.exists() {
+        if let Err(e) = remove_dir_all(&pkgbuild.pkgdir) {
+            eprintln!("Failed to remove existing pkgdir: {}", e);
+            return Err(())
+        }
+    }
+    if let Err(e) = rename(&temp_pkgdir, &pkgbuild.pkgdir) {
+        eprintln!(
+            "Failed to rename temp pkgdir '{}' to persistent pkgdir '{}': {}",
+            temp_pkgdir.display(), pkgbuild.pkgdir.display(), e);
+        return Err(())
+    }
     let mut rel = PathBuf::from("..");
     rel.push(&pkgbuild.pkgid);
     let updated = PathBuf::from("pkgs/updated");
@@ -662,8 +692,16 @@ fn build(pkgbuild: &PKGBUILD, nonet: bool) {
             let _ = symlink(original, link);
         }
     }
-    let _ = thread_cleaner.join().expect("Failed to join cleaner thread");
     println!("Finished building '{}'", &pkgbuild.pkgid);
+    Ok(())
+}
+
+fn build(pkgbuild: &PKGBUILD, nonet: bool) -> Result<(), ()> {
+    let temp_pkgdir = prepare_temp_pkgdir(pkgbuild)?;
+    let mut command = prepare_build_command(
+                                pkgbuild, nonet, &temp_pkgdir)?;
+    build_try(pkgbuild, &mut command, &temp_pkgdir)?;
+    build_finish(pkgbuild, &temp_pkgdir)
 }
 
 fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>, nonet: bool) {
