@@ -167,22 +167,48 @@ fn http_native(url: &str, path: &Path, proxy: Option<&str>) -> Result<(), ()> {
                 return Err(())
             },
         };
-        match response.chunk().await {
-            Ok(chunk) => {
-                while let Some(chunk) = &chunk {
-                    match target.write_all(&chunk) {
-                        Ok(_) => (),
-                        Err(e) => {
-                            eprintln!("Failed to write to target file: {}", e);
-                            return Err(())
-                        },
+        let time_start = tokio::time::Instant::now();
+        let mut total = 0;
+        loop {
+            let chunk = match response.chunk().await {
+                Ok(chunk) => chunk,
+                Err(e) => {
+                    eprintln!(
+                        "Failed to get response chunk from '{}': {}", url, e);
+                    return Err(())
+                },
+            };
+            if let Some(chunk) = chunk {
+                total += chunk.len();
+                match target.write_all(&chunk) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        eprintln!("Failed to write to target file: {}", e);
+                        return Err(())
+                    },
+                }
+                let time_diff = 
+                    (tokio::time::Instant::now() - time_start)
+                        .as_secs_f64();
+                if time_diff <= 0.0 {
+                    continue;
+                }
+                let mut speed = total as f64 / time_diff;
+                let suffixes = "BKMGTPEZY";
+                let mut suffix_actual = ' ';
+                for suffix in suffixes.chars() {
+                    if speed >= 1024.00 {
+                        speed /= 1024.00
+                    } else {
+                        suffix_actual = suffix;
+                        break;
                     }
                 }
-            },
-            Err(e) => {
-                eprintln!("Failed to get response chunk from '{}': {}", url, e);
-                return Err(())
-            },
+                print!("Downloading {}: {:.2}{}/s\r", 
+                        url, speed, suffix_actual);
+            } else {
+                break
+            }
         }
         Ok(())
     };
