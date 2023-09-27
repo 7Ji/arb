@@ -724,14 +724,27 @@ fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>, nonet: bool) {
     let rel = PathBuf::from("..");
     let latest = PathBuf::from("pkgs/latest");
     for pkgbuild in pkgbuilds.iter() {
+        if ! pkgbuild.pkgdir.exists() {
+            continue;
+        }
+        let dirent = match pkgbuild.pkgdir.read_dir() {
+            Ok(dirent) => dirent,
+            Err(e) => {
+                eprintln!("Failed to read dir '{}': {}", 
+                    pkgbuild.pkgdir.display(), e);
+                continue
+            },
+        };
         let rel = rel.join(&pkgbuild.pkgid);
-        for entry in
-            pkgbuild.pkgdir.read_dir().expect("Failed to read dir")
-        {
+        for entry in dirent {
             if let Ok(entry) = entry {
                 let original = rel.join(entry.file_name());
                 let link = latest.join(entry.file_name());
-                let _ = symlink(original, link);
+                println!("Linking '{}' <= '{}'", 
+                        original.display(), link.display());
+                if let Err(e) = symlink(original, link) {
+                    eprintln!("Failed to link: {}", e);
+                }
             }
         }
     }
