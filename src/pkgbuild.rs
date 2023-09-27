@@ -517,7 +517,10 @@ fn remove_dir_recursively<P: AsRef<Path>>(dir: P) -> Result<(), std::io::Error>
             remove_file(&path)?
         }
     }
-    remove_dir(&dir)
+    if dir.as_ref().exists() {
+        remove_dir(&dir)?
+    }
+    Ok(())
 }
 
 fn remove_builddir() -> Result<(), std::io::Error> {
