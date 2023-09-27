@@ -552,9 +552,9 @@ fn cache_netfile_source(
     let mut good_files = vec![];
     let mut bad_files = vec![];
     for integ_file in integ_files.iter() {
-        println!("'{}' <= '{}'",
-            integ_file.get_path().display(),
-            netfile_source.url);
+        println!("Caching '{}' to '{}'",
+            netfile_source.url,
+            integ_file.get_path().display());
         if integ_file.valid(skipint) {
             good_files.push(integ_file);
         } else {
