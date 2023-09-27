@@ -517,9 +517,6 @@ fn remove_dir_recursively<P: AsRef<Path>>(dir: P) -> Result<(), std::io::Error>
             remove_file(&path)?
         }
     }
-    if dir.as_ref().exists() {
-        remove_dir(&dir)?
-    }
     Ok(())
 }
 
@@ -532,7 +529,7 @@ fn remove_builddir() -> Result<(), std::io::Error> {
     // build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
     // we use our only implementation
     remove_dir_recursively("build")?;
-    Ok(())
+    remove_dir("build")
 }
 
 fn prepare_sources<P: AsRef<Path>>(
