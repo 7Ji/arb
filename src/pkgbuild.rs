@@ -653,6 +653,9 @@ fn build_try(pkgbuild: &PKGBUILD, command: &mut Command, temp_pkgdir: &Path)
                                 temp_pkgdir.display(), e);
                     return Err(())
                 }
+                if i == 3 {
+                    break
+                }
                 if let Err(e) = extractor_source(&pkgbuild).wait() {
                     eprintln!("Failed to re-extract source for '{}': {}",
                             pkgbuild.pkgid, e);
