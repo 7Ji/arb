@@ -629,8 +629,10 @@ fn prepare_build_command(pkgbuild: &PKGBUILD, nonet: bool, temp_pkgdir: &Path)
 fn build_try(pkgbuild: &PKGBUILD, command: &mut Command, temp_pkgdir: &Path)
     -> Result<(), ()>
 {
-    for i in 1..3 {
-        println!("Building '{}', try {}/{}", &pkgbuild.pkgid, i , 3);
+    const BUILD_MAX_TRIES: u8 = 3;
+    for i in 1..BUILD_MAX_TRIES {
+        println!("Building '{}', try {}/{}", 
+                &pkgbuild.pkgid, i , BUILD_MAX_TRIES);
         let exit_status = command
             .spawn()
             .or(Err(()))?
@@ -653,7 +655,7 @@ fn build_try(pkgbuild: &PKGBUILD, command: &mut Command, temp_pkgdir: &Path)
                                 temp_pkgdir.display(), e);
                     return Err(())
                 }
-                if i == 3 {
+                if i == BUILD_MAX_TRIES {
                     break
                 }
                 if let Err(e) = extractor_source(&pkgbuild).wait() {
