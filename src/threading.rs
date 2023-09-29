@@ -110,7 +110,7 @@ pub(crate) fn wait_remaining(
     }
     println!("Finished waiting for all threads {}", job);
     if bad_threads > 0 {
-        eprintln!("{} threads has bad return", bad_threads);
+        eprintln!("{} threads {} has bad return", bad_threads, job);
         Err(())
     } else {
         Ok(())
