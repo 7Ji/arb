@@ -87,7 +87,7 @@ pub(crate) fn clone_file(source: &Path, target: &Path)
 pub(crate) fn file(url: &str, path: &Path) -> Result<(), ()> {
     if ! url.starts_with("file://") {
         eprintln!("URL '{}' does not start with file://", url);
-        panic!("URL does not start with file://");
+        return Err(())
     }
     clone_file(&PathBuf::from(&url[7..]), path).or(Err(()))
 }
