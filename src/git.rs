@@ -22,10 +22,7 @@ use std::{
             PathBuf
         },
         str::FromStr,
-        thread::{
-            self,
-            JoinHandle
-        },
+        thread,
     };
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -531,7 +528,7 @@ impl Repo {
                 repo.sync(proxy, refspecs.get())
             }));
         }
-        if let Err(e) = threading::wait_remaining(threads, &job) {
+        if let Err(_) = threading::wait_remaining(threads, &job) {
             bad = true;
         }
         if bad {
