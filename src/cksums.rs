@@ -269,9 +269,10 @@ impl IntegFile {
         if let Err(e) = download::clone_file(
             &source.path, &self.path) 
         {
-            eprintln!("Failed to clone '{}' from '{}'", 
+            eprintln!("Failed to clone '{}' from '{}': {}", 
                         self.path.display(),
-                        source.path.display());
+                        source.path.display(),
+                        e);
             return Err(())
         }
         if self.valid(false) {
