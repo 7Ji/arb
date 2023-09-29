@@ -772,7 +772,7 @@ pub(crate) fn cache_sources_mt(
     const MAX_THREADS: usize = 10;
     let mut netfile_sources_map =
         Source::map_by_domain(netfile_sources);
-    let mut git_sources_map =
+    let git_sources_map =
         Source::map_by_domain(git_sources);
     let (proxy_string, has_proxy) = match proxy {
         Some(proxy) => (proxy.to_owned(), true),
@@ -790,12 +790,20 @@ pub(crate) fn cache_sources_mt(
         match get_domain_threads_map(&git_sources_map) {
             Some(map) => map,
             None => {
-                eprintln!("Failed to get netfile threads map");
+                eprintln!("Failed to get git threads map");
+                return Err(())
+            },
+        };
+    let mut git_repos_map = 
+        match Source::to_repos_map(git_sources_map, "sources/git", gmr) {
+            Some(git_repos_map) => git_repos_map,
+            None => {
+                eprintln!("Failed to get git repos map");
                 return Err(())
             },
         };
     let mut bad = false;
-    while netfile_sources_map.len() > 0 || git_sources_map.len() > 0 {
+    while netfile_sources_map.len() > 0 || git_repos_map.len() > 0 {
         for (domain, netfile_sources) in 
             netfile_sources_map.iter_mut() 
         {
@@ -822,20 +830,20 @@ pub(crate) fn cache_sources_mt(
                 netfile_threads.push(netfile_thread);
             }
         }
-        for (domain, git_sources) in 
-            git_sources_map.iter_mut() 
+        for (domain, git_repos) in 
+            git_repos_map.iter_mut() 
         {
             let mut git_threads 
                 = get_domain_threads_from_map(domain, &mut git_threads_map);
-            while git_sources.len() > 0 && 
+            while git_repos.len() > 0 && 
                 git_threads.len() < MAX_THREADS 
             {
-                let git_source = git_sources
+                let git_repo = git_repos
                     .pop()
                     .expect("Failed to get source from sources vec");
-                let repo = git_source
-                    .to_repo("sources/git", gmr)
-                    .expect("Failed to open repo");
+                if git_repo.healthy() {
+                    continue
+                }
                 let proxy_string_thread = proxy_string.clone();
                 let git_thread = thread::spawn(
                 move ||{
@@ -843,15 +851,23 @@ pub(crate) fn cache_sources_mt(
                         true => Some(proxy_string_thread.as_str()),
                         false => None,
                     };
-                    repo.sync(proxy, git::Refspecs::HeadsTags)
+                    git_repo.sync(proxy, git::Refspecs::HeadsTags)
                 });
                 git_threads.push(git_thread);
             }
         }
+        if let Err(_) = threading::wait_thread_map(
+            &mut netfile_threads_map, "caching netfile sources") {
+                bad = true
+            }
+        if let Err(_) = threading::wait_thread_map(
+            &mut git_threads_map, "caching git sources") {
+                bad = true
+            }
         netfile_sources_map.retain(
             |_, sources| sources.len() > 0);
-        git_sources_map.retain(
-            |_, sources| sources.len() > 0);
+        git_repos_map.retain(
+            |_, repos| repos.len() > 0);
     }
     let mut remaining_threads = vec![];
     for mut threads in 

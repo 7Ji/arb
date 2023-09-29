@@ -1,4 +1,5 @@
 use std::{
+        collections::HashMap,
         thread::{
             JoinHandle,
             sleep,
@@ -110,6 +111,54 @@ pub(crate) fn wait_remaining(
     println!("Finished waiting for all threads {}", job);
     if bad_threads > 0 {
         eprintln!("{} threads has bad return", bad_threads);
+        Err(())
+    } else {
+        Ok(())
+    }
+}
+
+pub(crate) fn wait_thread_map<T>(
+    map: &mut HashMap<T, Vec<JoinHandle<Result<(), ()>>>>, job: &str
+) -> Result<(), ()>
+{
+    let mut bad = false;
+    for threads in map.values_mut() {
+        if threads.len() == 0 {
+            continue
+        }
+        loop {
+            let mut thread_id_finished = None;
+            for (thread_id, thread) in
+                threads.iter().enumerate()
+            {
+                if thread.is_finished() {
+                    thread_id_finished = Some(thread_id);
+                    break
+                }
+            }
+            match thread_id_finished {
+                Some(thread_id) => {
+                    println!("One of {} threads {} ended", threads.len(), job);
+                    match threads
+                        .swap_remove(thread_id)
+                        .join() 
+                    {
+                        Ok(r) => match r {
+                            Ok(_) => (),
+                            Err(_) => bad = true,
+                        },
+                        Err(e) => {
+                            eprintln!(
+                                "Failed to join finished thread: {:?}", e);
+                            bad = true;
+                        },
+                    };
+                },
+                None => break,
+            }
+        }
+    }
+    if bad {
         Err(())
     } else {
         Ok(())
