@@ -16,7 +16,10 @@ use std::{
             Path,
             PathBuf
         },
-        process::Command, 
+        process::{
+            Child,
+            Command
+        }, 
     };
 
 const BUFFER_SIZE: usize = 0x400000; // 4M
@@ -81,16 +84,54 @@ pub(crate) fn clone_file(source: &Path, target: &Path)
     Ok(())
 }
 
-pub(crate) fn file(url: &str, path: &Path) {
+pub(crate) fn file(url: &str, path: &Path) -> Result<(), ()> {
     if ! url.starts_with("file://") {
         eprintln!("URL '{}' does not start with file://", url);
         panic!("URL does not start with file://");
     }
-    clone_file(&PathBuf::from(&url[7..]), path);
+    clone_file(&PathBuf::from(&url[7..]), path).or(Err(()))
 }
 
-pub(crate) fn ftp(url: &str, path: &Path) {
-    Command::new("/usr/bin/curl")
+fn wait_child(mut child: Child, job: &str) -> Result<(), ()> {
+    let status = match child.wait() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Failed to wait for child to {}: {}", &job, e);
+            return Err(())
+        },
+    };
+    match status.code() {
+        Some(code) => {
+            if code == 0 {
+                return Ok(())
+            } else {
+                eprintln!("Child to {} bad return {}", &job, code);
+                return Err(())
+            }
+        },
+        None => {
+            eprintln!("Child to {} has no return", &job);
+            return Err(())
+        },
+    }
+}
+
+fn spawn_and_wait(command: &mut Command, job: &str) -> Result<(), ()> {
+    let child = match command.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            eprintln!(
+                "Failed to spawn child to {}: {}", &job, e);
+            return Err(())
+        },
+    };
+    wait_child(child, job)
+}
+
+pub(crate) fn ftp(url: &str, path: &Path) -> Result<(), ()> {
+    let job = format!(
+        "download FTP source from '{}' to '{}'", url, path.display());
+    let command = Command::new("/usr/bin/curl")
         .arg("-qgfC")
         .arg("-")
         .arg("--ftp-pasv")
@@ -100,11 +141,8 @@ pub(crate) fn ftp(url: &str, path: &Path) {
         .arg("3")
         .arg("-o")
         .arg(path)
-        .arg(url)
-        .spawn()
-        .expect("Failed to run curl command to download ftp file")
-        .wait()
-        .expect("Failed to wait for spawned curl command");
+        .arg(url);
+    spawn_and_wait(command, &job)
 }
 
 fn http_native(url: &str, path: &Path, proxy: Option<&str>) -> Result<(), ()> {
@@ -218,7 +256,7 @@ fn http_native(url: &str, path: &Path, proxy: Option<&str>) -> Result<(), ()> {
         .block_on(future)
 }
 
-fn _http_curl(url: &str, path: &Path, proxy: Option<&str>) {
+fn _http_curl(url: &str, path: &Path, proxy: Option<&str>) -> Result<(), ()> {
     let mut command = Command::new("/usr/bin/curl");
     if let Some(proxy) = proxy {
         command.env("http_proxy", proxy)
@@ -239,36 +277,35 @@ fn _http_curl(url: &str, path: &Path, proxy: Option<&str>) {
         .arg("3")
         .arg("-o")
         .arg(path)
-        .arg(url)
-        .spawn()
-        .expect("Failed to run curl command to download file")
-        .wait()
-        .expect("Failed to wait for spawned curl command");
+        .arg(url);
+    let job = format!("download http(s) source from '{}' to '{}'",
+                                url, path.display());
+    spawn_and_wait(&mut command, &job)
 }
 
-pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) {
-    let _ = http_native(url, path, proxy);
+pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) 
+    -> Result<(), ()>
+{
+    http_native(url, path, proxy)
 }
 
-pub(crate) fn rsync(url: &str, path: &Path) {
-    Command::new("/usr/bin/rsync")
+pub(crate) fn rsync(url: &str, path: &Path) -> Result<(), ()> {
+    let job = format!("download rsync source from '{}' to '{}'",
+                                url, path.display());
+    let command = Command::new("/usr/bin/rsync")
         .arg("--no-motd")
         .arg("-z")
         .arg(url)
-        .arg(path)
-        .spawn()
-        .expect("Failed to run rsync command to download rsync file")
-        .wait()
-        .expect("Failed to wait for spawned rsync command");
+        .arg(path);
+    spawn_and_wait(command, &job)
 }
 
-pub(crate) fn scp(url: &str, path: &Path) {
-    Command::new("/usr/bin/scp")
+pub(crate) fn scp(url: &str, path: &Path) -> Result<(), ()> {
+    let job = format!("download scp source from '{}' to '{}'",
+                                url, path.display());
+    let command = Command::new("/usr/bin/scp")
         .arg("-C")
         .arg(url)
-        .arg(path)
-        .spawn()
-        .expect("Failed to run scp command to download scp file")
-        .wait()
-        .expect("Failed to wait for spawned scp command");
+        .arg(path);
+    spawn_and_wait(command, &job)
 }
