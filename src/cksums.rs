@@ -265,10 +265,20 @@ impl IntegFile {
         return valid;
     }
 
-    pub(crate) fn clone_file_from(&self, source: &Self) {
-        download::clone_file(&source.path, &self.path);
-        if ! self.valid(false) {
-            panic!("Cloned integ file not healthy");
+    pub(crate) fn clone_file_from(&self, source: &Self) -> Result<(), ()> {
+        if let Err(e) = download::clone_file(
+            &source.path, &self.path) 
+        {
+            eprintln!("Failed to clone '{}' from '{}'", 
+                        self.path.display(),
+                        source.path.display());
+            return Err(())
+        }
+        if self.valid(false) {
+            Ok(())
+        } else {
+            eprintln!("Cloned integ file not healthy");
+            Err(())
         }
     }
 }
