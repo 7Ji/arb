@@ -24,7 +24,6 @@ use std::{
         str::FromStr,
         thread,
     };
-use xxhash_rust::xxh3::xxh3_64;
 
 const REFSPECS_HEADS_TAGS: &[&str] = &[
     "+refs/heads/*:refs/heads/*",
