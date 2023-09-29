@@ -326,7 +326,7 @@ impl Repo {
                 return Err(());
             }
         }
-        Err(())
+        Ok(())
     }
 
     fn _update_head(&self, remote: &mut Remote) -> Result<(), ()> {
@@ -353,17 +353,15 @@ impl Repo {
         if let Some(mirror) = &self.mirror {
             println!("Syncing repo '{}' with gmr '{}' before actual remote",
                         &self.path.display(), &mirror);
-            match Self::sync_raw(
+            if let Ok(_) = Self::sync_raw(
                 &self.repo, &mirror, None, refspecs
             ) {
-                Ok(_) => return Ok(()),
-                Err(_) => (),
+                return Ok(())
             }
         }
         println!("Syncing repo '{}' with '{}' ", 
             &self.path.display(), &self.url);
-        Self::sync_raw(&self.repo, &self.url, proxy, refspecs)?;
-        Ok(())
+        Self::sync_raw(&self.repo, &self.url, proxy, refspecs)
     }
 
     fn get_branch<'a>(&'a self, branch: &str) -> Option<Branch<'a>> {
