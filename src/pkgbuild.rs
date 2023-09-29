@@ -479,7 +479,7 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
                     "cleaning builddir");
                 cleaners.push(thread::spawn(||
                     remove_dir_recursively(dir)
-                    .expect("Failed to remove dir")));
+                    .or(Err(()))));
                 pkgbuild.extract = false;
             }
         } else {

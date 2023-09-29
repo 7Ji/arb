@@ -489,7 +489,8 @@ fn download_netfile_source(
     integ_file: &cksums::IntegFile,
     skipint: bool,
     proxy: Option<&str>
-) {
+) -> Result<(), ()> 
+{
     let protocol = match &netfile_source.protocol {
         Protocol::Netfile { protocol } => protocol.clone(),
         Protocol::Vcs { protocol: _ } =>
@@ -501,7 +502,7 @@ fn download_netfile_source(
     for _ in 0..2 {
         println!("Downloading '{}' to '{}'",
             netfile_source.url, path.display());
-        match &protocol {
+        if let Ok(_) = match &protocol {
             NetfileProtocol::File => download::file(url, path),
             NetfileProtocol::Ftp => download::ftp(url, path),
             NetfileProtocol::Http => 
@@ -510,33 +511,46 @@ fn download_netfile_source(
                 download::http(url, path, None),
             NetfileProtocol::Rsync => download::rsync(url, path),
             NetfileProtocol::Scp => download::scp(url, path),
-        }
-        if integ_file.valid(skipint) {
-            return
-        }
-    }
-    if let Some(_) = proxy {
-        if match &protocol {
-            NetfileProtocol::File => false,
-            NetfileProtocol::Ftp => false,
-            NetfileProtocol::Http => true,
-            NetfileProtocol::Https => true,
-            NetfileProtocol::Rsync => false,
-            NetfileProtocol::Scp => false,
         } {
-            println!("Failed to download '{}' to '{}' after 3 tries, use proxy",
-                    netfile_source.url, path.display());
-            for _  in 0..2 {
-                println!("Downloading '{}' to '{}'",
-                        netfile_source.url, path.display());
-                download::http(url, path, proxy);
-                if integ_file.valid(skipint) {
-                    return
-                }
+            if integ_file.valid(skipint) {
+                return Ok(())
             }
         }
     }
-    panic!("Failed to download netfile source '{}'", netfile_source.url);
+    if let None = proxy {
+        eprintln!(
+            "Failed to download netfile source '{}' and no proxy to retry", 
+            netfile_source.url);
+        return Err(())
+    }
+    if match &protocol {
+        NetfileProtocol::File => false,
+        NetfileProtocol::Ftp => false,
+        NetfileProtocol::Http => true,
+        NetfileProtocol::Https => true,
+        NetfileProtocol::Rsync => false,
+        NetfileProtocol::Scp => false,
+    } {
+        println!("Failed to download '{}' to '{}' after 3 tries, use proxy",
+                netfile_source.url, path.display());
+    } else {
+        eprintln!(
+            "Failed to download netfile source '{}', proto not support proxy", 
+            netfile_source.url);
+        return Err(())
+    }
+    for _  in 0..2 {
+        println!("Downloading '{}' to '{}'",
+                netfile_source.url, path.display());
+        if let Ok(_) = download::http(url, path, proxy) {
+            if integ_file.valid(skipint) {
+                return Ok(())
+            }
+        }
+    }
+    eprintln!("Failed to download netfile source '{} even with proxy",
+                netfile_source.url);
+    return Err(())
 }
 
 fn cache_netfile_source(
@@ -544,11 +558,10 @@ fn cache_netfile_source(
     integ_files: &Vec<cksums::IntegFile>,
     skipint: bool,
     proxy: Option<&str>
-) {
+) -> Result<(), ()> 
+{
     println!("Caching '{}'", netfile_source.url);
-    if integ_files.len() == 0 {
-        panic!("No integ files")
-    }
+    assert!(integ_files.len() == 0, "No integ files");
     let mut good_files = vec![];
     let mut bad_files = vec![];
     for integ_file in integ_files.iter() {
@@ -567,16 +580,27 @@ fn cache_netfile_source(
                 netfile_source.url, bad_count);
     } else {
         println!("All integ files healthy for '{}'", netfile_source.url);
-        return
+        return Ok(())
     }
+    let mut bad_count = 0;
     while let Some(bad_file) = bad_files.pop() {
-        match good_files.last() {
+        let r = match good_files.last() {
             Some(good_file) =>
                 bad_file.clone_file_from(good_file),
             None => download_netfile_source(
                 netfile_source, bad_file, skipint, proxy),
+        };
+        match r {
+            Ok(_) => good_files.push(bad_file),
+            Err(_) => bad_count += 1,
         }
-        good_files.push(bad_file);
+    }
+    if bad_count > 0 {
+        eprintln!("Bad files still existing after download for '{}' ({})",
+                    netfile_source.url, bad_count);
+        Err(())
+    } else {
+        Ok(())
     }
 }
 
@@ -587,7 +611,7 @@ fn cache_netfile_sources_for_domain_mt(
         Some(proxy) => (proxy.to_owned(), true),
         None => (String::new(), false),
     };
-    let mut threads: Vec<JoinHandle<()>> = vec![];
+    let mut threads: Vec<JoinHandle<Result<(), ()>>> = vec![];
     for netfile_source in netfile_sources {
         let integ_files = get_integ_files(&netfile_source);
         let proxy_string_thread = proxy_string.clone();
@@ -654,7 +678,8 @@ fn cache_git_sources_mt(
     holdgit: bool,
     proxy: Option<&str>,
     gmr: Option<&git::Gmr>
-) {
+) -> Result<(), ()>
+{
     let repos_map =
         Source::to_repos_map(git_sources_map, "sources/git", gmr);
     git::Repo::sync_mt(

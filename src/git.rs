@@ -497,14 +497,16 @@ impl Repo {
         max_threads: usize,
         hold: bool,
         proxy: Option<&str>
-    ) {
+    ) -> Result<(), ()>
+    {
         let (proxy_string, has_proxy) = match proxy {
             Some(proxy) => (proxy.to_owned(), true),
             None => (String::new(), false),
         };
-        let mut threads: Vec<JoinHandle<Result<(), ()>>> = vec![];
+        let mut threads = vec![];
         let job = format!("syncing git repos from domain '{}'", 
             repos.last().expect("Failed to get repo").get_domain());
+        let mut bad = false;
         for repo in repos {
             if hold {
                 if repo.healthy() {
@@ -516,7 +518,10 @@ impl Repo {
                 }
             }
             let proxy_string_thread = proxy_string.clone();
-            threading::wait_if_too_busy(&mut threads, max_threads, &job);
+            if let Err(_) = 
+                threading::wait_if_too_busy(&mut threads, max_threads, &job) {
+                bad = true;
+            }
             let refspecs = refspecs.clone();
             threads.push(thread::spawn(move ||{
                 let proxy = match has_proxy {
@@ -526,7 +531,14 @@ impl Repo {
                 repo.sync(proxy, refspecs.get())
             }));
         }
-        threading::wait_remaining(threads, &job);
+        if let Err(e) = threading::wait_remaining(threads, &job) {
+            bad = true;
+        }
+        if bad {
+            Err(())
+        } else {
+            Ok(())
+        }
     }
 
     pub(crate) fn sync_mt(
@@ -534,13 +546,14 @@ impl Repo {
         refspecs: Refspecs,
         hold: bool,
         proxy: Option<&str>
-    ) {
+    ) -> Result<(), ()>
+    {
         println!("Syncing repos with {} groups", repos_map.len());
         let (proxy_string, has_proxy) = match proxy {
             Some(proxy) => (proxy.to_owned(), true),
             None => (String::new(), false),
         };
-        let mut threads: Vec<std::thread::JoinHandle<()>> =  Vec::new();
+        let mut threads = vec![];
         for (domain, repos) in repos_map {
             let max_threads = match domain {
                 0xb463cbdec08d6265 => 1, // aur.archlinux.org,
@@ -557,9 +570,9 @@ impl Repo {
                     false => None,
                 };
                 Self::sync_for_domain(
-                    repos, refspecs, max_threads, hold, proxy);
+                    repos, refspecs, max_threads, hold, proxy)
             }));
         }
-        threading::wait_remaining(threads, "syncing git repo groups");
+        threading::wait_remaining(threads, "syncing git repo groups")
     }
 }
