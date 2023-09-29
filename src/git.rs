@@ -85,42 +85,53 @@ pub(crate) struct Repo {
 
 pub(crate) trait ToReposMap {
     fn url(&self) -> &str;
+    fn hash_url(&self) -> u64;
     fn path(&self) -> Option<&Path>;
+    fn to_repo(&self, parent: &str, gmr: Option<&Gmr>) -> Option<Repo> {
+        let url = self.url();
+        let repo = match self.path() {
+            Some(path) => Repo::open_bare(path, url, gmr),
+            None => {
+                let mut path = PathBuf::from(parent);
+                path.push(format!("{:016x}", self.hash_url()));
+                Repo::open_bare(path, url, gmr)
+            },
+        };
+        match repo {
+            Some(repo) => Some(repo),
+            None => {
+                eprintln!(
+                    "Failed to open bare repo for git source '{}'",
+                    url);
+                None
+            },
+        }
+
+    }
     fn to_repos_map(
         map: HashMap<u64, Vec<Self>>, parent: &str, gmr: Option<&Gmr>
-    ) -> HashMap<u64, Vec<Repo>>
+    ) -> Option<HashMap<u64, Vec<Repo>>>
     where Self: Sized{
         let mut repos_map = HashMap::new();
-        let parent = PathBuf::from(parent);
         for (domain, sources) in map {
-            let repos: Vec<Repo> = sources.iter().map(|source| {
-                let url = source.url();
-                let repo = match source.path() {
-                    Some(path) => Repo::open_bare(path, url, gmr),
+            let mut repos = vec![];
+            for source in sources {
+                match source.to_repo(parent, gmr) {
+                    Some(repo) => repos.push(repo),
                     None => {
-                        let path = parent.join(
-                            format!(
-                                    "{:016x}",
-                                    xxh3_64(source.url().as_bytes())));
-                        Repo::open_bare(&path, url, gmr)
-                    },
-                };
-                match repo {
-                    Some(repo) => repo,
-                    None => {
-                        eprintln!(
-                            "Failed to open bare repo for git source '{}'",
-                            url);
-                        panic!("Failed to open bare repo");
+                        return None
                     },
                 }
-            }).collect();
+            }
             match repos_map.insert(domain, repos) {
-                Some(_) => panic!("Duplicated key for repos map"),
+                Some(_) => {
+                    eprintln!("Duplicated key for repos map");
+                    return None
+                },
                 None => (),
             }
         }
-        repos_map
+        Some(repos_map)
     }
 }
 
@@ -336,7 +347,10 @@ impl Repo {
         Ok(())
     }
 
-    fn sync(&self, proxy: Option<&str>, refspecs: &[&str]) -> Result<(), ()>{
+    pub(crate) fn sync(&self, proxy: Option<&str>, refspecs: Refspecs)
+        -> Result<(), ()>
+    {
+        let refspecs = refspecs.get();
         if let Some(mirror) = &self.mirror {
             println!("Syncing repo '{}' with gmr '{}' before actual remote",
                         &self.path.display(), &mirror);
@@ -525,7 +539,7 @@ impl Repo {
                     true => Some(proxy_string_thread.as_str()),
                     false => None,
                 };
-                repo.sync(proxy, refspecs.get())
+                repo.sync(proxy, refspecs)
             }));
         }
         if let Err(_) = threading::wait_remaining(threads, &job) {

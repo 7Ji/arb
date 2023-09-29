@@ -75,6 +75,10 @@ impl git::ToReposMap for PKGBUILD {
         self.url.as_str()
     }
 
+    fn hash_url(&self) -> u64 {
+        xxh3_64(&self.url.as_bytes())
+    }
+
     fn path(&self) -> Option<&Path> {
         Some(&self.git.as_path())
     }
@@ -114,12 +118,22 @@ where
     pkgbuilds
 }
 
-fn sync_pkgbuilds(pkgbuilds: &Vec<PKGBUILD>, hold: bool, proxy: Option<&str>) {
+fn sync_pkgbuilds(pkgbuilds: &Vec<PKGBUILD>, hold: bool, proxy: Option<&str>) 
+    -> Result<(), ()> 
+{
     let map =
         PKGBUILD::map_by_domain(pkgbuilds);
     let repos_map =
-        git::ToReposMap::to_repos_map(map, "sources/PKGBUILD", None);
-    git::Repo::sync_mt(repos_map, git::Refspecs::MasterOnly, hold, proxy);
+        match git::ToReposMap::to_repos_map(
+            map, "sources/PKGBUILD", None) 
+    {
+        Some(repos_map) => repos_map,
+        None => {
+            eprintln!("Failed to convert to repos map");
+            return Err(())
+        },
+    };
+    git::Repo::sync_mt(repos_map, git::Refspecs::MasterOnly, hold, proxy)
 }
 
 fn healthy_pkgbuild(pkgbuild: &mut PKGBUILD, set_commit: bool) -> bool {
