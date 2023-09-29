@@ -164,13 +164,6 @@ impl git::ToReposMap for Source {
     }
 }
 
-impl Source {
-    fn cache(&self) -> Result<(), ()> {
-        Ok(())
-    }
-}
-
-
 fn push_source(
     sources: &mut Vec<Source>,
     name: Option<String>,
@@ -614,19 +607,23 @@ fn cache_netfile_source(
     }
 }
 
-fn cache_netfile_sources_for_domain_mt(
+fn _cache_netfile_sources_for_domain_mt(
     netfile_sources: Vec<Source>, skipint:bool, proxy: Option<&str>
-) {
+) -> Result<(), ()> {
     let (proxy_string, has_proxy) = match proxy {
         Some(proxy) => (proxy.to_owned(), true),
         None => (String::new(), false),
     };
+    let mut bad = false;
     let mut threads: Vec<JoinHandle<Result<(), ()>>> = vec![];
     for netfile_source in netfile_sources {
         let integ_files = get_integ_files(&netfile_source);
         let proxy_string_thread = proxy_string.clone();
-        threading::wait_if_too_busy(&mut threads, 10,
-            "caching network files");
+        if let Err(_) = threading::wait_if_too_busy(
+            &mut threads, 10, "caching network files") 
+            {
+                bad = true;
+            }
         threads.push(thread::spawn(move ||{
             let proxy = match has_proxy {
                 true => Some(proxy_string_thread.as_str()),
@@ -635,10 +632,16 @@ fn cache_netfile_sources_for_domain_mt(
             cache_netfile_source(&netfile_source, &integ_files, skipint, proxy)
         }));
     }
-    threading::wait_remaining(threads, "caching network files");
+    if let Err(_) = threading::wait_remaining(
+        threads, "caching network files") 
+    {
+        bad = true;
+    }
+    if bad { Err(()) } else { Ok(()) }
 }
 
-fn ensure_netfile_parents() {
+fn ensure_netfile_parents() -> Result<(), ()>
+{
     let mut dir_builder = DirBuilder::new();
     dir_builder.recursive(true);
     for integ in
@@ -649,24 +652,25 @@ fn ensure_netfile_parents() {
             Ok(_) => (),
             Err(e) => {
                 eprintln!("Failed to create folder '{}': {}", &folder, e);
-                panic!("Failed to ensure netfile parents");
+                return Err(())
             },
         }
     }
+    Ok(())
 }
-
-fn cache_netfile_sources_mt(
+fn _cache_netfile_sources_mt(
     netfile_sources: HashMap<u64, Vec<Source>>,
     skipint: bool,
     proxy: Option<&str>
-) {
-    ensure_netfile_parents();
+) -> Result<(), ()> 
+{
+    if let Err(_) = ensure_netfile_parents() { return Err(()) }
     println!("Caching netfile sources with {} threads", netfile_sources.len());
     let (proxy_string, has_proxy) = match proxy {
         Some(proxy) => (proxy.to_owned(), true),
         None => (String::new(), false),
     };
-    let mut threads: Vec<std::thread::JoinHandle<()>> =  Vec::new();
+    let mut threads: Vec<JoinHandle<Result<(), ()>>> =  vec![];
     for netfile_sources in netfile_sources.into_values() {
         let proxy_string_thread = proxy_string.clone();
         threads.push(thread::spawn(move || {
@@ -674,16 +678,27 @@ fn cache_netfile_sources_mt(
                 true => Some(proxy_string_thread.as_str()),
                 false => None,
             };
-            cache_netfile_sources_for_domain_mt(
-                netfile_sources, skipint, proxy);
+            _cache_netfile_sources_for_domain_mt(
+                netfile_sources, skipint, proxy)
         }));
     }
+    let mut bad = false;
     for thread in threads {
-        thread.join().expect("Failed to join netfile cacher threads");
+        match thread.join() {
+            Ok(r) => match r {
+                Ok(_) => (),
+                Err(_) => bad = true,
+            },
+            Err(e) => {
+                eprintln!("Failed to join thread: {:?}", e);
+                bad = true
+            },
+        }
     }
+    if bad { Err(()) } else { Ok(()) }
 }
 
-fn cache_git_sources_mt(
+fn _cache_git_sources_mt(
     git_sources_map: HashMap<u64, Vec<Source>>,
     holdgit: bool,
     proxy: Option<&str>,
@@ -769,7 +784,7 @@ pub(crate) fn cache_sources_mt(
     gmr: Option<&git::Gmr>
 ) -> Result<(), ()> 
 {
-    const MAX_THREADS: usize = 10;
+    if let Err(_) = ensure_netfile_parents() { return Err(()) }
     let mut netfile_sources_map =
         Source::map_by_domain(netfile_sources);
     let git_sources_map =
@@ -802,12 +817,13 @@ pub(crate) fn cache_sources_mt(
                 return Err(())
             },
         };
+    const MAX_THREADS: usize = 10;
     let mut bad = false;
     while netfile_sources_map.len() > 0 || git_repos_map.len() > 0 {
         for (domain, netfile_sources) in 
             netfile_sources_map.iter_mut() 
         {
-            let mut netfile_threads 
+            let netfile_threads 
                 = get_domain_threads_from_map(domain, &mut netfile_threads_map);
             while netfile_sources.len() > 0 && 
                 netfile_threads.len() < MAX_THREADS 
@@ -833,7 +849,7 @@ pub(crate) fn cache_sources_mt(
         for (domain, git_repos) in 
             git_repos_map.iter_mut() 
         {
-            let mut git_threads 
+            let git_threads 
                 = get_domain_threads_from_map(domain, &mut git_threads_map);
             while git_repos.len() > 0 && 
                 git_threads.len() < MAX_THREADS 
@@ -841,7 +857,7 @@ pub(crate) fn cache_sources_mt(
                 let git_repo = git_repos
                     .pop()
                     .expect("Failed to get source from sources vec");
-                if git_repo.healthy() {
+                if holdgit && git_repo.healthy() {
                     continue
                 }
                 let proxy_string_thread = proxy_string.clone();
