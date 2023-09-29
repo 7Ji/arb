@@ -131,7 +131,8 @@ fn spawn_and_wait(command: &mut Command, job: &str) -> Result<(), ()> {
 pub(crate) fn ftp(url: &str, path: &Path) -> Result<(), ()> {
     let job = format!(
         "download FTP source from '{}' to '{}'", url, path.display());
-    let command = Command::new("/usr/bin/curl")
+    let mut command = Command::new("/usr/bin/curl");
+    command
         .arg("-qgfC")
         .arg("-")
         .arg("--ftp-pasv")
@@ -142,7 +143,7 @@ pub(crate) fn ftp(url: &str, path: &Path) -> Result<(), ()> {
         .arg("-o")
         .arg(path)
         .arg(url);
-    spawn_and_wait(command, &job)
+    spawn_and_wait(&mut command, &job)
 }
 
 fn http_native(url: &str, path: &Path, proxy: Option<&str>) -> Result<(), ()> {
@@ -292,20 +293,22 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>)
 pub(crate) fn rsync(url: &str, path: &Path) -> Result<(), ()> {
     let job = format!("download rsync source from '{}' to '{}'",
                                 url, path.display());
-    let command = Command::new("/usr/bin/rsync")
+    let mut command = Command::new("/usr/bin/rsync");
+    command
         .arg("--no-motd")
         .arg("-z")
         .arg(url)
         .arg(path);
-    spawn_and_wait(command, &job)
+    spawn_and_wait(&mut command, &job)
 }
 
 pub(crate) fn scp(url: &str, path: &Path) -> Result<(), ()> {
     let job = format!("download scp source from '{}' to '{}'",
                                 url, path.display());
-    let command = Command::new("/usr/bin/scp")
+    let mut command = Command::new("/usr/bin/scp");
+    command
         .arg("-C")
         .arg(url)
         .arg(path);
-    spawn_and_wait(command, &job)
+    spawn_and_wait(&mut command, &job)
 }
