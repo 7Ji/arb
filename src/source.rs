@@ -564,7 +564,7 @@ fn cache_netfile_source(
 ) -> Result<(), ()> 
 {
     println!("Caching '{}'", netfile_source.url);
-    assert!(integ_files.len() == 0, "No integ files");
+    assert!(integ_files.len() > 0, "No integ files");
     let mut good_files = vec![];
     let mut bad_files = vec![];
     for integ_file in integ_files.iter() {
