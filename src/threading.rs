@@ -56,13 +56,6 @@ pub(crate) fn wait_if_too_busy(
     Ok(())
 }
 
-// pub(crate) fn wait_if_too_busy<T>(
-//     threads: &mut Vec<JoinHandle<Result<(), ()>>>, max_threads: usize, job: &str
-// ) -> Result<(), ()>
-// {
-//     wait_if_too_busy_with_callback(threads, max_threads, job, |_: T|Ok(()))
-// }
-
 pub(crate) fn wait_remaining(
     mut threads: Vec<JoinHandle<Result<(), ()>>>, job: &str
 ) -> Result<(), ()>
@@ -74,7 +67,7 @@ pub(crate) fn wait_remaining(
     let mut bad_threads = 0;
     while threads.len() > 0 {
         if changed {
-            println!("Waiting for all {} threads {} ...", threads.len(), job);
+            println!("Waiting for {} threads {} ...", threads.len(), job);
         }
         changed = false;
         let mut thread_id_finished = None;
