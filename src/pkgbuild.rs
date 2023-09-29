@@ -340,7 +340,7 @@ fn get_all_sources<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>)
 }
 
 fn get_pkgbuilds<P>(config: P, hold: bool, noclean: bool, proxy: Option<&str>)
-    -> Vec<PKGBUILD>
+    -> Option<Vec<PKGBUILD>>
 where
     P:AsRef<Path>
 {
@@ -367,15 +367,18 @@ where
                     source::remove_unused("sources/PKGBUILD", &used))),
     };
     if update_pkg {
-        sync_pkgbuilds(&pkgbuilds, hold, proxy);
+        if let Err(_) = sync_pkgbuilds(&pkgbuilds, hold, proxy) {
+            return None
+        }
         if ! healthy_pkgbuilds(&mut pkgbuilds, true) {
-            panic!("Updating broke some of our PKGBUILDs");
+            eprintln!("Updating broke some of our PKGBUILDs");
+            return None
         }
     }
     if let Some(cleaner) = cleaner {
         cleaner.join().expect("Failed to join PKGBUILDs cleaner thread");
     }
-    pkgbuilds
+    Some(pkgbuilds)
 }
 
 fn extractor_source(pkgbuild: &PKGBUILD) -> Child {
@@ -474,9 +477,10 @@ fn fill_all_pkgdirs(pkgbuilds: &mut Vec<PKGBUILD>) {
     }
 }
 
-fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
+fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) -> Result<(), ()> {
     let mut pkgbuilds_need_build = vec![];
     let mut cleaners = vec![];
+    let mut bad = false;
     for pkgbuild in pkgbuilds.iter_mut() {
         let mut built = false;
         if let Ok(mut dir) = pkgbuild.pkgdir.read_dir() {
@@ -489,8 +493,11 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
                 pkgbuild.pkgdir.display());
             if pkgbuild.extract {
                 let dir = pkgbuild.build.clone();
-                wait_if_too_busy(&mut cleaners, 30, 
-                    "cleaning builddir");
+                if let Err(_) = wait_if_too_busy(
+                    &mut cleaners, 30, 
+                    "cleaning builddir") {
+                    bad = true
+                }
                 cleaners.push(thread::spawn(||
                     remove_dir_recursively(dir)
                     .or(Err(()))));
@@ -504,7 +511,12 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) {
         }
     }
     extract_sources(&mut pkgbuilds_need_build);
-    threading::wait_remaining(cleaners, "cleaning builddirs");
+    if let Err(_) = threading::wait_remaining(
+        cleaners, "cleaning builddirs") 
+    {
+        bad = true
+    }
+    if bad { Err(()) } else { Ok(()) }
 }
 
 // build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
@@ -554,7 +566,7 @@ fn prepare_sources<P: AsRef<Path>>(
     noclean: bool,
     proxy: Option<&str>,
     gmr: Option<&git::Gmr>
-) {
+) -> Result<(), ()> {
     let cleaner = match 
         PathBuf::from("build").exists() 
     {
@@ -565,15 +577,18 @@ fn prepare_sources<P: AsRef<Path>>(
     check_deps(&dir, pkgbuilds);
     let (netfile_sources, git_sources, _)
         = get_all_sources(&dir, pkgbuilds);
-    source::cache_sources_mt(
-        &netfile_sources, &git_sources, holdgit, skipint, proxy, gmr);
+    if let Err(_) = source::cache_sources_mt(
+        &netfile_sources, &git_sources, holdgit, skipint, proxy, gmr) {
+            eprintln!("Failed to cache sources MT");
+            return Err(())
+        }
     if let Some(cleaner) = cleaner {
         match cleaner.join()
             .expect("Failed to join build dir cleaner thread") {
             Ok(_) => (),
             Err(e) => {
                 eprintln!("Failed to clean build dir: {}", e);
-                panic!("Failed to clean build dir");
+                return Err(())
             },
         }
     }
@@ -583,12 +598,16 @@ fn prepare_sources<P: AsRef<Path>>(
     };
     fill_all_pkgvers(dir, pkgbuilds);
     fill_all_pkgdirs(pkgbuilds);
-    extract_if_need_build(pkgbuilds);
+    if let Err(_) = extract_if_need_build(pkgbuilds) {
+        eprintln!("Failed to extract sources");
+        return Err(())
+    }
     if let Some(cleaners) = cleaners {
         for cleaner in cleaners {
             cleaner.join().expect("Failed to join sources cleaner thread");
         }
     }
+    Ok(())
 }
 
 fn prepare_temp_pkgdir(pkgbuild: &PKGBUILD) -> Result<PathBuf, ()> {
@@ -722,21 +741,36 @@ fn build(pkgbuild: &PKGBUILD, nonet: bool) -> Result<(), ()> {
     build_finish(pkgbuild, &temp_pkgdir)
 }
 
-fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>, nonet: bool) {
+fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>, nonet: bool) -> Result<(), ()>{
     let _ = remove_dir_all("pkgs/updated");
     let _ = remove_dir_all("pkgs/latest");
-    let _ = create_dir_all("pkgs/updated");
-    let _ = create_dir_all("pkgs/latest");
+    if let Err(e) = create_dir_all("pkgs/updated") {
+        eprintln!("Failed to create pkgs/updated: {}", e);
+        return Err(())
+    }
+    if let Err(e) = create_dir_all("pkgs/latest") {
+        eprintln!("Failed to create pkgs/latest: {}", e);
+        return Err(())
+    }
+    let mut bad = false;
     let mut threads = vec![];
     for pkgbuild in pkgbuilds.iter() {
         if ! pkgbuild.extract {
             continue
         }
         let pkgbuild = pkgbuild.clone();
-        wait_if_too_busy(&mut threads, 5, "building packages");
+        if let Err(_) = wait_if_too_busy(
+            &mut threads, 5, "building packages") 
+        {
+            bad = true;
+        }
         threads.push(thread::spawn(move || build(&pkgbuild, nonet)));
     }
-    threading::wait_remaining(threads, "building packages");
+    if let Err(_) = threading::wait_remaining(
+        threads, "building packages") 
+    {
+        bad = true;
+    }
     let thread_cleaner =
         thread::spawn(|| remove_dir_recursively("build"));
     let rel = PathBuf::from("..");
@@ -767,6 +801,7 @@ fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>, nonet: bool) {
         }
     }
     let _ = thread_cleaner.join().expect("Failed to join cleaner thread");
+    if bad { Err(()) } else { Ok(()) }
 }
 
 fn clean_pkgdir(pkgbuilds: &Vec<PKGBUILD>) {
@@ -788,25 +823,39 @@ pub(crate) fn work<P: AsRef<Path>>(
     noclean: bool,
     nonet: bool,
     gmr: Option<&str>,
-) {
+) -> Result<(), ()>
+{
     let gmr = match gmr {
         Some(gmr) => Some(git::Gmr::init(gmr)),
         None => None,
     };
     let mut pkgbuilds =
-        get_pkgbuilds(
-            &pkgbuilds_yaml, holdpkg, noclean, proxy);
+        match get_pkgbuilds(
+            &pkgbuilds_yaml, holdpkg, noclean, proxy) {
+        Some(pkgbuilds) => pkgbuilds,
+        None => {
+            eprintln!("Failed to get PKGBUILDs");
+            return Err(())
+        },
+    };
     let pkgbuilds_dir =
         tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
-    prepare_sources(
+    if let Err(_) = prepare_sources(
         pkgbuilds_dir, &mut pkgbuilds, holdgit, skipint, noclean, proxy, 
-        gmr.as_ref());
+        gmr.as_ref()) {
+            eprintln!("Failed to prepare sources");
+            return Err(())
+        }
     if nobuild {
-        return;
+        return Ok(());
     }
-    build_any_needed(&pkgbuilds, nonet);
+    if let Err(_) = build_any_needed(&pkgbuilds, nonet) {
+        eprintln!("Failed to build any needed");
+        return Err(())
+    }
     if noclean {
-        return;
+        return Ok(());
     }
     clean_pkgdir(&pkgbuilds);
+    Ok(())
 }

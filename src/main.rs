@@ -51,7 +51,7 @@ struct Arg {
 
 fn main() {
     let arg = Arg::parse();
-    pkgbuild::work(
+    if let Err(_) = pkgbuild::work(
         &arg.pkgbuilds, 
         arg.proxy.as_deref(),
         arg.holdpkg,
@@ -60,5 +60,8 @@ fn main() {
         arg.nobuild,
         arg.noclean,
         arg.nonet,
-        arg.gmr.as_deref());
+        arg.gmr.as_deref()) 
+    {
+        std::process::exit(-1)
+    }
 }
