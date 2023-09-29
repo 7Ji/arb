@@ -323,7 +323,6 @@ impl Repo {
                         },
                     }
                 }
-                return Err(());
             }
         }
         Ok(())
