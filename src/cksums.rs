@@ -264,7 +264,6 @@ impl IntegFile {
                     eprintln!(
                         "Failed to remove bad file '{}': {}",
                               self.path.display(), e);
-                    panic!("Failed to remove bad file");
                 },
             }
         }
