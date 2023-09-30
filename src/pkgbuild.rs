@@ -328,8 +328,13 @@ fn get_all_sources<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>)
     -> Option<(Vec<source::Source>, Vec<source::Source>, Vec<source::Source>)> {
     let mut sources_non_unique = vec![];
     for pkgbuild in pkgbuilds.iter_mut() {
-        pkgbuild.sources = source::get_sources::<P>(
-            &dir.as_ref().join(&pkgbuild.name))
+        if let Some(sources) = source::get_sources::<P>(
+            &dir.as_ref().join(&pkgbuild.name)) 
+        {
+            pkgbuild.sources = sources
+        } else {
+            return None
+        }
     }
     for pkgbuild in pkgbuilds.iter() {
         for source in pkgbuild.sources.iter() {

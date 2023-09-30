@@ -182,7 +182,8 @@ fn push_source(
     sha384: Option<[u8; 48]>,// 384-bit SHA-2
     sha512: Option<[u8; 64]>,// 512-bit SHA-2
     b2: Option<[u8; 64]>,    // 512-bit Blake-2B
-) {
+) -> Result<(),()>
+{
     if let None = ck {
     if let None = md5 {
     if let None = sha1 {
@@ -193,7 +194,7 @@ fn push_source(
     if let None = b2 {
     if let Some(protocol) = &protocol {
     if let Protocol::Netfile { protocol: _ } = protocol {
-        return
+        return Ok(()) // Skip netfiles that do not have integ
     }}}}}}}}}}
     if let Some(name) = name {
         if let Some(protocol) = protocol {
@@ -212,14 +213,15 @@ fn push_source(
                     sha512,
                     b2,
                 });
-                return
+                return Ok(())
             }
         }
     };
-    panic!("Unfinished source definition")
+    eprintln!("Unfinished source definition");
+    Err(())
 }
 
-pub(crate) fn get_sources<P> (pkgbuild: &Path) -> Vec<Source>
+pub(crate) fn get_sources<P> (pkgbuild: &Path) -> Option<Vec<Source>>
 where
     P: AsRef<Path>
 {
@@ -255,7 +257,7 @@ where
                     name, protocol, url, hash_url,
                     ck, md5, sha1,
                     sha224, sha256, sha384, sha512,
-                    b2);
+                    b2).ok()?;
                 name = None;
                 protocol = None;
                 url = None;
@@ -334,7 +336,8 @@ where
                         .expect("Failed to parse 512-bit Blake-2B sum"));
             }
             &_ => {
-                panic!("Unexpected line");
+                eprintln!("Unexpected line: {}", String::from_utf8_lossy(line));
+                return None
             }
         }
     }
@@ -342,8 +345,8 @@ where
         name, protocol, url, hash_url,
         ck, md5, sha1,
         sha224, sha256, sha384, sha512,
-        b2);
-    sources
+        b2).ok()?;
+    Some(sources)
 }
 
 fn push_netfile_sources(netfile_sources: &mut Vec<Source>, source: &Source) 
@@ -510,9 +513,14 @@ fn download_netfile_source(
 {
     let protocol = match &netfile_source.protocol {
         Protocol::Netfile { protocol } => protocol.clone(),
-        Protocol::Vcs { protocol: _ } =>
-            panic!("VCS source encountered by netfile cacher"),
-        Protocol::Local => panic!("Local source encountered by netfile cacher"),
+        Protocol::Vcs { protocol: _ } => {
+            eprintln!("VCS source encountered by netfile cacher");
+            return Err(())
+        },
+        Protocol::Local => {
+            eprintln!("Local source encountered by netfile cacher");
+            return Err(())
+        },
     };
     let url = netfile_source.url.as_str();
     let path = integ_file.get_path();
@@ -750,14 +758,14 @@ fn get_domain_threads_map<T>(orig_map: &HashMap<u64, Vec<T>>)
 fn get_domain_threads_from_map<'a>(
     domain: &u64, 
     map: &'a mut HashMap<u64, Vec<JoinHandle<Result<(), ()>>>>
-) -> &'a mut Vec<JoinHandle<Result<(), ()>>>
+) -> Option<&'a mut Vec<JoinHandle<Result<(), ()>>>>
 {
     match map.get_mut(domain) {
-        Some(threads) => return threads,
+        Some(threads) => Some(threads),
         None => {
             println!(
                 "Domain {:x} has no threads, which should not happen", domain);
-            panic!("Incorrect domain key");
+            None
         },
     }
 }
@@ -837,8 +845,12 @@ pub(crate) fn cache_sources_mt(
         for (domain, netfile_sources) in 
             netfile_sources_map.iter_mut() 
         {
-            let netfile_threads 
-                = get_domain_threads_from_map(domain, &mut netfile_threads_map);
+            let netfile_threads = match
+                get_domain_threads_from_map(domain, &mut netfile_threads_map) 
+            {
+                Some(threads) => threads,
+                None => return Err(()),
+            };
             while netfile_sources.len() > 0 && 
                 netfile_threads.len() < MAX_THREADS 
             {
@@ -863,8 +875,12 @@ pub(crate) fn cache_sources_mt(
         for (domain, git_repos) in 
             git_repos_map.iter_mut() 
         {
-            let git_threads 
-                = get_domain_threads_from_map(domain, &mut git_threads_map);
+            let git_threads = match
+                get_domain_threads_from_map(domain, &mut git_threads_map) 
+            {
+                Some(threads) => threads,
+                None => return Err(()),
+            };
             while git_repos.len() > 0 && 
                 git_threads.len() < MAX_THREADS 
             {
