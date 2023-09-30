@@ -240,10 +240,7 @@ impl Repo {
             Err(e) => {
                 eprintln!("Failed to add remote {}: {}",
                             self.path.display(), e);
-                std::fs::remove_dir_all(&self.path)
-                .expect(
-                    "Failed to remove dir after failed attempt");
-                Err(())
+                std::fs::remove_dir_all(&self.path).or(Err(()))
             }
         }
     }
@@ -338,8 +335,7 @@ impl Repo {
     ) -> Result<(), ()> 
     {
         let mut remote =
-            repo.remote_anonymous(url)
-            .expect("Failed to create temporary remote");
+            repo.remote_anonymous(url).or(Err(()))?;
         let mut fetch_opts = fetch_opts_init();
         fetch_remote(&mut remote, &mut fetch_opts, proxy, refspecs)?;
         Self::update_head_raw(repo, &mut remote)?;
@@ -474,20 +470,19 @@ impl Repo {
     }
 
     pub(crate) fn checkout_branch<P>(&self, target: P, branch: &str)
+        -> Result<(),()>
     where
         P: AsRef<Path>
     {
-        let tree = self.get_branch_tree(branch)
-                                 .expect("Failed to get commit");
-        self.repo.cleanup_state().expect("Failed to cleanup state");
+        let tree = self.get_branch_tree(branch).ok_or(())?;
+        self.repo.cleanup_state().or(Err(()))?;
         self.repo.set_workdir(
                     target.as_ref(),
-                    false)
-                 .expect("Failed to set work dir");
+                    false).or(Err(()))?;
         self.repo.checkout_tree(
                     tree.as_object(),
                     Some(CheckoutBuilder::new().force()))
-                 .expect("Failed to checkout tree");
+                    .or(Err(()))
     }
 
     fn get_domain(&self) -> String {
@@ -513,7 +508,7 @@ impl Repo {
         };
         let mut threads = vec![];
         let job = format!("syncing git repos from domain '{}'", 
-            repos.last().expect("Failed to get repo").get_domain());
+            repos.last().ok_or(())?.get_domain());
         let mut bad = false;
         for repo in repos {
             if hold {
@@ -568,8 +563,7 @@ impl Repo {
                 _ => 10,
             };
             println!("Max {} threads from domain {}", max_threads,
-                        repos.last().expect("Failed to get repo")
-                        .get_domain());
+                        repos.last().ok_or(())?.get_domain());
             let proxy_string_thread = proxy_string.clone();
             let refspecs = refspecs.clone();
             threads.push(thread::spawn(move || {

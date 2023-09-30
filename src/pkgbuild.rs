@@ -392,19 +392,19 @@ where
     Some(pkgbuilds)
 }
 
-fn extractor_source(pkgbuild: &PKGBUILD) -> Child {
+fn extractor_source(pkgbuild: &PKGBUILD) -> Option<Child> {
     const SCRIPT: &str = include_str!("scripts/extract_sources.bash");
     create_dir_all(&pkgbuild.build)
         .expect("Failed to create build dir");
     let repo = 
         git::Repo::open_bare(&pkgbuild.git, &pkgbuild.url, None)
         .expect("Failed to open repo");
-    repo.checkout_branch(&pkgbuild.build, "master");
+    repo.checkout_branch(&pkgbuild.build, "master").ok()?;
     source::extract(&pkgbuild.build, &pkgbuild.sources);
     let mut arg0 = OsString::from("[EXTRACTOR/");
     arg0.push(&pkgbuild.name);
     arg0.push("] /bin/bash");
-    Command::new("/bin/bash")
+    Some(Command::new("/bin/bash")
         .arg0(&arg0)
         .arg("-ec")
         .arg(SCRIPT)
@@ -412,22 +412,27 @@ fn extractor_source(pkgbuild: &PKGBUILD) -> Child {
         .arg(&pkgbuild.build.canonicalize()
             .expect("Failed to cannicalize build dir"))
         .spawn()
-        .expect("Failed to run script")
+        .expect("Failed to run script"))
 }
 
-fn extract_sources(pkgbuilds: &mut [&mut PKGBUILD]) {
-    let children: Vec<Child> = pkgbuilds.iter_mut().map(
-    |pkgbuild| 
-    {
-        pkgbuild.extract = true;
-        extractor_source(pkgbuild)
-    }).collect();
+fn extract_sources(pkgbuilds: &mut [&mut PKGBUILD]) -> Result<(), ()> {
+    let mut children = vec![];
+    let mut bad = false;
+    for pkgbuild in pkgbuilds.iter_mut() {
+        if let Some(child) = extractor_source(pkgbuild) {
+            children.push(child);
+        } else {
+            bad = true;
+        }
+    }
     for mut child in children {
         child.wait().expect("Failed to wait for child");
     }
+    if bad { Err(()) } else { Ok(()) }
 }
 
-fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
+fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>)
+    -> Result<(), ()> {
     let _ = remove_dir_recursively("build");
     let dir = dir.as_ref();
     let children: Vec<Child> = pkgbuilds.iter().map(|pkgbuild| 
@@ -450,7 +455,7 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
             pkgbuilds_with_pkgver_func.push(pkgbuild);
         };
     }
-    extract_sources(&mut pkgbuilds_with_pkgver_func);
+    extract_sources(&mut pkgbuilds_with_pkgver_func)?;
     let children: Vec<Child> = pkgbuilds_with_pkgver_func.iter().map(
     |pkgbuild|
         Command::new("/bin/bash")
@@ -472,6 +477,7 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
         pkgbuild.pkgver = Pkgver::Func { pkgver:
             String::from_utf8_lossy(&output.stdout).trim().to_string()}
     }
+    Ok(())
 }
 
 fn fill_all_pkgdirs(pkgbuilds: &mut Vec<PKGBUILD>) {
@@ -521,7 +527,9 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) -> Result<(), ()> {
             }
         }
     }
-    extract_sources(&mut pkgbuilds_need_build);
+    if let Err(_) = extract_sources(&mut pkgbuilds_need_build) {
+        bad = true
+    }
     if let Err(_) = threading::wait_remaining(
         cleaners, "cleaning builddirs") 
     {
@@ -604,7 +612,7 @@ fn prepare_sources<P: AsRef<Path>>(
         true => None,
         false => Some(source::cleanup(netfile_sources, git_sources)),
     };
-    fill_all_pkgvers(dir, pkgbuilds);
+    fill_all_pkgvers(dir, pkgbuilds)?;
     fill_all_pkgdirs(pkgbuilds);
     extract_if_need_build(pkgbuilds)?;
     if let Some(cleaners) = cleaners {
@@ -696,7 +704,11 @@ fn build_try(pkgbuild: &PKGBUILD, command: &mut Command, temp_pkgdir: &Path)
                 if i == BUILD_MAX_TRIES {
                     break
                 }
-                if let Err(e) = extractor_source(&pkgbuild).wait() {
+                let mut child = match extractor_source(&pkgbuild) {
+                    Some(child) => child,
+                    None => return Err(()),
+                };
+                if let Err(e) = child.wait() {
                     eprintln!("Failed to re-extract source for '{}': {}",
                             pkgbuild.pkgid, e);
                     return Err(())
