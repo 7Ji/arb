@@ -67,45 +67,48 @@ impl Identity {
         (Self::current(), Self::acutal())
     }
 
-    fn sete(&self) -> Result<(), ()> {
-        unsafe {
-            let r = libc::setegid(self.gid);
-            if r != 0 {
-                eprintln!("Failed to setguid to {}: return {}, errno {}", 
-                    self.gid, r, *libc::__errno_location());
-                return Err(())
-            }
-            let r = libc::seteuid(self.uid);
-            if r != 0 {
-                eprintln!("Failed to seteuid to {}: return {}, errno {}", 
-                    self.uid, r, *libc::__errno_location());
-                return Err(())
-            }
-            Ok(())
+    fn sete_raw(uid: libc::uid_t, gid: libc::gid_t) 
+        -> Result<(), std::io::Error>
+    {
+        let r = unsafe { libc::setegid(gid) };
+        if r != 0 {
+            eprintln!("Failed to setguid to {}: return {}, errno {}", 
+                gid, r, unsafe {*libc::__errno_location()});
+            return Err(std::io::Error::last_os_error())
         }
+        let r = unsafe { libc::seteuid(uid) };
+        if r != 0 {
+            eprintln!("Failed to setguid to {}: return {}, errno {}", 
+                uid, r, unsafe {*libc::__errno_location()});
+            return Err(std::io::Error::last_os_error())
+        }
+        Ok(())
+    }
+
+    fn sete(&self) -> Result<(), std::io::Error> {
+        Self::sete_raw(self.uid, self.gid)
+    }
+
+    fn sete_root() -> Result<(), std::io::Error> {
+        Self::sete_raw(0, 0)
     }
 
     pub(crate) fn set_command<'a>(&self, command: &'a mut Command) 
         -> &'a mut Command 
     {
-        command.uid(self.uid).gid(self.gid)
+        let uid = self.uid;
+        let gid = self.gid;
+        unsafe {
+            command.pre_exec(move || Self::sete_raw(uid, gid));
+        }
+        command
     }
 
     pub(crate) fn set_root_command(command: &mut Command) -> &mut Command {
-        command.uid(0).gid(0)
-    }
-
-    fn _sete_root() -> Result<(), ()> {
         unsafe {
-            let i = libc::seteuid(0);
-            let j = libc::setegid(0);
-            if i == 0 && j == 0 {
-                Ok(())
-            } else {
-                eprintln!("Failed to seteuid & setguid to root");
-                Err(())
-            }
-        }   
+            command.pre_exec(move || Self::sete_root());
+        }
+        command
     }
 
     pub(crate) fn get_actual_and_drop() -> Result<Self, ()> {
