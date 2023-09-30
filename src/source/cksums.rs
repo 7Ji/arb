@@ -24,7 +24,6 @@ use std::{
     };
 
 use crate::source::download;
-// use download;
 
 pub(crate) enum Integ {
     CK {ck: u32},
