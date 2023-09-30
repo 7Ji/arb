@@ -231,7 +231,7 @@ fn get_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &Vec<PKGBUILD>)
     (pkgs_deps, all_deps)
 }
 
-fn install_deps(deps: &Vec<String>) {
+fn install_deps(deps: &Vec<String>) -> Result<(), ()> {
     println!("Checking if needed to install {} deps: {:?}", deps.len(), deps);
     let output = Command::new("/usr/bin/pacman")
         .arg("-T")
@@ -240,16 +240,19 @@ fn install_deps(deps: &Vec<String>) {
         .expect("Failed to run pacman to get missing deps");
     match output.status.code() {
         Some(code) => match code {
-            0 => return,
+            0 => return Ok(()),
             127 => (),
             _ => {
                 eprintln!(
                     "Pacman returned unexpected {} which marks fatal error",
                     code);
-                panic!("Pacman fatal error");
+                return Err(())
             }
         },
-        None => panic!("Failed to get return code from pacman"),
+        None => {
+            eprintln!("Failed to get return code from pacman");
+            return Err(())
+        },
     }
     let mut missing_deps = vec![];
     missing_deps.clear();
@@ -260,7 +263,7 @@ fn install_deps(deps: &Vec<String>) {
         missing_deps.push(String::from_utf8_lossy(line).into_owned());
     }
     if missing_deps.len() == 0 {
-        return
+        return Ok(())
     }
     println!("Installing {} missing deps: {:?}",
             missing_deps.len(), missing_deps);
@@ -285,8 +288,10 @@ fn install_deps(deps: &Vec<String>) {
         None => false,
     } {
         println!("Successfully installed {} missing deps", missing_deps.len());
+        Ok(())
     } else {
-        panic!("Failed to install missing deps");
+        eprintln!("Failed to install missing deps");
+        Err(())
     }
 }
 
@@ -315,13 +320,16 @@ fn calc_dep_hashes(pkgbuilds: &mut Vec<PKGBUILD>, pkgs_deps: &Vec<Vec<String>>
 }
 
 
-fn check_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
+fn check_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>)
+    -> Result<(), ()>
+{
     let (pkgs_deps, all_deps) 
         = get_deps(dir, pkgbuilds);
     if all_deps.len() > 0 {
-        install_deps(&all_deps);
+        install_deps(&all_deps)?;
     }
     calc_dep_hashes(pkgbuilds, &pkgs_deps);
+    Ok(())
 }
 
 fn get_all_sources<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>)
@@ -579,7 +587,7 @@ fn prepare_sources<P: AsRef<Path>>(
         false => None,
     };
     dump_pkgbuilds(&dir, pkgbuilds);
-    check_deps(&dir, pkgbuilds);
+    check_deps(&dir, pkgbuilds)?;
     let (netfile_sources, git_sources, _)
         = get_all_sources(&dir, pkgbuilds).ok_or(())?;
     if let Err(_) = source::cache_sources_mt(
