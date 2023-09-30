@@ -43,7 +43,7 @@ fn optional_equal<C:PartialEq + std::fmt::Display>(a: &Option<C>, b: &Option<C>)
     if let Some(a) = a {
         if let Some(b) = b {
             if a == b {
-                println!("Duplicated integrity checksum: '{}' == ''{}'", a, b);
+                println!("Duplicated integrity checksum: '{}' == '{}'", a, b);
                 return true
             }
         }
@@ -73,28 +73,28 @@ pub(super) fn push_source(
 ) -> Result<(), ()> 
 {
     let mut existing = None;
-    for source in sources.iter_mut() {
+    for source_cmp in sources.iter_mut() {
         if optional_equal(
-                &source.ck, &source.ck) ||
+                &source_cmp.ck, &source.ck) ||
            optional_equal(
-                &source.md5, &source.md5) ||
+                &source_cmp.md5, &source.md5) ||
            optional_equal(
-                &source.sha1, &source.sha1) ||
+                &source_cmp.sha1, &source.sha1) ||
            optional_equal(
-                &source.sha224, &source.sha224) ||
+                &source_cmp.sha224, &source.sha224) ||
            optional_equal(
-                &source.sha256, &source.sha256) ||
+                &source_cmp.sha256, &source.sha256) ||
            optional_equal(
-                &source.sha384, &source.sha384) ||
+                &source_cmp.sha384, &source.sha384) ||
            optional_equal(
-                &source.sha512, &source.sha512) ||
-           optional_equal(&source.b2, &source.b2) {
-            existing = Some(source);
+                &source_cmp.sha512, &source.sha512) ||
+           optional_equal(&source_cmp.b2, &source.b2) {
+            existing = Some(source_cmp);
             break;
         }
     }
     let existing = match existing {
-        Some(source) => source,
+        Some(existing) => existing,
         None => {
             sources.push(source.clone());
             return Ok(())
