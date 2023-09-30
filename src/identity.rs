@@ -56,4 +56,56 @@ impl Identity {
     fn is_sudo_root() -> bool {
         Self::current().is_root() && !Self::acutal().is_root()
     }
+
+    fn current_and_actual() -> (Self, Self) {
+        (Self::current(), Self::acutal())
+    }
+
+    fn sete(&self) -> Result<(), ()> {
+        unsafe {
+            let i = libc::seteuid(self.uid);
+            let j = libc::setegid(self.gid);
+            if i == 0 && j == 0 {
+                Ok(())
+            } else {
+                eprintln!("Failed to seteuid & setguid to {}", self);
+                Err(())
+            }
+        }
+    }
+
+    fn sete_root() -> Result<(), ()> {
+        unsafe {
+            let i = libc::seteuid(0);
+            let j = libc::setegid(0);
+            if i == 0 && j == 0 {
+                Ok(())
+            } else {
+                eprintln!("Failed to seteuid & setguid to root");
+                Err(())
+            }
+        }   
+    }
+
+    pub(crate) fn get_actual_and_drop() -> Result<Self, ()> {
+        let (current, actual) = Self::current_and_actual();
+        if ! current.is_root() {
+            eprintln!("Current user is not root, please run builder with sudo");
+            return Err(())
+        }
+        if actual.is_root() {
+            eprintln!("Actual user is root, please run builder with sudo");
+            return Err(())
+        }
+        match actual.sete() {
+            Ok(_) => {
+                println!("Dropped from root to {}", actual);
+                Ok(actual)
+            },
+            Err(_) => {
+                eprintln!("Failed to drop from root to {}", actual);
+                Err(())
+            },
+        }
+    }
 }
