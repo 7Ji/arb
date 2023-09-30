@@ -69,7 +69,7 @@ fn _cksum(input: &[u8]) {
                 CKSUM.checksum(input), digest.finalize());
 }
 
-fn cksum(file: &mut File) -> u32 {
+fn cksum(file: &mut File) -> Option<u32> {
     let mut digest = CKSUM.digest();
     let mut buffer = vec![0; BUFFER_SIZE];
     let mut size_total = 0;
@@ -78,7 +78,7 @@ fn cksum(file: &mut File) -> u32 {
             Ok(size) => size,
             Err(e) => {
                 eprintln!("Failed to read file: {}", e);
-                panic!("Failed to read file");
+                return None
             },
         };
         if size_chunk == 0 {
@@ -98,10 +98,10 @@ fn cksum(file: &mut File) -> u32 {
         size_oct.push(0);
     }
     digest.update(&size_oct);
-    digest.finalize()
+    Some(digest.finalize())
 }
 
-fn md5sum(file: &mut File) -> [u8; 16] {
+fn md5sum(file: &mut File) -> Option<[u8; 16]> {
     let mut context = md5::Context::new();
     let mut buffer = vec![0; BUFFER_SIZE];
     loop {
@@ -109,7 +109,7 @@ fn md5sum(file: &mut File) -> [u8; 16] {
             Ok(size) => size,
             Err(e) => {
                 eprintln!("Failed to read file: {}", e);
-                panic!("Failed to read file");
+                return None
             },
         };
         if size_chunk == 0 {
@@ -118,11 +118,11 @@ fn md5sum(file: &mut File) -> [u8; 16] {
         let chunk = &buffer[0..size_chunk];
         context.consume(chunk);
     }
-    context.compute().0
+    Some(context.compute().0)
 }
 
 fn generic_sum<T: Digest + OutputSizeUser>(file: &mut File)
-    -> GenericArray<u8, T::OutputSize>
+    -> Option<GenericArray<u8, T::OutputSize>>
 {
     let mut hasher = T::new();
     let mut buffer = vec![0; BUFFER_SIZE];
@@ -131,7 +131,7 @@ fn generic_sum<T: Digest + OutputSizeUser>(file: &mut File)
             Ok(size) => size,
             Err(e) => {
                 eprintln!("Failed to read file: {}", e);
-                panic!("Failed to read file");
+                return None
             },
         };
         if size_chunk == 0 {
@@ -140,31 +140,37 @@ fn generic_sum<T: Digest + OutputSizeUser>(file: &mut File)
         let chunk = &buffer[0..size_chunk];
         hasher.update(chunk);
     }
-    hasher.finalize()
+    Some(hasher.finalize())
 }
 
-fn sha1sum(file: &mut File) -> [u8; 20] {
-    return generic_sum::<Sha1>(file).into();
+fn sha1sum(file: &mut File) -> Option<[u8; 20]> {
+    generic_sum::<Sha1>(file)
+        .map(|sum|sum.into())
 }
 
-fn sha224sum(file: &mut File) -> [u8; 28] {
-    return generic_sum::<Sha224>(file).into();
+fn sha224sum(file: &mut File) -> Option<[u8; 28]> {
+    generic_sum::<Sha224>(file)
+        .map(|sum|sum.into())
 }
 
-fn sha256sum(file: &mut File) -> [u8; 32] {
-    return generic_sum::<Sha256>(file).into();
+fn sha256sum(file: &mut File) -> Option<[u8; 32]> {
+    generic_sum::<Sha256>(file)
+        .map(|sum|sum.into())
 }
 
-fn sha384sum(file: &mut File) -> [u8; 48] {
-    return generic_sum::<Sha384>(file).into();
+fn sha384sum(file: &mut File) -> Option<[u8; 48]> {
+    generic_sum::<Sha384>(file)
+        .map(|sum|sum.into())
 }
 
-fn sha512sum(file: &mut File) -> [u8; 64] {
-    return generic_sum::<Sha512>(file).into();
+fn sha512sum(file: &mut File) -> Option<[u8; 64]> {
+    generic_sum::<Sha512>(file)
+        .map(|sum|sum.into())
 }
 
-fn b2sum(file: &mut File) -> [u8; 64] {
-    return generic_sum::<Blake2b512>(file).into();
+fn b2sum(file: &mut File) -> Option<[u8; 64]> {
+    generic_sum::<Blake2b512>(file)
+        .map(|sum|sum.into())
 }
 
 pub(crate) fn optional_equal<C:PartialEq>(a: &Option<C>, b: &Option<C>)
@@ -229,21 +235,21 @@ impl IntegFile {
         let valid = match File::open(&self.path) {
             Ok(mut file) => match self.integ {
                 Integ::CK { ck } =>
-                    cksum(&mut file) == ck,
+                    cksum(&mut file) == Some(ck),
                 Integ::MD5 { md5 } =>
-                    md5sum(&mut file) == md5,
+                    md5sum(&mut file) == Some(md5),
                 Integ::SHA1 { sha1 } =>
-                    sha1sum(&mut file) == sha1,
+                    sha1sum(&mut file) == Some(sha1),
                 Integ::SHA224 { sha224 } =>
-                    sha224sum(&mut file) == sha224,
+                    sha224sum(&mut file) == Some(sha224),
                 Integ::SHA256 { sha256 } =>
-                    sha256sum(&mut file) == sha256,
+                    sha256sum(&mut file) == Some(sha256),
                 Integ::SHA384 { sha384 } =>
-                    sha384sum(&mut file) == sha384,
+                    sha384sum(&mut file) == Some(sha384),
                 Integ::SHA512 { sha512 } =>
-                    sha512sum(&mut file) == sha512,
+                    sha512sum(&mut file) == Some(sha512),
                 Integ::B2 { b2 } =>
-                    b2sum(&mut file) == b2,
+                    b2sum(&mut file) == Some(b2),
             },
             Err(e) => {
                 eprintln!("Failed to open file '{}': {}",
