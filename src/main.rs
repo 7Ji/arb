@@ -3,6 +3,7 @@ use clap::Parser;
 mod cksums;
 mod download;
 mod git;
+mod identity;
 mod pkgbuild;
 mod source;
 mod threading;
