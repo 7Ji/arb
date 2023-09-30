@@ -37,12 +37,13 @@ pub(super) fn ensure_parents() -> Result<(), ()>
     Ok(())
 }
 
-fn optional_equal<C:PartialEq>(a: &Option<C>, b: &Option<C>)
+fn optional_equal<C:PartialEq + std::fmt::Display>(a: &Option<C>, b: &Option<C>)
     -> bool
 {
     if let Some(a) = a {
         if let Some(b) = b {
             if a == b {
+                println!("Duplicated integrity checksum: '{}'", a);
                 return true
             }
         }
