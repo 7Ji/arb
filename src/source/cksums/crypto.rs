@@ -18,6 +18,20 @@ use std::{
         io::Read,
     };
 
+#[derive(PartialEq)]
+pub(crate) struct Sha1sum ([u8; 20]);
+#[derive(PartialEq)]
+pub(crate) struct Sha224sum ([u8; 28]);
+#[derive(PartialEq)]
+pub(crate) struct Sha256sum ([u8; 32]);
+#[derive(PartialEq)]
+pub(crate) struct Sha384sum ([u8; 48]);
+#[derive(PartialEq)]
+pub(crate) struct Sha512sum ([u8; 64]);
+#[derive(PartialEq)]
+pub(crate) struct B2sum ([u8; 64]);
+
+
 fn generic_sum<T: Digest + OutputSizeUser>(file: &mut File)
     -> Option<GenericArray<u8, T::OutputSize>>
 {
@@ -40,32 +54,89 @@ fn generic_sum<T: Digest + OutputSizeUser>(file: &mut File)
     Some(hasher.finalize())
 }
 
-pub(super) fn sha1sum(file: &mut File) -> Option<[u8; 20]> {
-    generic_sum::<Sha1>(file)
-        .map(|sum|sum.into())
+impl super::Sum for Sha1sum {
+    fn sum(file: &mut std::fs::File) -> Option<Self> {
+        generic_sum::<Sha1>(file)
+        .map(|sum|Self(sum.into()))
+    }
 }
 
-pub(super) fn sha224sum(file: &mut File) -> Option<[u8; 28]> {
-    generic_sum::<Sha224>(file)
-        .map(|sum|sum.into())
+impl super::Sum for Sha224sum {
+    fn sum(file: &mut File) -> Option<Self> {
+        generic_sum::<Sha224>(file)
+        .map(|sum|Self(sum.into()))
+    }
 }
 
-pub(super) fn sha256sum(file: &mut File) -> Option<[u8; 32]> {
-    generic_sum::<Sha256>(file)
-        .map(|sum|sum.into())
+impl super::Sum for Sha256sum {
+    fn sum(file: &mut File) -> Option<Self> {
+        generic_sum::<Sha256>(file)
+            .map(|sum|Self(sum.into()))
+    }
 }
 
-pub(super) fn sha384sum(file: &mut File) -> Option<[u8; 48]> {
-    generic_sum::<Sha384>(file)
-        .map(|sum|sum.into())
+impl super::Sum for Sha384sum {
+    fn sum(file: &mut File) -> Option<Self> {
+        generic_sum::<Sha384>(file)
+            .map(|sum|Self(sum.into()))
+    }
 }
 
-pub(super) fn sha512sum(file: &mut File) -> Option<[u8; 64]> {
-    generic_sum::<Sha512>(file)
-        .map(|sum|sum.into())
+impl super::Sum for Sha512sum {
+    fn sum(file: &mut File) -> Option<Self> {
+        generic_sum::<Sha512>(file)
+            .map(|sum|Self(sum.into()))
+    }
 }
 
-pub(super) fn b2sum(file: &mut File) -> Option<[u8; 64]> {
-    generic_sum::<Blake2b512>(file)
-        .map(|sum|sum.into())
+impl super::Sum for B2sum {
+    fn sum(file: &mut File) -> Option<Self> {
+        generic_sum::<Blake2b512>(file)
+            .map(|sum|Self(sum.into()))
+    }
+}
+
+fn generic_fmt(sum: &[u8], f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    for byte in sum {
+        if let Err(e) = f.write_fmt(format_args!("{:02x}", byte)) {
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
+impl std::fmt::Display for Sha1sum {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        generic_fmt(&self.0, f)
+    }
+}
+
+impl std::fmt::Display for Sha224sum {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        generic_fmt(&self.0, f)
+    }
+}
+
+impl std::fmt::Display for Sha256sum {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        generic_fmt(&self.0, f)
+    }
+}
+
+impl std::fmt::Display for Sha384sum {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        generic_fmt(&self.0, f)
+    }
+}
+
+impl std::fmt::Display for Sha512sum {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        generic_fmt(&self.0, f)
+    }
+}
+
+impl std::fmt::Display for B2sum {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        generic_fmt(&self.0, f)
+    }
 }
