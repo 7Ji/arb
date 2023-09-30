@@ -63,14 +63,19 @@ impl Identity {
 
     fn sete(&self) -> Result<(), ()> {
         unsafe {
-            let i = libc::seteuid(self.uid);
-            let j = libc::setegid(self.gid);
-            if i == 0 && j == 0 {
-                Ok(())
-            } else {
-                eprintln!("Failed to seteuid & setguid to {}", self);
-                Err(())
+            let r = libc::setegid(self.gid);
+            if r != 0 {
+                eprintln!("Failed to setguid to {}: return {}, errno {}", 
+                    self.gid, r, *libc::__errno_location());
+                return Err(())
             }
+            let r = libc::seteuid(self.uid);
+            if r != 0 {
+                eprintln!("Failed to seteuid to {}: return {}, errno {}", 
+                    self.uid, r, *libc::__errno_location());
+                return Err(())
+            }
+            Ok(())
         }
     }
 

@@ -51,6 +51,15 @@ struct Arg {
 }
 
 fn main() {
+    let actual_identity = match 
+        identity::Identity::get_actual_and_drop() 
+    {
+        Ok(identity) => identity,
+        Err(_) => {
+            eprintln!("Failed to get and drop to non-root actual identity");
+            std::process::exit(-1);
+        },
+    };
     let arg = Arg::parse();
     if let Err(_) = pkgbuild::work(
         &arg.pkgbuilds, 
