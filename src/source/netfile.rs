@@ -43,7 +43,7 @@ fn optional_equal<C:PartialEq + std::fmt::Display>(a: &Option<C>, b: &Option<C>)
     if let Some(a) = a {
         if let Some(b) = b {
             if a == b {
-                println!("Duplicated integrity checksum: '{}'", a);
+                println!("Duplicated integrity checksum: '{}' == ''{}'", a, b);
                 return true
             }
         }
