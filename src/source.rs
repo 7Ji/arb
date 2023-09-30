@@ -62,8 +62,8 @@ enum Protocol {
 }
 
 impl Protocol {
-    fn _from_string(value: &str) -> Protocol {
-        match value {
+    fn _from_string(value: &str) -> Option<Protocol> {
+        let protocol = match value {
             "file" => Protocol::Netfile { protocol: NetfileProtocol::File },
             "ftp" => Protocol::Netfile { protocol: NetfileProtocol::Ftp },
             "http" => Protocol::Netfile { protocol: NetfileProtocol::Http },
@@ -78,12 +78,13 @@ impl Protocol {
             "local" => Protocol::Local,
             &_ => {
                 eprintln!("Unknown protocol {}", value);
-                panic!("Unknown protocol");
+                return None
             },
-        }
+        };
+        Some(protocol)
     }
-    fn from_raw_string(value: &[u8]) -> Protocol {
-        match value {
+    fn from_raw_string(value: &[u8]) -> Option<Protocol> {
+        let protocol = match value {
             b"file" => Protocol::Netfile { protocol: NetfileProtocol::File },
             b"ftp" => Protocol::Netfile { protocol: NetfileProtocol::Ftp },
             b"http" => Protocol::Netfile { protocol: NetfileProtocol::Http },
@@ -97,9 +98,12 @@ impl Protocol {
             b"svn" => Protocol::Vcs { protocol: VcsProtocol::Svn },
             b"local" => Protocol::Local,
             &_ => {
-                panic!("Unknown protocol");
+                eprintln!("Unknown protocol {}", 
+                    String::from_utf8_lossy(value));
+                return None
             },
-        }
+        };
+        Some(protocol)
     }
 }
 #[derive(Clone)]
@@ -278,7 +282,11 @@ where
                 name = Some(String::from_utf8_lossy(value).into_owned());
             }
             b"protocol" => {
-                protocol = Some(Protocol::from_raw_string(value));
+                if let Some(protocol_parse) = 
+                    Protocol::from_raw_string(value) 
+                {
+                    protocol = Some(protocol_parse);
+                }
             }
             b"url" => {
                 url = Some(String::from_utf8_lossy(value).into_owned());
