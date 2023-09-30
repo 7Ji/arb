@@ -98,36 +98,6 @@ impl MapByDomain for Source {
     }
 }
 
-fn optional_equal<C:PartialEq>(a: &Option<C>, b: &Option<C>)
-    -> bool
-{
-    if let Some(a) = a {
-        if let Some(b) = b {
-            if a == b {
-                return true
-            }
-        }
-    }
-    false
-}
-
-fn optional_update<C>(target: &mut Option<C>, source: &Option<C>)
--> Result<(), ()>
-    where C: PartialEq + Clone 
-{
-    if let Some(target) = target {
-        if let Some(source) = source {
-            if target != source {
-                eprintln!("Source target mismatch");
-                return Err(());
-            }
-        }
-    } else if let Some(source) = source {
-        *target = Some(source.clone())
-    }
-    Ok(())
-}
-
 fn get_domain_threads_map<T>(orig_map: &HashMap<u64, Vec<T>>) 
     -> Option<HashMap<u64, Vec<JoinHandle<Result<(), ()>>>>>
 {

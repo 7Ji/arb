@@ -10,8 +10,6 @@ use std::{
 
 use super::{
         Source,
-        optional_equal,
-        optional_update,
         protocol::{
             NetfileProtocol,
             Protocol,
@@ -35,6 +33,36 @@ pub(super) fn ensure_parents() -> Result<(), ()>
                 return Err(())
             },
         }
+    }
+    Ok(())
+}
+
+fn optional_equal<C:PartialEq>(a: &Option<C>, b: &Option<C>)
+    -> bool
+{
+    if let Some(a) = a {
+        if let Some(b) = b {
+            if a == b {
+                return true
+            }
+        }
+    }
+    false
+}
+
+fn optional_update<C>(target: &mut Option<C>, source: &Option<C>)
+-> Result<(), ()>
+    where C: PartialEq + Clone + std::fmt::Display
+{
+    if let Some(target) = target {
+        if let Some(source) = source {
+            if target != source {
+                eprintln!("Source target mismatch {} != {}", source, target);
+                return Err(());
+            }
+        }
+    } else if let Some(source) = source {
+        *target = Some(source.clone())
     }
     Ok(())
 }
