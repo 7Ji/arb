@@ -72,13 +72,31 @@ impl Identity {
     {
         let r = unsafe { libc::setegid(gid) };
         if r != 0 {
-            eprintln!("Failed to setguid to {}: return {}, errno {}", 
+            eprintln!("Failed to setegid to {}: return {}, errno {}", 
                 gid, r, unsafe {*libc::__errno_location()});
             return Err(std::io::Error::last_os_error())
         }
         let r = unsafe { libc::seteuid(uid) };
         if r != 0 {
-            eprintln!("Failed to setguid to {}: return {}, errno {}", 
+            eprintln!("Failed to seteuid to {}: return {}, errno {}", 
+                uid, r, unsafe {*libc::__errno_location()});
+            return Err(std::io::Error::last_os_error())
+        }
+        Ok(())
+    }
+
+    fn set_raw(uid: libc::uid_t, gid: libc::gid_t) 
+        -> Result<(), std::io::Error> 
+    {
+        let r = unsafe { libc::setgid(gid) };
+        if r != 0 {
+            eprintln!("Failed to setgid to {}: return {}, errno {}", 
+                gid, r, unsafe {*libc::__errno_location()});
+            return Err(std::io::Error::last_os_error())
+        }
+        let r = unsafe { libc::setuid(uid) };
+        if r != 0 {
+            eprintln!("Failed to setuid to {}: return {}, errno {}", 
                 uid, r, unsafe {*libc::__errno_location()});
             return Err(std::io::Error::last_os_error())
         }
@@ -96,10 +114,11 @@ impl Identity {
     pub(crate) fn set_command<'a>(&self, command: &'a mut Command) 
         -> &'a mut Command 
     {
+        Self::set_root_command(command);
         let uid = self.uid;
         let gid = self.gid;
         unsafe {
-            command.pre_exec(move || Self::sete_raw(uid, gid));
+            command.pre_exec(move || Self::set_raw(uid, gid));
         }
         command
     }
