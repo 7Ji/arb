@@ -416,12 +416,8 @@ pub(crate) fn unique_sources(sources: &Vec<&Source>)
     let mut netfile_sources: Vec<Source> = vec![];
     for source in sources.iter() {
         match &source.protocol {
-            Protocol::Netfile { protocol: _ } =>
-                if let Err(_) = push_netfile_sources(
-                    &mut netfile_sources, source) 
-                {
-                    return None
-                },
+            Protocol::Netfile { protocol: _ } => 
+                push_netfile_sources(&mut netfile_sources, source).ok()?,
             Protocol::Vcs { protocol } => {
                 match protocol {  // Ignore VCS sources we do not support
                     VcsProtocol::Bzr => (),
@@ -686,7 +682,7 @@ fn _cache_netfile_sources_mt(
     proxy: Option<&str>
 ) -> Result<(), ()> 
 {
-    if let Err(_) = ensure_netfile_parents() { return Err(()) }
+    ensure_netfile_parents()?;
     println!("Caching netfile sources with {} threads", netfile_sources.len());
     let (proxy_string, has_proxy) = match proxy {
         Some(proxy) => (proxy.to_owned(), true),
@@ -806,7 +802,7 @@ pub(crate) fn cache_sources_mt(
     gmr: Option<&git::Gmr>
 ) -> Result<(), ()> 
 {
-    if let Err(_) = ensure_netfile_parents() { return Err(()) }
+    ensure_netfile_parents()?;
     let mut netfile_sources_map =
         Source::map_by_domain(netfile_sources);
     let git_sources_map =

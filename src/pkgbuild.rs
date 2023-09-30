@@ -380,9 +380,7 @@ where
                     source::remove_unused("sources/PKGBUILD", &used))),
     };
     if update_pkg {
-        if let Err(_) = sync_pkgbuilds(&pkgbuilds, hold, proxy) {
-            return None
-        }
+        sync_pkgbuilds(&pkgbuilds, hold, proxy).ok()?;
         if ! healthy_pkgbuilds(&mut pkgbuilds, true) {
             eprintln!("Updating broke some of our PKGBUILDs");
             return None
@@ -590,11 +588,8 @@ fn prepare_sources<P: AsRef<Path>>(
     check_deps(&dir, pkgbuilds)?;
     let (netfile_sources, git_sources, _)
         = get_all_sources(&dir, pkgbuilds).ok_or(())?;
-    if let Err(_) = source::cache_sources_mt(
-        &netfile_sources, &git_sources, holdgit, skipint, proxy, gmr) {
-            eprintln!("Failed to cache sources MT");
-            return Err(())
-        }
+    source::cache_sources_mt(
+        &netfile_sources, &git_sources, holdgit, skipint, proxy, gmr)?;
     if let Some(cleaner) = cleaner {
         match cleaner.join()
             .expect("Failed to join build dir cleaner thread") {
@@ -611,10 +606,7 @@ fn prepare_sources<P: AsRef<Path>>(
     };
     fill_all_pkgvers(dir, pkgbuilds);
     fill_all_pkgdirs(pkgbuilds);
-    if let Err(_) = extract_if_need_build(pkgbuilds) {
-        eprintln!("Failed to extract sources");
-        return Err(())
-    }
+    extract_if_need_build(pkgbuilds)?;
     if let Some(cleaners) = cleaners {
         for cleaner in cleaners {
             cleaner.join().expect("Failed to join sources cleaner thread");
@@ -853,19 +845,12 @@ pub(crate) fn work<P: AsRef<Path>>(
     };
     let pkgbuilds_dir =
         tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
-    if let Err(_) = prepare_sources(
-        pkgbuilds_dir, &mut pkgbuilds, holdgit, skipint, noclean, proxy, 
-        gmr.as_ref()) {
-            eprintln!("Failed to prepare sources");
-            return Err(())
-        }
+    prepare_sources(pkgbuilds_dir, &mut pkgbuilds, 
+                    holdgit, skipint, noclean, proxy, gmr.as_ref())?;
     if nobuild {
         return Ok(());
     }
-    if let Err(_) = build_any_needed(&pkgbuilds, nonet) {
-        eprintln!("Failed to build any needed");
-        return Err(())
-    }
+    build_any_needed(&pkgbuilds, nonet)?;
     if noclean {
         return Ok(());
     }
