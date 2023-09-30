@@ -14,5 +14,5 @@ pub(crate) fn ftp(url: &str, path: &std::path::Path) -> Result<(), ()> {
         .arg("-o")
         .arg(path)
         .arg(url);
-    super::common::spawn_and_wait(&mut command, &job)
+    super::child::spawn_and_wait(&mut command, &job)
 }

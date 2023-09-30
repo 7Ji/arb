@@ -1,5 +1,3 @@
-pub(super) const BUFFER_SIZE: usize = 0x400000; // 4M
-
 pub(super) fn wait_child(mut child: std::process::Child, job: &str) 
     -> Result<(), ()> 
 {

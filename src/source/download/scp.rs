@@ -7,5 +7,5 @@ pub(crate) fn scp(url: &str, path: &std::path::Path) -> Result<(), ()> {
         .arg("-C")
         .arg(url)
         .arg(path);
-    super::common::spawn_and_wait(&mut command, &job)
+    super::child::spawn_and_wait(&mut command, &job)
 }

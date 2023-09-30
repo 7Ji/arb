@@ -46,7 +46,7 @@ pub(crate) fn clone_file(source: &Path, target: &Path)
             return Err(e)
         },
     };
-    let mut buffer = vec![0; super::common::BUFFER_SIZE];
+    let mut buffer = vec![0; super::BUFFER_SIZE];
     loop {
         let size_chunk = match
             source_file.read(&mut buffer) {

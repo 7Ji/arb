@@ -1,29 +1,27 @@
-use blake2::Blake2b512;
-use crc;
-use sha1::{
-        Digest,
-        digest::{
-            OutputSizeUser,
-            generic_array::GenericArray,
-        },
-        Sha1,
-    };
-use sha2::{
-        Sha224,
-        Sha256,
-        Sha384,
-        Sha512,
-    };
 use std::{
         fs::File,
-        io::Read,
         path::{
             PathBuf,
             Path
         },
     };
 
-use crate::source::download;
+mod ck;
+mod crypto;
+mod md5;
+
+use ck::cksum;
+use crypto::{
+    sha1sum,
+    sha224sum,
+    sha256sum,
+    sha384sum,
+    sha512sum,
+    b2sum
+};
+use md5::md5sum;
+
+const BUFFER_SIZE: usize = 0x400000; // 4M
 
 pub(crate) enum Integ {
     CK {ck: u32},
@@ -45,132 +43,6 @@ impl IntegFile {
     pub(crate) fn get_path(&self) -> &Path {
         self.path.as_path()
     }
-}
-
-const BUFFER_SIZE: usize = 0x400000; // 4M
-
-const CKSUM: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
-
-fn _cksum(input: &[u8]) {
-    let mut digest = CKSUM.digest();
-    digest.update(input);
-    let mut len_oct = Vec::<u8>::new();
-    let mut len = input.len();
-    if len > 0 {
-        while len > 0 {
-            len_oct.push((len & 0xFF).try_into().unwrap());
-            len >>= 8;
-        }
-    } else {
-        len_oct.push(0);
-    }
-    digest.update(&len_oct);
-    println!("No length: {}, has length: {}",
-                CKSUM.checksum(input), digest.finalize());
-}
-
-fn cksum(file: &mut File) -> Option<u32> {
-    let mut digest = CKSUM.digest();
-    let mut buffer = vec![0; BUFFER_SIZE];
-    let mut size_total = 0;
-    loop {
-        let size_chunk = match file.read(&mut buffer) {
-            Ok(size) => size,
-            Err(e) => {
-                eprintln!("Failed to read file: {}", e);
-                return None
-            },
-        };
-        if size_chunk == 0 {
-            break
-        }
-        let chunk = &buffer[0..size_chunk];
-        digest.update(chunk);
-        size_total += size_chunk;
-    }
-    let mut size_oct = Vec::<u8>::new();
-    if size_total > 0 {
-        while size_total > 0 {
-            size_oct.push((size_total & 0xFF).try_into().unwrap());
-            size_total >>= 8;
-        }
-    } else {
-        size_oct.push(0);
-    }
-    digest.update(&size_oct);
-    Some(digest.finalize())
-}
-
-fn md5sum(file: &mut File) -> Option<[u8; 16]> {
-    let mut context = md5::Context::new();
-    let mut buffer = vec![0; BUFFER_SIZE];
-    loop {
-        let size_chunk = match file.read(&mut buffer) {
-            Ok(size) => size,
-            Err(e) => {
-                eprintln!("Failed to read file: {}", e);
-                return None
-            },
-        };
-        if size_chunk == 0 {
-            break
-        }
-        let chunk = &buffer[0..size_chunk];
-        context.consume(chunk);
-    }
-    Some(context.compute().0)
-}
-
-fn generic_sum<T: Digest + OutputSizeUser>(file: &mut File)
-    -> Option<GenericArray<u8, T::OutputSize>>
-{
-    let mut hasher = T::new();
-    let mut buffer = vec![0; BUFFER_SIZE];
-    loop {
-        let size_chunk = match file.read(&mut buffer) {
-            Ok(size) => size,
-            Err(e) => {
-                eprintln!("Failed to read file: {}", e);
-                return None
-            },
-        };
-        if size_chunk == 0 {
-            break
-        }
-        let chunk = &buffer[0..size_chunk];
-        hasher.update(chunk);
-    }
-    Some(hasher.finalize())
-}
-
-fn sha1sum(file: &mut File) -> Option<[u8; 20]> {
-    generic_sum::<Sha1>(file)
-        .map(|sum|sum.into())
-}
-
-fn sha224sum(file: &mut File) -> Option<[u8; 28]> {
-    generic_sum::<Sha224>(file)
-        .map(|sum|sum.into())
-}
-
-fn sha256sum(file: &mut File) -> Option<[u8; 32]> {
-    generic_sum::<Sha256>(file)
-        .map(|sum|sum.into())
-}
-
-fn sha384sum(file: &mut File) -> Option<[u8; 48]> {
-    generic_sum::<Sha384>(file)
-        .map(|sum|sum.into())
-}
-
-fn sha512sum(file: &mut File) -> Option<[u8; 64]> {
-    generic_sum::<Sha512>(file)
-        .map(|sum|sum.into())
-}
-
-fn b2sum(file: &mut File) -> Option<[u8; 64]> {
-    generic_sum::<Blake2b512>(file)
-        .map(|sum|sum.into())
 }
 
 pub(crate) fn optional_equal<C:PartialEq>(a: &Option<C>, b: &Option<C>)
@@ -271,7 +143,7 @@ impl IntegFile {
     }
 
     pub(crate) fn clone_file_from(&self, source: &Self) -> Result<(), ()> {
-        if let Err(e) = download::clone_file(
+        if let Err(e) = super::download::clone_file(
             &source.path, &self.path) 
         {
             eprintln!("Failed to clone '{}' from '{}': {}", 

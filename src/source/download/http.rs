@@ -145,7 +145,7 @@ fn _http_curl(url: &str, path: &Path, proxy: Option<&str>) -> Result<(), ()> {
         .arg(url);
     let job = format!("download http(s) source from '{}' to '{}'",
                                 url, path.display());
-    super::common::spawn_and_wait(&mut command, &job)
+    super::child::spawn_and_wait(&mut command, &job)
 }
 
 pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) 

@@ -1,9 +1,11 @@
-mod common;
+mod child;
 mod file;
 mod ftp;
 mod http;
 mod rsync;
 mod scp;
+
+const BUFFER_SIZE: usize = 0x400000; // 4M
 
 pub(crate) use file::{
     clone_file,
