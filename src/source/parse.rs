@@ -52,6 +52,7 @@ fn push_source(
     if let Some(name) = name {
         if let Some(protocol) = protocol {
             if let Some(url) = url {
+                println!("Source '{}' from '{}'", name, url);
                 sources.push(Source{
                     name,
                     protocol,
