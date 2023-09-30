@@ -187,20 +187,20 @@ pub(crate) fn optional_equal<C:PartialEq>(a: &Option<C>, b: &Option<C>)
 }
 
 pub(crate) fn optional_update<C>(target: &mut Option<C>, source: &Option<C>)
-where C: PartialEq + Clone {
+-> Result<(), ()>
+    where C: PartialEq + Clone 
+{
     if let Some(target) = target {
         if let Some(source) = source {
-            if target == source {
-                return;
-            } else {
-                panic!("Source target mismatch");
+            if target != source {
+                eprintln!("Source target mismatch");
+                return Err(());
             }
-        } else {
-            return;
         }
     } else if let Some(source) = source {
         *target = Some(source.clone())
     }
+    Ok(())
 }
 
 pub(crate) fn string_from(cksum: &[u8]) -> String {

@@ -325,7 +325,7 @@ fn check_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>) {
 }
 
 fn get_all_sources<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>)
-    -> (Vec<source::Source>, Vec<source::Source>, Vec<source::Source>) {
+    -> Option<(Vec<source::Source>, Vec<source::Source>, Vec<source::Source>)> {
     let mut sources_non_unique = vec![];
     for pkgbuild in pkgbuilds.iter_mut() {
         pkgbuild.sources = source::get_sources::<P>(
@@ -576,7 +576,7 @@ fn prepare_sources<P: AsRef<Path>>(
     dump_pkgbuilds(&dir, pkgbuilds);
     check_deps(&dir, pkgbuilds);
     let (netfile_sources, git_sources, _)
-        = get_all_sources(&dir, pkgbuilds);
+        = get_all_sources(&dir, pkgbuilds).ok_or(())?;
     if let Err(_) = source::cache_sources_mt(
         &netfile_sources, &git_sources, holdgit, skipint, proxy, gmr) {
             eprintln!("Failed to cache sources MT");

@@ -338,7 +338,9 @@ where
     sources
 }
 
-fn push_netfile_sources(netfile_sources: &mut Vec<Source>, source: &Source) {
+fn push_netfile_sources(netfile_sources: &mut Vec<Source>, source: &Source) 
+    -> Result<(), ()> 
+{
     let mut existing = None;
     for netfile_source in netfile_sources.iter_mut() {
         if cksums::optional_equal(
@@ -369,21 +371,21 @@ fn push_netfile_sources(netfile_sources: &mut Vec<Source>, source: &Source) {
         },
     };
     cksums::optional_update(
-        &mut netfile_source.ck, &source.ck);
+        &mut netfile_source.ck, &source.ck)?;
     cksums::optional_update(
-        &mut netfile_source.md5, &source.md5);
+        &mut netfile_source.md5, &source.md5)?;
     cksums::optional_update(
-        &mut netfile_source.sha1, &source.sha1);
+        &mut netfile_source.sha1, &source.sha1)?;
     cksums::optional_update(
-        &mut netfile_source.sha224, &source.sha224);
+        &mut netfile_source.sha224, &source.sha224)?;
     cksums::optional_update(
-        &mut netfile_source.sha256, &source.sha256);
+        &mut netfile_source.sha256, &source.sha256)?;
     cksums::optional_update(
-        &mut netfile_source.sha384, &source.sha384);
+        &mut netfile_source.sha384, &source.sha384)?;
     cksums::optional_update(
-        &mut netfile_source.sha512, &source.sha512);
+        &mut netfile_source.sha512, &source.sha512)?;
     cksums::optional_update(
-        &mut netfile_source.b2, &source.b2);
+        &mut netfile_source.b2, &source.b2)
 }
 
 fn push_git_sources(git_sources: &mut Vec<Source>, source: &Source) {
@@ -396,7 +398,7 @@ fn push_git_sources(git_sources: &mut Vec<Source>, source: &Source) {
 }
 
 pub(crate) fn unique_sources(sources: &Vec<&Source>)
-    -> (Vec<Source>, Vec<Source>, Vec<Source>)
+    -> Option<(Vec<Source>, Vec<Source>, Vec<Source>)>
 {
     let mut local_sources: Vec<Source> = vec![];
     let mut git_sources: Vec<Source> = vec![];
@@ -404,7 +406,11 @@ pub(crate) fn unique_sources(sources: &Vec<&Source>)
     for source in sources.iter() {
         match &source.protocol {
             Protocol::Netfile { protocol: _ } =>
-                push_netfile_sources(&mut netfile_sources, source),
+                if let Err(_) = push_netfile_sources(
+                    &mut netfile_sources, source) 
+                {
+                    return None
+                },
             Protocol::Vcs { protocol } => {
                 match protocol {  // Ignore VCS sources we do not support
                     VcsProtocol::Bzr => (),
@@ -418,7 +424,7 @@ pub(crate) fn unique_sources(sources: &Vec<&Source>)
             Protocol::Local => local_sources.push(source.to_owned().to_owned())
         }
     }
-    (netfile_sources, git_sources, local_sources)
+    Some((netfile_sources, git_sources, local_sources))
 }
 
 fn _print_source(source: &Source) {
