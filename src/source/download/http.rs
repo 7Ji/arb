@@ -1,150 +1,14 @@
 use reqwest::{
-        ClientBuilder, 
-        Proxy,
-    };
+    ClientBuilder, 
+    Proxy,
+};
+
 use std::{
-        fs::{
-            File,
-            hard_link,
-            remove_file,
-        },
-        io::{
-            Read,
-            Write,
-        },
-        path::{
-            Path,
-            PathBuf
-        },
-        process::{
-            Child,
-            Command
-        }, 
-    };
-
-const BUFFER_SIZE: usize = 0x400000; // 4M
-
-pub(crate) fn clone_file(source: &Path, target: &Path) 
-    -> Result<(), std::io::Error> 
-{
-    if target.exists() {
-        if let Err(e) = remove_file(&target) {
-            eprintln!("Failed to remove file {}: {}",
-                &target.display(), e);
-            return Err(e)
-        }
-    }
-    match hard_link(&source, &target) {
-        Ok(_) => return Ok(()),
-        Err(e) => 
-            eprintln!("Failed to link {} to {}: {}, trying heavy copy",
-                        target.display(), source.display(), e),
-    }
-    let mut target_file = match File::create(&target) {
-        Ok(target_file) => target_file,
-        Err(e) => {
-            eprintln!("Failed to open {} as write-only: {}",
-                        target.display(), e);
-            return Err(e)
-        },
-    };
-    let mut source_file = match File::open(&source) {
-        Ok(source_file) => source_file,
-        Err(e) => {
-            eprintln!("Failed to open {} as read-only: {}",
-                        source.display(), e);
-            return Err(e)
-        },
-    };
-    let mut buffer = vec![0; BUFFER_SIZE];
-    loop {
-        let size_chunk = match
-            source_file.read(&mut buffer) {
-                Ok(size) => size,
-                Err(e) => {
-                    eprintln!("Failed to read file: {}", e);
-                    return Err(e)
-                },
-            };
-        if size_chunk == 0 {
-            break
-        }
-        let chunk = &buffer[0..size_chunk];
-        match target_file.write_all(chunk) {
-            Ok(_) => (),
-            Err(e) => {
-                eprintln!(
-                    "Failed to write {} bytes into file '{}': {}",
-                    size_chunk, target.display(), e);
-                return Err(e);
-            },
-        }
-    }
-    println!("Cloned '{}' to '{}'", source.display(), target.display());
-    Ok(())
-}
-
-pub(crate) fn file(url: &str, path: &Path) -> Result<(), ()> {
-    if ! url.starts_with("file://") {
-        eprintln!("URL '{}' does not start with file://", url);
-        return Err(())
-    }
-    clone_file(&PathBuf::from(&url[7..]), path).or(Err(()))
-}
-
-fn wait_child(mut child: Child, job: &str) -> Result<(), ()> {
-    let status = match child.wait() {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Failed to wait for child to {}: {}", &job, e);
-            return Err(())
-        },
-    };
-    match status.code() {
-        Some(code) => {
-            if code == 0 {
-                return Ok(())
-            } else {
-                eprintln!("Child to {} bad return {}", &job, code);
-                return Err(())
-            }
-        },
-        None => {
-            eprintln!("Child to {} has no return", &job);
-            return Err(())
-        },
-    }
-}
-
-fn spawn_and_wait(command: &mut Command, job: &str) -> Result<(), ()> {
-    let child = match command.spawn() {
-        Ok(child) => child,
-        Err(e) => {
-            eprintln!(
-                "Failed to spawn child to {}: {}", &job, e);
-            return Err(())
-        },
-    };
-    wait_child(child, job)
-}
-
-pub(crate) fn ftp(url: &str, path: &Path) -> Result<(), ()> {
-    let job = format!(
-        "download FTP source from '{}' to '{}'", url, path.display());
-    let mut command = Command::new("/usr/bin/curl");
-    command
-        .arg("-qgfC")
-        .arg("-")
-        .arg("--ftp-pasv")
-        .arg("--retry")
-        .arg("3")
-        .arg("--retry-delay")
-        .arg("3")
-        .arg("-o")
-        .arg(path)
-        .arg(url);
-    spawn_and_wait(&mut command, &job)
-}
+    fs::File,
+    io::Write,
+    path::Path,
+    process::Command,
+};
 
 fn http_native(url: &str, path: &Path, proxy: Option<&str>) -> Result<(), ()> {
     let mut target = match File::create(path) {
@@ -281,34 +145,11 @@ fn _http_curl(url: &str, path: &Path, proxy: Option<&str>) -> Result<(), ()> {
         .arg(url);
     let job = format!("download http(s) source from '{}' to '{}'",
                                 url, path.display());
-    spawn_and_wait(&mut command, &job)
+    super::common::spawn_and_wait(&mut command, &job)
 }
 
 pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) 
     -> Result<(), ()>
 {
     http_native(url, path, proxy)
-}
-
-pub(crate) fn rsync(url: &str, path: &Path) -> Result<(), ()> {
-    let job = format!("download rsync source from '{}' to '{}'",
-                                url, path.display());
-    let mut command = Command::new("/usr/bin/rsync");
-    command
-        .arg("--no-motd")
-        .arg("-z")
-        .arg(url)
-        .arg(path);
-    spawn_and_wait(&mut command, &job)
-}
-
-pub(crate) fn scp(url: &str, path: &Path) -> Result<(), ()> {
-    let job = format!("download scp source from '{}' to '{}'",
-                                url, path.display());
-    let mut command = Command::new("/usr/bin/scp");
-    command
-        .arg("-C")
-        .arg(url)
-        .arg(path);
-    spawn_and_wait(&mut command, &job)
 }
