@@ -1,8 +1,8 @@
 use crate::{
-        git,
         identity::Identity,
         source::{
             self,
+            git,
             MapByDomain,
         },
         threading::{

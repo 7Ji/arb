@@ -1,12 +1,4 @@
-use crate::{
-        cksums,
-        download,
-        git::{
-            self,
-            ToReposMap,
-        },
-        threading,
-    };
+use crate::threading;
 use hex::FromHex;
 use std::{
         collections::HashMap,
@@ -30,6 +22,11 @@ use std::{
     };
 use xxhash_rust::xxh3::xxh3_64;
 
+use self::git::ToReposMap;
+
+mod cksums;
+mod download;
+pub(crate) mod git;
 
 #[derive(Debug, Clone)]
 enum NetfileProtocol {
@@ -225,7 +222,7 @@ pub(crate) fn get_sources<P> (pkgbuild: &Path) -> Option<Vec<Source>>
 where
     P: AsRef<Path>
 {
-    const SCRIPT: &str = include_str!("../scripts/get_sources.bash");
+    const SCRIPT: &str = include_str!("../../scripts/get_sources.bash");
     let output = Command::new("/bin/bash")
         .arg("-ec")
         .arg(SCRIPT)
