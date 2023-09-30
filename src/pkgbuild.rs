@@ -500,8 +500,7 @@ fn fill_all_pkgvers<P: AsRef<Path>>(
         let output = child.wait_with_output()
             .expect("Failed to wait for child");
         pkgbuild.pkgver = Pkgver::Func { pkgver:
-            String::from_utf8_lossy(&output.stdout).trim().to_string()};
-        pkgbuild.extract = true
+            String::from_utf8_lossy(&output.stdout).trim().to_string()}
     }
     Ok(())
 }
