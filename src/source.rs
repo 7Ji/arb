@@ -225,7 +225,7 @@ pub(crate) fn get_sources<P> (pkgbuild: &Path) -> Option<Vec<Source>>
 where
     P: AsRef<Path>
 {
-    const SCRIPT: &str = include_str!("scripts/get_sources.bash");
+    const SCRIPT: &str = include_str!("../scripts/get_sources.bash");
     let output = Command::new("/bin/bash")
         .arg("-ec")
         .arg(SCRIPT)

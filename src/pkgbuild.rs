@@ -199,7 +199,7 @@ fn get_deps<P: AsRef<Path>> (
     actual_identity: &Identity, dir: P, pkgbuilds: &Vec<PKGBUILD>
 )  -> (Vec<Vec<String>>, Vec<String>) 
 {
-    const SCRIPT: &str = include_str!("scripts/get_depends.bash");
+    const SCRIPT: &str = include_str!("../scripts/get_depends.bash");
     let children: Vec<Child> = pkgbuilds.iter().map(|pkgbuild| {
         let pkgbuild_file = dir.as_ref().join(&pkgbuild.name);
         actual_identity.set_command(
@@ -408,7 +408,7 @@ where
 fn extractor_source(actual_identity: &Identity, pkgbuild: &PKGBUILD) 
     -> Option<Child> 
 {
-    const SCRIPT: &str = include_str!("scripts/extract_sources.bash");
+    const SCRIPT: &str = include_str!("../scripts/extract_sources.bash");
     create_dir_all(&pkgbuild.build)
         .expect("Failed to create build dir");
     let repo = 
