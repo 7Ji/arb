@@ -114,6 +114,21 @@ impl Identity {
     pub(crate) fn set_command<'a>(&self, command: &'a mut Command) 
         -> &'a mut Command 
     {
+        let pw_dir = unsafe {
+            let pw_dir = libc::getpwuid(self.uid).read().pw_dir;
+            let len_dir = libc::strlen(pw_dir);
+            std::slice::from_raw_parts(pw_dir as *const u8, len_dir)
+        };
+        command.env_clear()
+            .env("SHELL", "/bin/bash")
+            .env("PWD", std::env::current_dir()
+                .expect("Failed to get current dir"))
+            .env("LOGNAME", &self.name)
+            .env("HOME", String::from_utf8_lossy(pw_dir).to_string())
+            .env("LANG", "en_US.UTF-8")
+            .env("USER", &self.name)
+            .env("PATH", std::env::var("PATH")
+                .expect("Failed to get PATH"));
         Self::set_root_command(command);
         let uid = self.uid;
         let gid = self.gid;
