@@ -3,8 +3,8 @@ use std::io::Read;
 
 const CKSUM: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
 
-#[derive(PartialEq)]
-pub(crate) struct Cksum (u32);
+#[derive(PartialEq, Clone)]
+pub(crate) struct Cksum (pub(crate) u32);
 
 impl super::Sum for Cksum {
     fn sum(file: &mut std::fs::File) -> Option<Self> {
@@ -37,6 +37,10 @@ impl super::Sum for Cksum {
         }
         digest.update(&size_oct);
         Some(Self(digest.finalize()))
+    }
+
+    fn from_hex(hex: &[u8]) -> Option<Self> {
+        Some(Self(String::from_utf8_lossy(hex).parse().ok()?))
     }
 }
 

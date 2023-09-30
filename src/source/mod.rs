@@ -1,9 +1,7 @@
 use crate::threading;
-use hex::FromHex;
 use std::{
         collections::HashMap,
         fs::{
-            DirBuilder,
             read_dir,
             remove_dir_all,
             remove_file,
@@ -13,7 +11,6 @@ use std::{
             Path,
             PathBuf,
         },
-        process::Command,
         str::FromStr,
         thread::{
             self,
@@ -22,101 +19,51 @@ use std::{
     };
 use xxhash_rust::xxh3::xxh3_64;
 
-use self::git::ToReposMap;
-
 mod cksums;
 mod download;
 pub(crate) mod git;
+mod protocol;
+mod netfile;
+mod parse;
 
-#[derive(Debug, Clone)]
-enum NetfileProtocol {
-    File,
-    Ftp,
-    Http,
-    Https,
-    Rsync,
-    Scp,
-}
+use cksums::{
+    IntegFile,
+    Cksum,
+    Md5sum,
+    Sha1sum,
+    Sha224sum,
+    Sha256sum,
+    Sha384sum,
+    Sha512sum,
+    B2sum,
+};
 
-#[derive(Debug, Clone)]
-enum VcsProtocol {
-    Bzr,
-    Fossil,
-    Git,
-    Hg,
-    Svn,
-}
+use git::ToReposMap;
 
-#[derive(Debug, Clone)]
-enum Protocol {
-    Netfile {
-        protocol: NetfileProtocol
-    },
-    Vcs {
-        protocol: VcsProtocol
-    },
-    Local
-}
+use protocol::{
+    Protocol,
+    VcsProtocol,
+};
 
-impl Protocol {
-    fn _from_string(value: &str) -> Option<Protocol> {
-        let protocol = match value {
-            "file" => Protocol::Netfile { protocol: NetfileProtocol::File },
-            "ftp" => Protocol::Netfile { protocol: NetfileProtocol::Ftp },
-            "http" => Protocol::Netfile { protocol: NetfileProtocol::Http },
-            "https" => Protocol::Netfile { protocol: NetfileProtocol::Https },
-            "rsync" => Protocol::Netfile { protocol: NetfileProtocol::Rsync },
-            "scp" => Protocol::Netfile { protocol: NetfileProtocol::Scp },
-            "bzr" => Protocol::Vcs { protocol: VcsProtocol::Bzr },
-            "fossil" => Protocol::Vcs { protocol: VcsProtocol::Fossil },
-            "git" => Protocol::Vcs { protocol: VcsProtocol::Git },
-            "hg" => Protocol::Vcs { protocol: VcsProtocol::Hg },
-            "svn" => Protocol::Vcs { protocol: VcsProtocol::Svn },
-            "local" => Protocol::Local,
-            &_ => {
-                eprintln!("Unknown protocol {}", value);
-                return None
-            },
-        };
-        Some(protocol)
-    }
-    fn from_raw_string(value: &[u8]) -> Option<Protocol> {
-        let protocol = match value {
-            b"file" => Protocol::Netfile { protocol: NetfileProtocol::File },
-            b"ftp" => Protocol::Netfile { protocol: NetfileProtocol::Ftp },
-            b"http" => Protocol::Netfile { protocol: NetfileProtocol::Http },
-            b"https" => Protocol::Netfile { protocol: NetfileProtocol::Https },
-            b"rsync" => Protocol::Netfile { protocol: NetfileProtocol::Rsync },
-            b"scp" => Protocol::Netfile { protocol: NetfileProtocol::Scp },
-            b"bzr" => Protocol::Vcs { protocol: VcsProtocol::Bzr },
-            b"fossil" => Protocol::Vcs { protocol: VcsProtocol::Fossil },
-            b"git" => Protocol::Vcs { protocol: VcsProtocol::Git },
-            b"hg" => Protocol::Vcs { protocol: VcsProtocol::Hg },
-            b"svn" => Protocol::Vcs { protocol: VcsProtocol::Svn },
-            b"local" => Protocol::Local,
-            &_ => {
-                eprintln!("Unknown protocol {}", 
-                    String::from_utf8_lossy(value));
-                return None
-            },
-        };
-        Some(protocol)
-    }
-}
+pub(crate) use parse::{
+    get_sources,
+    unique_sources
+};
+
 #[derive(Clone)]
 pub(crate) struct Source {
     name: String,
     protocol: Protocol,
     url: String,
     hash_url: u64,
-    ck: Option<u32>,     // 32-bit CRC
-    md5: Option<[u8; 16]>,   // 128-bit MD5
-    sha1: Option<[u8; 20]>,  // 160-bit SHA-1
-    sha224: Option<[u8; 28]>,// 224-bit SHA-2
-    sha256: Option<[u8; 32]>,// 256-bit SHA-2
-    sha384: Option<[u8; 48]>,// 384-bit SHA-2
-    sha512: Option<[u8; 64]>,// 512-bit SHA-2
-    b2: Option<[u8; 64]>,    // 512-bit Blake-2B
+    ck: Option<Cksum>,     // 32-bit CRC
+    md5: Option<Md5sum>,   // 128-bit MD5
+    sha1: Option<Sha1sum>,  // 160-bit SHA-1
+    sha224: Option<Sha224sum>,// 224-bit SHA-2
+    sha256: Option<Sha256sum>,// 256-bit SHA-2
+    sha384: Option<Sha384sum>,// 384-bit SHA-2
+    sha512: Option<Sha512sum>,// 512-bit SHA-2
+    b2: Option<B2sum>,    // 512-bit Blake-2B
 }
 
 pub(crate) trait MapByDomain {
@@ -151,585 +98,34 @@ impl MapByDomain for Source {
     }
 }
 
-impl git::ToReposMap for Source {
-    fn url(&self) -> &str {
-        self.url.as_str()
-    }
-
-    fn hash_url(&self) -> u64 {
-        self.hash_url
-    }
-
-    fn path(&self) -> Option<&Path> {
-        None
-    }
-}
-
-fn push_source(
-    sources: &mut Vec<Source>,
-    name: Option<String>,
-    protocol: Option<Protocol>,
-    url: Option<String>,
-    hash_url: u64,
-    ck: Option<u32>,     // 32-bit CRC
-    md5: Option<[u8; 16]>,   // 128-bit MD5
-    sha1: Option<[u8; 20]>,  // 160-bit SHA-1
-    sha224: Option<[u8; 28]>,// 224-bit SHA-2
-    sha256: Option<[u8; 32]>,// 256-bit SHA-2
-    sha384: Option<[u8; 48]>,// 384-bit SHA-2
-    sha512: Option<[u8; 64]>,// 512-bit SHA-2
-    b2: Option<[u8; 64]>,    // 512-bit Blake-2B
-) -> Result<(),()>
+fn optional_equal<C:PartialEq>(a: &Option<C>, b: &Option<C>)
+    -> bool
 {
-    if let None = ck {
-    if let None = md5 {
-    if let None = sha1 {
-    if let None = sha224 {
-    if let None = sha256 {
-    if let None = sha384 {
-    if let None = sha512 {
-    if let None = b2 {
-    if let Some(protocol) = &protocol {
-    if let Protocol::Netfile { protocol: _ } = protocol {
-        return Ok(()) // Skip netfiles that do not have integ
-    }}}}}}}}}}
-    if let Some(name) = name {
-        if let Some(protocol) = protocol {
-            if let Some(url) = url {
-                sources.push(Source{
-                    name,
-                    protocol,
-                    url,
-                    hash_url,
-                    ck,
-                    md5,
-                    sha1,
-                    sha224,
-                    sha256,
-                    sha384,
-                    sha512,
-                    b2,
-                });
-                return Ok(())
+    if let Some(a) = a {
+        if let Some(b) = b {
+            if a == b {
+                return true
             }
         }
-    };
-    eprintln!("Unfinished source definition");
-    Err(())
+    }
+    false
 }
 
-pub(crate) fn get_sources<P> (pkgbuild: &Path) -> Option<Vec<Source>>
-where
-    P: AsRef<Path>
+fn optional_update<C>(target: &mut Option<C>, source: &Option<C>)
+-> Result<(), ()>
+    where C: PartialEq + Clone 
 {
-    const SCRIPT: &str = include_str!("../../scripts/get_sources.bash");
-    let output = Command::new("/bin/bash")
-        .arg("-ec")
-        .arg(SCRIPT)
-        .arg("Source reader")
-        .arg(pkgbuild)
-        .output()
-        .expect("Failed to run script");
-    let mut name = None;
-    let mut protocol = None;
-    let mut url = None;
-    let mut hash_url = 0;
-    let mut ck = None;
-    let mut md5 = None;
-    let mut sha1 = None;
-    let mut sha224 = None;
-    let mut sha256 = None;
-    let mut sha384 = None;
-    let mut sha512 = None;
-    let mut b2 = None;
-    let mut sources = vec![];
-    let mut started = false;
-    for line in  output.stdout.split(|byte| byte == &b'\n') {
-        if line.len() == 0 {
-            continue;
-        }
-        if line == b"[source]" {
-            if started {
-                push_source(&mut sources,
-                    name, protocol, url, hash_url,
-                    ck, md5, sha1,
-                    sha224, sha256, sha384, sha512,
-                    b2).ok()?;
-                name = None;
-                protocol = None;
-                url = None;
-                hash_url = 0;
-                ck = None;
-                md5 = None;
-                sha1 = None;
-                sha224 = None;
-                sha256 = None;
-                sha384 = None;
-                sha512 = None;
-                b2 = None;
-            } else {
-                started = true;
-            }
-            continue;
-        }
-        let mut it =
-            line.splitn(2, |byte| byte == &b':');
-        let key = it.next().expect("Failed to get key");
-        let value = it.next().expect("Failed to get value");
-        match key {
-            b"name" => {
-                name = Some(String::from_utf8_lossy(value).into_owned());
-            }
-            b"protocol" => {
-                if let Some(protocol_parse) = 
-                    Protocol::from_raw_string(value) 
-                {
-                    protocol = Some(protocol_parse);
-                }
-            }
-            b"url" => {
-                url = Some(String::from_utf8_lossy(value).into_owned());
-                hash_url = xxh3_64(value);
-            }
-            b"cksum" => {
-                ck = Some(
-                        String::from_utf8_lossy(value)
-                        .parse()
-                        .expect("Failed to parse 32-bit CRC"));
-            }
-            b"md5sum" => {
-                md5 = Some(
-                        FromHex::from_hex(value)
-                        .expect("Failed to parse 128-bit MD5 sum"));
-            }
-            b"sha1sum" => {
-                sha1 = Some(
-                        FromHex::from_hex(value)
-                        .expect("Failed to parse 160-bit SHA-1 sum"));
-            }
-            b"sha224sum" => {
-                sha224 = Some(
-                        FromHex::from_hex(value)
-                        .expect("Failed to parse 224-bit SHA-2 sum"));
-            }
-            b"sha256sum" => {
-                sha256 = Some(
-                        FromHex::from_hex(value)
-                        .expect("Failed to parse 256-bit SHA-2 sum"));
-            }
-            b"sha384sum" => {
-                sha384 = Some(
-                        FromHex::from_hex(value)
-                        .expect("Failed to parse 384-bit SHA-2 sum"));
-            }
-            b"sha512sum" => {
-                sha512 = Some(
-                        FromHex::from_hex(value)
-                        .expect("Failed to parse 512-bit SHA-2 sum"));
-            }
-            b"b2sum" => {
-                b2 = Some(
-                        FromHex::from_hex(value)
-                        .expect("Failed to parse 512-bit Blake-2B sum"));
-            }
-            &_ => {
-                eprintln!("Unexpected line: {}", String::from_utf8_lossy(line));
-                return None
+    if let Some(target) = target {
+        if let Some(source) = source {
+            if target != source {
+                eprintln!("Source target mismatch");
+                return Err(());
             }
         }
-    }
-    push_source(&mut sources,
-        name, protocol, url, hash_url,
-        ck, md5, sha1,
-        sha224, sha256, sha384, sha512,
-        b2).ok()?;
-    Some(sources)
-}
-
-fn push_netfile_sources(netfile_sources: &mut Vec<Source>, source: &Source) 
-    -> Result<(), ()> 
-{
-    let mut existing = None;
-    for netfile_source in netfile_sources.iter_mut() {
-        if cksums::optional_equal(
-                &netfile_source.ck, &source.ck) ||
-           cksums::optional_equal(
-                &netfile_source.md5, &source.md5) ||
-           cksums::optional_equal(
-                &netfile_source.sha1, &source.sha1) ||
-           cksums::optional_equal(
-                &netfile_source.sha224, &source.sha224) ||
-           cksums::optional_equal(
-                &netfile_source.sha256, &source.sha256) ||
-           cksums::optional_equal(
-                &netfile_source.sha384, &source.sha384) ||
-           cksums::optional_equal(
-                &netfile_source.sha512, &source.sha512) ||
-           cksums::optional_equal(&netfile_source.b2, &source.b2) {
-            existing = Some(netfile_source);
-            break;
-        }
-    }
-    let netfile_source = match existing {
-        Some(netfile_source) => netfile_source,
-        None => {
-            netfile_sources.push(source.clone());
-            netfile_sources.last_mut()
-                .expect("Failed to get unique source we just added")
-        },
-    };
-    cksums::optional_update(
-        &mut netfile_source.ck, &source.ck)?;
-    cksums::optional_update(
-        &mut netfile_source.md5, &source.md5)?;
-    cksums::optional_update(
-        &mut netfile_source.sha1, &source.sha1)?;
-    cksums::optional_update(
-        &mut netfile_source.sha224, &source.sha224)?;
-    cksums::optional_update(
-        &mut netfile_source.sha256, &source.sha256)?;
-    cksums::optional_update(
-        &mut netfile_source.sha384, &source.sha384)?;
-    cksums::optional_update(
-        &mut netfile_source.sha512, &source.sha512)?;
-    cksums::optional_update(
-        &mut netfile_source.b2, &source.b2)
-}
-
-fn push_git_sources(git_sources: &mut Vec<Source>, source: &Source) {
-    for git_source in git_sources.iter() {
-        if git_source.hash_url == source.hash_url {
-            return
-        }
-    }
-    git_sources.push(source.clone())
-}
-
-pub(crate) fn unique_sources(sources: &Vec<&Source>)
-    -> Option<(Vec<Source>, Vec<Source>, Vec<Source>)>
-{
-    let mut local_sources: Vec<Source> = vec![];
-    let mut git_sources: Vec<Source> = vec![];
-    let mut netfile_sources: Vec<Source> = vec![];
-    for source in sources.iter() {
-        match &source.protocol {
-            Protocol::Netfile { protocol: _ } => 
-                push_netfile_sources(&mut netfile_sources, source).ok()?,
-            Protocol::Vcs { protocol } => {
-                match protocol {  // Ignore VCS sources we do not support
-                    VcsProtocol::Bzr => (),
-                    VcsProtocol::Fossil => (),
-                    VcsProtocol::Git =>
-                        push_git_sources(&mut git_sources, source),
-                    VcsProtocol::Hg => (),
-                    VcsProtocol::Svn => (),
-                }
-            },
-            Protocol::Local => local_sources.push(source.to_owned().to_owned())
-        }
-    }
-    Some((netfile_sources, git_sources, local_sources))
-}
-
-fn _print_source(source: &Source) {
-    println!("Source '{}' from '{}' protocol '{:?}'",
-        source.name, source.url, source.protocol);
-    if let Some(ck) = source.ck {
-        println!("=> CKSUM: {:x}", ck);
-    }
-    if let Some(md5) = source.md5 {
-        println!("=> md5sum: {}", cksums::string_from(&md5));
-    }
-    if let Some(sha1) = source.sha1 {
-        println!("=> sha1sum: {}", cksums::string_from(&sha1));
-    }
-    if let Some(sha224) = source.sha224 {
-        println!("=> sha224sum: {}", cksums::string_from(&sha224));
-    }
-    if let Some(sha256) = source.sha256 {
-        println!("=> sha256sum: {}", cksums::string_from(&sha256));
-    }
-    if let Some(sha384) = source.sha384 {
-        println!("=> sha384sum: {}", cksums::string_from(&sha384));
-    }
-    if let Some(sha512) = source.sha512 {
-        println!("=> sha512sum: {}", cksums::string_from(&sha512));
-    }
-    if let Some(b2) = source.b2 {
-        println!("=> b2sum: {}", cksums::string_from(&b2));
-    }
-}
-
-fn get_integ_files(source: &Source) -> Vec<cksums::IntegFile> {
-    let mut integ_files = vec![];
-    if let Some(ck) = source.ck {
-        integ_files.push(cksums::IntegFile::from_integ(
-            "sources/file-ck", cksums::Integ::CK { ck }))
-    }
-    if let Some(md5) = source.md5 {
-        integ_files.push(cksums::IntegFile::from_integ(
-            "sources/file-md5", cksums::Integ::MD5 { md5 }))
-    }
-    if let Some(sha1) = source.sha1 {
-        integ_files.push(cksums::IntegFile::from_integ
-            ("sources/file-sha1", cksums::Integ::SHA1 { sha1 }))
-    }
-    if let Some(sha224) = source.sha224 {
-        integ_files.push(cksums::IntegFile::from_integ(
-            "sources/file-sha224", cksums::Integ::SHA224 { sha224 }))
-    }
-    if let Some(sha256) = source.sha256 {
-        integ_files.push(cksums::IntegFile::from_integ(
-            "sources/file-sha256", cksums::Integ::SHA256 { sha256 } ))
-    }
-    if let Some(sha384) = source.sha384 {
-        integ_files.push(cksums::IntegFile::from_integ(
-            "sources/file-sha384", cksums::Integ::SHA384 { sha384 } ))
-    }
-    if let Some(sha512) = source.sha512 {
-        integ_files.push(cksums::IntegFile::from_integ(
-            "sources/file-sha512", cksums::Integ::SHA512 { sha512 }))
-    }
-    if let Some(b2) = source.b2 {
-        integ_files.push(cksums::IntegFile::from_integ(
-            "sources/file-b2", cksums::Integ::B2 { b2 } ))
-    }
-    integ_files
-}
-
-fn download_netfile_source(
-    netfile_source: &Source,
-    integ_file: &cksums::IntegFile,
-    skipint: bool,
-    proxy: Option<&str>
-) -> Result<(), ()> 
-{
-    let protocol = match &netfile_source.protocol {
-        Protocol::Netfile { protocol } => protocol.clone(),
-        Protocol::Vcs { protocol: _ } => {
-            eprintln!("VCS source encountered by netfile cacher");
-            return Err(())
-        },
-        Protocol::Local => {
-            eprintln!("Local source encountered by netfile cacher");
-            return Err(())
-        },
-    };
-    let url = netfile_source.url.as_str();
-    let path = integ_file.get_path();
-    for _ in 0..2 {
-        println!("Downloading '{}' to '{}'",
-            netfile_source.url, path.display());
-        if let Ok(_) = match &protocol {
-            NetfileProtocol::File => download::file(url, path),
-            NetfileProtocol::Ftp => download::ftp(url, path),
-            NetfileProtocol::Http => 
-                download::http(url, path, None),
-            NetfileProtocol::Https => 
-                download::http(url, path, None),
-            NetfileProtocol::Rsync => download::rsync(url, path),
-            NetfileProtocol::Scp => download::scp(url, path),
-        } {
-            if integ_file.valid(skipint) {
-                return Ok(())
-            }
-        }
-    }
-    if let None = proxy {
-        eprintln!(
-            "Failed to download netfile source '{}' and no proxy to retry", 
-            netfile_source.url);
-        return Err(())
-    }
-    if match &protocol {
-        NetfileProtocol::File => false,
-        NetfileProtocol::Ftp => false,
-        NetfileProtocol::Http => true,
-        NetfileProtocol::Https => true,
-        NetfileProtocol::Rsync => false,
-        NetfileProtocol::Scp => false,
-    } {
-        println!("Failed to download '{}' to '{}' after 3 tries, use proxy",
-                netfile_source.url, path.display());
-    } else {
-        eprintln!(
-            "Failed to download netfile source '{}', proto not support proxy", 
-            netfile_source.url);
-        return Err(())
-    }
-    for _  in 0..2 {
-        println!("Downloading '{}' to '{}'",
-                netfile_source.url, path.display());
-        if let Ok(_) = download::http(url, path, proxy) {
-            if integ_file.valid(skipint) {
-                return Ok(())
-            }
-        }
-    }
-    eprintln!("Failed to download netfile source '{} even with proxy",
-                netfile_source.url);
-    return Err(())
-}
-
-fn cache_netfile_source(
-    netfile_source: &Source,
-    integ_files: &Vec<cksums::IntegFile>,
-    skipint: bool,
-    proxy: Option<&str>
-) -> Result<(), ()> 
-{
-    println!("Caching '{}'", netfile_source.url);
-    assert!(integ_files.len() > 0, "No integ files");
-    let mut good_files = vec![];
-    let mut bad_files = vec![];
-    for integ_file in integ_files.iter() {
-        println!("Caching '{}' to '{}'",
-            netfile_source.url,
-            integ_file.get_path().display());
-        if integ_file.valid(skipint) {
-            good_files.push(integ_file);
-        } else {
-            bad_files.push(integ_file);
-        }
-    }
-    let bad_count = bad_files.len();
-    if bad_count > 0 {
-        println!("Missing integ files for '{}': {}",
-                netfile_source.url, bad_count);
-    } else {
-        println!("All integ files healthy for '{}'", netfile_source.url);
-        return Ok(())
-    }
-    let mut bad_count = 0;
-    while let Some(bad_file) = bad_files.pop() {
-        let r = match good_files.last() {
-            Some(good_file) =>
-                bad_file.clone_file_from(good_file),
-            None => download_netfile_source(
-                netfile_source, bad_file, skipint, proxy),
-        };
-        match r {
-            Ok(_) => good_files.push(bad_file),
-            Err(_) => bad_count += 1,
-        }
-    }
-    if bad_count > 0 {
-        eprintln!("Bad files still existing after download for '{}' ({})",
-                    netfile_source.url, bad_count);
-        Err(())
-    } else {
-        Ok(())
-    }
-}
-
-fn _cache_netfile_sources_for_domain_mt(
-    netfile_sources: Vec<Source>, skipint:bool, proxy: Option<&str>
-) -> Result<(), ()> {
-    let (proxy_string, has_proxy) = match proxy {
-        Some(proxy) => (proxy.to_owned(), true),
-        None => (String::new(), false),
-    };
-    let mut bad = false;
-    let mut threads: Vec<JoinHandle<Result<(), ()>>> = vec![];
-    for netfile_source in netfile_sources {
-        let integ_files = get_integ_files(&netfile_source);
-        let proxy_string_thread = proxy_string.clone();
-        if let Err(_) = threading::wait_if_too_busy(
-            &mut threads, 10, "caching network files") 
-            {
-                bad = true;
-            }
-        threads.push(thread::spawn(move ||{
-            let proxy = match has_proxy {
-                true => Some(proxy_string_thread.as_str()),
-                false => None,
-            };
-            cache_netfile_source(&netfile_source, &integ_files, skipint, proxy)
-        }));
-    }
-    if let Err(_) = threading::wait_remaining(
-        threads, "caching network files") 
-    {
-        bad = true;
-    }
-    if bad { Err(()) } else { Ok(()) }
-}
-
-fn ensure_netfile_parents() -> Result<(), ()>
-{
-    let mut dir_builder = DirBuilder::new();
-    dir_builder.recursive(true);
-    for integ in
-        ["ck", "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "b2"]
-    {
-        let folder = format!("sources/file-{}", integ);
-        match dir_builder.create(&folder) {
-            Ok(_) => (),
-            Err(e) => {
-                eprintln!("Failed to create folder '{}': {}", &folder, e);
-                return Err(())
-            },
-        }
+    } else if let Some(source) = source {
+        *target = Some(source.clone())
     }
     Ok(())
-}
-fn _cache_netfile_sources_mt(
-    netfile_sources: HashMap<u64, Vec<Source>>,
-    skipint: bool,
-    proxy: Option<&str>
-) -> Result<(), ()> 
-{
-    ensure_netfile_parents()?;
-    println!("Caching netfile sources with {} threads", netfile_sources.len());
-    let (proxy_string, has_proxy) = match proxy {
-        Some(proxy) => (proxy.to_owned(), true),
-        None => (String::new(), false),
-    };
-    let mut threads: Vec<JoinHandle<Result<(), ()>>> =  vec![];
-    for netfile_sources in netfile_sources.into_values() {
-        let proxy_string_thread = proxy_string.clone();
-        threads.push(thread::spawn(move || {
-            let proxy = match has_proxy {
-                true => Some(proxy_string_thread.as_str()),
-                false => None,
-            };
-            _cache_netfile_sources_for_domain_mt(
-                netfile_sources, skipint, proxy)
-        }));
-    }
-    let mut bad = false;
-    for thread in threads {
-        match thread.join() {
-            Ok(r) => match r {
-                Ok(_) => (),
-                Err(_) => bad = true,
-            },
-            Err(e) => {
-                eprintln!("Failed to join thread: {:?}", e);
-                bad = true
-            },
-        }
-    }
-    if bad { Err(()) } else { Ok(()) }
-}
-
-fn _cache_git_sources_mt(
-    git_sources_map: HashMap<u64, Vec<Source>>,
-    holdgit: bool,
-    proxy: Option<&str>,
-    gmr: Option<&git::Gmr>
-) -> Result<(), ()>
-{
-    let repos_map = match
-        Source::to_repos_map(git_sources_map, "sources/git", gmr) {
-            Some(repos_map) => repos_map,
-            None => {
-                eprintln!("Failed to convert to repos map");
-                return Err(())
-            },
-        };
-    git::Repo::sync_mt(
-        repos_map, git::Refspecs::HeadsTags, holdgit, proxy)
 }
 
 fn get_domain_threads_map<T>(orig_map: &HashMap<u64, Vec<T>>) 
@@ -763,33 +159,6 @@ fn get_domain_threads_from_map<'a>(
     }
 }
 
-// fn sources_to_threads(
-//     sources: &mut Vec<Source>, 
-//     threads: &mut Vec<JoinHandle<Result<(), ()>>>
-// ) {
-//     const MAX_THREADS: usize = 10;
-//     while sources.len() > 0 && threads.len() < MAX_THREADS {
-//         let source = sources.pop()
-//             .expect("Failed to get source from sources vec");
-//         threads.push(thread::spawn(f))
-        
-
-//         // netfile_sources.pop()
-
-//     }
-
-// }
-
-// fn sources_map_to_threads_map(
-//     sources_map: &mut HashMap<u64, Vec<Source>>,
-//     threads_map: &mut HashMap<u64, Vec<JoinHandle<Result<(), ()>>>>,
-// ) {
-//     for (domain, sources) in sources_map.iter_mut() {
-//         let threads 
-//             = get_domain_threads_from_map(domain, &threads_map);
-//     }
-// }
-
 pub(crate) fn cache_sources_mt(
     netfile_sources: &Vec<Source>,
     git_sources: &Vec<Source>,
@@ -799,7 +168,7 @@ pub(crate) fn cache_sources_mt(
     gmr: Option<&git::Gmr>
 ) -> Result<(), ()> 
 {
-    ensure_netfile_parents()?;
+    netfile::ensure_parents()?;
     let mut netfile_sources_map =
         Source::map_by_domain(netfile_sources);
     let git_sources_map =
@@ -851,7 +220,7 @@ pub(crate) fn cache_sources_mt(
                     .pop()
                     .expect("Failed to get source from sources vec");
                 let integ_files 
-                    = get_integ_files(&netfile_source);
+                    = IntegFile::vec_from_source(&netfile_source);
                 let proxy_string_thread = proxy_string.clone();
                 let netfile_thread = thread::spawn(
                 move ||{
@@ -859,7 +228,7 @@ pub(crate) fn cache_sources_mt(
                         true => Some(proxy_string_thread.as_str()),
                         false => None,
                     };
-                    cache_netfile_source(
+                    netfile::cache_source(
                         &netfile_source, &integ_files, skipint, proxy)
                 });
                 netfile_threads.push(netfile_thread);
@@ -937,7 +306,7 @@ pub(crate) fn extract<P: AsRef<Path>>(dir: P, sources: &Vec<Source>) {
         let mut original = None;
         match &source.protocol {
             Protocol::Netfile { protocol: _ } => {
-                let integ_files = get_integ_files(source);
+                let integ_files = IntegFile::vec_from_source(source);
                 if let Some(integ_file) = integ_files.last() {
                     original = Some(rel.join(integ_file.get_path()));
                 }
@@ -1004,29 +373,29 @@ fn clean_netfile_sources(sources: &Vec<Source>) -> Vec<JoinHandle<()>>{
     let mut b2_used = vec![];
     let mut cleaners = vec![];
     for source in sources.iter() {
-        if let Some(ck) = source.ck {
-            ck_used.push(format!("{:08x}", ck));
+        if let Some(ck) = &source.ck {
+            ck_used.push(ck.to_string());
         }
-        if let Some(md5) = source.md5 {
-            md5_used.push(cksums::string_from(&md5));
+        if let Some(md5) = &source.md5 {
+            md5_used.push(md5.to_string());
         }
-        if let Some(sha1) = source.sha1 {
-            sha1_used.push(cksums::string_from(&sha1));
+        if let Some(sha1) = &source.sha1 {
+            sha1_used.push(sha1.to_string());
         }
-        if let Some(sha224) = source.sha224 {
-            sha224_used.push(cksums::string_from(&sha224));
+        if let Some(sha224) = &source.sha224 {
+            sha224_used.push(sha224.to_string());
         }
-        if let Some(sha256) = source.sha256 {
-            sha256_used.push(cksums::string_from(&sha256));
+        if let Some(sha256) = &source.sha256 {
+            sha256_used.push(sha256.to_string());
         }
-        if let Some(sha384) = source.sha384 {
-            sha384_used.push(cksums::string_from(&sha384));
+        if let Some(sha384) = &source.sha384 {
+            sha384_used.push(sha384.to_string());
         }
-        if let Some(sha512) = source.sha512 {
-            sha512_used.push(cksums::string_from(&sha512));
+        if let Some(sha512) = &source.sha512 {
+            sha512_used.push(sha512.to_string());
         }
-        if let Some(b2) = source.b2 {
-            b2_used.push(cksums::string_from(&b2));
+        if let Some(b2) = &source.b2 {
+            b2_used.push(b2.to_string());
         }
     }
     ck_used.sort_unstable();

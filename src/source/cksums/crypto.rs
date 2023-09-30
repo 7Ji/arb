@@ -1,4 +1,5 @@
 use blake2::Blake2b512;
+use hex::FromHex;
 use sha1::{
         Digest,
         digest::{
@@ -18,17 +19,17 @@ use std::{
         io::Read,
     };
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub(crate) struct Sha1sum ([u8; 20]);
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub(crate) struct Sha224sum ([u8; 28]);
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub(crate) struct Sha256sum ([u8; 32]);
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub(crate) struct Sha384sum ([u8; 48]);
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub(crate) struct Sha512sum ([u8; 64]);
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub(crate) struct B2sum ([u8; 64]);
 
 
@@ -59,12 +60,20 @@ impl super::Sum for Sha1sum {
         generic_sum::<Sha1>(file)
         .map(|sum|Self(sum.into()))
     }
+
+    fn from_hex(hex: &[u8]) -> Option<Self> {
+        Some(Self(FromHex::from_hex(hex).ok()?))
+    }
 }
 
 impl super::Sum for Sha224sum {
     fn sum(file: &mut File) -> Option<Self> {
         generic_sum::<Sha224>(file)
         .map(|sum|Self(sum.into()))
+    }
+
+    fn from_hex(hex: &[u8]) -> Option<Self> {
+        Some(Self(FromHex::from_hex(hex).ok()?))
     }
 }
 
@@ -73,12 +82,20 @@ impl super::Sum for Sha256sum {
         generic_sum::<Sha256>(file)
             .map(|sum|Self(sum.into()))
     }
+
+    fn from_hex(hex: &[u8]) -> Option<Self> {
+        Some(Self(FromHex::from_hex(hex).ok()?))
+    }
 }
 
 impl super::Sum for Sha384sum {
     fn sum(file: &mut File) -> Option<Self> {
         generic_sum::<Sha384>(file)
             .map(|sum|Self(sum.into()))
+    }
+
+    fn from_hex(hex: &[u8]) -> Option<Self> {
+        Some(Self(FromHex::from_hex(hex).ok()?))
     }
 }
 
@@ -87,12 +104,20 @@ impl super::Sum for Sha512sum {
         generic_sum::<Sha512>(file)
             .map(|sum|Self(sum.into()))
     }
+
+    fn from_hex(hex: &[u8]) -> Option<Self> {
+        Some(Self(FromHex::from_hex(hex).ok()?))
+    }
 }
 
 impl super::Sum for B2sum {
     fn sum(file: &mut File) -> Option<Self> {
         generic_sum::<Blake2b512>(file)
             .map(|sum|Self(sum.into()))
+    }
+
+    fn from_hex(hex: &[u8]) -> Option<Self> {
+        Some(Self(FromHex::from_hex(hex).ok()?))
     }
 }
 

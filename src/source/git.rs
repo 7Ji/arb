@@ -134,6 +134,29 @@ pub(crate) trait ToReposMap {
     }
 }
 
+impl ToReposMap for super::Source {
+    fn url(&self) -> &str {
+        self.url.as_str()
+    }
+
+    fn hash_url(&self) -> u64 {
+        self.hash_url
+    }
+
+    fn path(&self) -> Option<&Path> {
+        None
+    }
+}
+
+pub(super) fn push_source(sources: &mut Vec<super::Source>, source: &super::Source) {
+    for source_cmp in sources.iter() {
+        if source.hash_url == source_cmp.hash_url {
+            return
+        }
+    }
+    sources.push(source.clone())
+}
+
 fn gcb_transfer_progress(progress: Progress<'_>) -> bool {
     let network_pct =
         (100 * progress.received_objects()) / progress.total_objects();

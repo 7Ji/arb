@@ -1,6 +1,7 @@
 use std::io::Read;
+use hex::FromHex;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub(crate) struct Md5sum ([u8; 16]);
 
 impl super::Sum for Md5sum {
@@ -22,6 +23,10 @@ impl super::Sum for Md5sum {
             context.consume(chunk);
         }
         Some(Self(context.compute().0))
+    }
+
+    fn from_hex(hex: &[u8]) -> Option<Self> where Self: Sized {
+        Some(Self(FromHex::from_hex(hex).ok()?))
     }
 }
 
