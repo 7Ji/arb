@@ -421,7 +421,6 @@ fn extractor_source(actual_identity: &Identity, pkgbuild: &PKGBUILD)
     arg0.push("] /bin/bash");
     Some(actual_identity.set_command(
         Command::new("/bin/bash")
-            .env_clear()
             .arg0(&arg0)
             .arg("-ec")
             .arg(SCRIPT)
