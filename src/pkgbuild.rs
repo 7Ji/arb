@@ -1,5 +1,6 @@
 use crate::{
         git,
+        identity::Identity,
         source::{
             self,
             MapByDomain,
@@ -194,17 +195,20 @@ where
     }
 }
 
-fn get_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &Vec<PKGBUILD>) 
-    -> (Vec<Vec<String>>, Vec<String>) {
+fn get_deps<P: AsRef<Path>> (
+    actual_identity: &Identity, dir: P, pkgbuilds: &Vec<PKGBUILD>
+)  -> (Vec<Vec<String>>, Vec<String>) 
+{
     const SCRIPT: &str = include_str!("scripts/get_depends.bash");
     let children: Vec<Child> = pkgbuilds.iter().map(|pkgbuild| {
         let pkgbuild_file = dir.as_ref().join(&pkgbuild.name);
-        Command::new("/bin/bash")
-            .arg("-ec")
-            .arg(SCRIPT)
-            .arg("Depends reader")
-            .arg(&pkgbuild_file)
-            .stdout(Stdio::piped())
+        actual_identity.set_command(
+            Command::new("/bin/bash")
+                .arg("-ec")
+                .arg(SCRIPT)
+                .arg("Depends reader")
+                .arg(&pkgbuild_file)
+                .stdout(Stdio::piped()))
             .spawn()
             .expect("Failed to spawn depends reader")
     }).collect();
@@ -231,11 +235,14 @@ fn get_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &Vec<PKGBUILD>)
     (pkgs_deps, all_deps)
 }
 
-fn install_deps(deps: &Vec<String>) -> Result<(), ()> {
+fn install_deps(actual_identity: &Identity, deps: &Vec<String>) 
+    -> Result<(), ()> 
+{
     println!("Checking if needed to install {} deps: {:?}", deps.len(), deps);
-    let output = Command::new("/usr/bin/pacman")
-        .arg("-T")
-        .args(deps)
+    let output = actual_identity.set_command(
+        Command::new("/usr/bin/pacman")
+            .arg("-T")
+            .args(deps))
         .output()
         .expect("Failed to run pacman to get missing deps");
     match output.status.code() {
@@ -267,11 +274,11 @@ fn install_deps(deps: &Vec<String>) -> Result<(), ()> {
     }
     println!("Installing {} missing deps: {:?}",
             missing_deps.len(), missing_deps);
-    let mut child = Command::new("/usr/bin/sudo")
-        .arg("/usr/bin/pacman")
-        .arg("-S")
-        .arg("--noconfirm")
-        .args(&missing_deps)
+    let mut child = Identity::set_root_command(
+        Command::new("/usr/bin/pacman")
+            .arg("-S")
+            .arg("--noconfirm")
+            .args(&missing_deps))
         .spawn()
         .expect("Failed to run sudo pacman to install missing deps");
     let exit_status = child.wait()
@@ -295,15 +302,19 @@ fn install_deps(deps: &Vec<String>) -> Result<(), ()> {
     }
 }
 
-fn calc_dep_hashes(pkgbuilds: &mut Vec<PKGBUILD>, pkgs_deps: &Vec<Vec<String>>
+fn calc_dep_hashes(
+    actual_identity: &Identity,
+    pkgbuilds: &mut Vec<PKGBUILD>,
+    pkgs_deps: &Vec<Vec<String>>
 ) {
     assert!(pkgbuilds.len() == pkgs_deps.len());
     let children: Vec<Child> = pkgs_deps.iter().map(|pkg_deps| {
-        Command::new("/usr/bin/pacman")
-            .arg("-Qi")
-            .env("LANG", "C")
-            .args(pkg_deps)
-            .stdout(Stdio::piped())
+        actual_identity.set_command(
+            Command::new("/usr/bin/pacman")
+                .arg("-Qi")
+                .env("LANG", "C")
+                .args(pkg_deps)
+                .stdout(Stdio::piped()))
             .spawn()
             .expect("Failed to spawn dep info reader")
     }).collect();
@@ -320,15 +331,17 @@ fn calc_dep_hashes(pkgbuilds: &mut Vec<PKGBUILD>, pkgs_deps: &Vec<Vec<String>>
 }
 
 
-fn check_deps<P: AsRef<Path>> (dir: P, pkgbuilds: &mut Vec<PKGBUILD>)
+fn check_deps<P: AsRef<Path>> (
+    actual_identity: &Identity, dir: P, pkgbuilds: &mut Vec<PKGBUILD>
+)
     -> Result<(), ()>
 {
     let (pkgs_deps, all_deps) 
-        = get_deps(dir, pkgbuilds);
+        = get_deps(actual_identity, dir, pkgbuilds);
     if all_deps.len() > 0 {
-        install_deps(&all_deps)?;
+        install_deps(actual_identity, &all_deps)?;
     }
-    calc_dep_hashes(pkgbuilds, &pkgs_deps);
+    calc_dep_hashes(actual_identity, pkgbuilds, &pkgs_deps);
     Ok(())
 }
 
@@ -392,7 +405,9 @@ where
     Some(pkgbuilds)
 }
 
-fn extractor_source(pkgbuild: &PKGBUILD) -> Option<Child> {
+fn extractor_source(actual_identity: &Identity, pkgbuild: &PKGBUILD) 
+    -> Option<Child> 
+{
     const SCRIPT: &str = include_str!("scripts/extract_sources.bash");
     create_dir_all(&pkgbuild.build)
         .expect("Failed to create build dir");
@@ -404,22 +419,27 @@ fn extractor_source(pkgbuild: &PKGBUILD) -> Option<Child> {
     let mut arg0 = OsString::from("[EXTRACTOR/");
     arg0.push(&pkgbuild.name);
     arg0.push("] /bin/bash");
-    Some(Command::new("/bin/bash")
-        .arg0(&arg0)
-        .arg("-ec")
-        .arg(SCRIPT)
-        .arg("Source extractor")
-        .arg(&pkgbuild.build.canonicalize()
-            .expect("Failed to cannicalize build dir"))
+    Some(actual_identity.set_command(
+        Command::new("/bin/bash")
+            .arg0(&arg0)
+            .arg("-ec")
+            .arg(SCRIPT)
+            .arg("Source extractor")
+            .arg(&pkgbuild.build.canonicalize()
+                .expect("Failed to cannicalize build dir")))
         .spawn()
         .expect("Failed to run script"))
 }
 
-fn extract_sources(pkgbuilds: &mut [&mut PKGBUILD]) -> Result<(), ()> {
+fn extract_sources(actual_identity: &Identity, pkgbuilds: &mut [&mut PKGBUILD]) 
+    -> Result<(), ()> 
+{
     let mut children = vec![];
     let mut bad = false;
     for pkgbuild in pkgbuilds.iter_mut() {
-        if let Some(child) = extractor_source(pkgbuild) {
+        if let Some(child) = 
+            extractor_source(actual_identity, pkgbuild) 
+        {
             children.push(child);
         } else {
             bad = true;
@@ -431,17 +451,20 @@ fn extract_sources(pkgbuilds: &mut [&mut PKGBUILD]) -> Result<(), ()> {
     if bad { Err(()) } else { Ok(()) }
 }
 
-fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>)
+fn fill_all_pkgvers<P: AsRef<Path>>(
+    actual_identity: &Identity, dir: P, pkgbuilds: &mut Vec<PKGBUILD>
+)
     -> Result<(), ()> {
     let _ = remove_dir_recursively("build");
     let dir = dir.as_ref();
     let children: Vec<Child> = pkgbuilds.iter().map(|pkgbuild| 
-        Command::new("/bin/bash")
-            .arg("-c")
-            .arg(". \"$1\"; type -t pkgver")
-            .arg("Type Identifier")
-            .arg(dir.join(&pkgbuild.name))
-            .stdout(Stdio::piped())
+        actual_identity.set_command(
+            Command::new("/bin/bash")
+                .arg("-c")
+                .arg(". \"$1\"; type -t pkgver")
+                .arg("Type Identifier")
+                .arg(dir.join(&pkgbuild.name))
+                .stdout(Stdio::piped()))
             .spawn()
             .expect("Failed to run script")
     ).collect();
@@ -455,17 +478,18 @@ fn fill_all_pkgvers<P: AsRef<Path>>(dir: P, pkgbuilds: &mut Vec<PKGBUILD>)
             pkgbuilds_with_pkgver_func.push(pkgbuild);
         };
     }
-    extract_sources(&mut pkgbuilds_with_pkgver_func)?;
+    extract_sources(actual_identity, &mut pkgbuilds_with_pkgver_func)?;
     let children: Vec<Child> = pkgbuilds_with_pkgver_func.iter().map(
     |pkgbuild|
-        Command::new("/bin/bash")
-            .arg("-ec")
-            .arg("srcdir=\"$1\"; cd \"$1\"; source ../PKGBUILD; pkgver")
-            .arg("Pkgver runner")
-            .arg(pkgbuild.build.join("src")
-                .canonicalize()
-                .expect("Failed to canonicalize dir"))
-            .stdout(Stdio::piped())
+        actual_identity.set_command(
+            Command::new("/bin/bash")
+                .arg("-ec")
+                .arg("srcdir=\"$1\"; cd \"$1\"; source ../PKGBUILD; pkgver")
+                .arg("Pkgver runner")
+                .arg(pkgbuild.build.join("src")
+                    .canonicalize()
+                    .expect("Failed to canonicalize dir"))
+                .stdout(Stdio::piped()))
             .spawn()
             .expect("Failed to run script")
     ).collect();
@@ -494,7 +518,10 @@ fn fill_all_pkgdirs(pkgbuilds: &mut Vec<PKGBUILD>) {
     }
 }
 
-fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) -> Result<(), ()> {
+fn extract_if_need_build(
+    actual_identity: &Identity, pkgbuilds: &mut Vec<PKGBUILD>
+) -> Result<(), ()> 
+{
     let mut pkgbuilds_need_build = vec![];
     let mut cleaners = vec![];
     let mut bad = false;
@@ -527,7 +554,8 @@ fn extract_if_need_build(pkgbuilds: &mut Vec<PKGBUILD>) -> Result<(), ()> {
             }
         }
     }
-    if let Err(_) = extract_sources(&mut pkgbuilds_need_build) {
+    if let Err(_) = extract_sources(actual_identity, &mut pkgbuilds_need_build) 
+    {
         bad = true
     }
     if let Err(_) = threading::wait_remaining(
@@ -578,6 +606,7 @@ fn remove_builddir() -> Result<(), std::io::Error> {
 }
 
 fn prepare_sources<P: AsRef<Path>>(
+    actual_identity: &Identity, 
     dir: P,
     pkgbuilds: &mut Vec<PKGBUILD>,
     holdgit: bool,
@@ -593,7 +622,7 @@ fn prepare_sources<P: AsRef<Path>>(
         false => None,
     };
     dump_pkgbuilds(&dir, pkgbuilds);
-    check_deps(&dir, pkgbuilds)?;
+    check_deps(actual_identity, &dir, pkgbuilds)?;
     let (netfile_sources, git_sources, _)
         = get_all_sources(&dir, pkgbuilds).ok_or(())?;
     source::cache_sources_mt(
@@ -612,9 +641,9 @@ fn prepare_sources<P: AsRef<Path>>(
         true => None,
         false => Some(source::cleanup(netfile_sources, git_sources)),
     };
-    fill_all_pkgvers(dir, pkgbuilds)?;
+    fill_all_pkgvers(actual_identity, dir, pkgbuilds)?;
     fill_all_pkgdirs(pkgbuilds);
-    extract_if_need_build(pkgbuilds)?;
+    extract_if_need_build(actual_identity, pkgbuilds)?;
     if let Some(cleaners) = cleaners {
         for cleaner in cleaners {
             cleaner.join().expect("Failed to join sources cleaner thread");
@@ -636,7 +665,12 @@ fn prepare_temp_pkgdir(pkgbuild: &PKGBUILD) -> Result<PathBuf, ()> {
     }
 }
 
-fn prepare_build_command(pkgbuild: &PKGBUILD, nonet: bool, temp_pkgdir: &Path) 
+fn prepare_build_command(
+    actual_identity: &Identity,
+    pkgbuild: &PKGBUILD,
+    nonet: bool,
+    temp_pkgdir: &Path
+) 
     -> Result<Command, ()> 
 {
     let mut command = if nonet {
@@ -669,10 +703,16 @@ fn prepare_build_command(pkgbuild: &PKGBUILD, nonet: bool, temp_pkgdir: &Path)
         .env("PATH", path)
         .env("HOME", home)
         .env("PKGDEST", pkgdest);
+    actual_identity.set_command(&mut command);
     Ok(command)
 }
 
-fn build_try(pkgbuild: &PKGBUILD, command: &mut Command, temp_pkgdir: &Path)
+fn build_try(
+    actual_identity: &Identity, 
+    pkgbuild: &PKGBUILD, 
+    command: &mut Command, 
+    temp_pkgdir: &Path
+)
     -> Result<(), ()>
 {
     const BUILD_MAX_TRIES: u8 = 3;
@@ -704,7 +744,9 @@ fn build_try(pkgbuild: &PKGBUILD, command: &mut Command, temp_pkgdir: &Path)
                 if i == BUILD_MAX_TRIES {
                     break
                 }
-                let mut child = match extractor_source(&pkgbuild) {
+                let mut child = match 
+                    extractor_source(actual_identity, &pkgbuild) 
+                {
                     Some(child) => child,
                     None => return Err(()),
                 };
@@ -750,15 +792,20 @@ fn build_finish(pkgbuild: &PKGBUILD, temp_pkgdir: &Path) -> Result<(), ()> {
     Ok(())
 }
 
-fn build(pkgbuild: &PKGBUILD, nonet: bool) -> Result<(), ()> {
+fn build(actual_identity: &Identity, pkgbuild: &PKGBUILD, nonet: bool) 
+    -> Result<(), ()> 
+{
     let temp_pkgdir = prepare_temp_pkgdir(pkgbuild)?;
     let mut command = prepare_build_command(
-                                pkgbuild, nonet, &temp_pkgdir)?;
-    build_try(pkgbuild, &mut command, &temp_pkgdir)?;
+        actual_identity, pkgbuild, nonet, &temp_pkgdir)?;
+    build_try(actual_identity, pkgbuild, &mut command, &temp_pkgdir)?;
     build_finish(pkgbuild, &temp_pkgdir)
 }
 
-fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>, nonet: bool) -> Result<(), ()>{
+fn build_any_needed(
+    actual_identity: &Identity, pkgbuilds: &Vec<PKGBUILD>, nonet: bool
+) -> Result<(), ()>
+{
     let _ = remove_dir_all("pkgs/updated");
     let _ = remove_dir_all("pkgs/latest");
     if let Err(e) = create_dir_all("pkgs/updated") {
@@ -781,7 +828,9 @@ fn build_any_needed(pkgbuilds: &Vec<PKGBUILD>, nonet: bool) -> Result<(), ()>{
         {
             bad = true;
         }
-        threads.push(thread::spawn(move || build(&pkgbuild, nonet)));
+        let actual_identity_thread = actual_identity.clone();
+        threads.push(thread::spawn(
+            move || build(&actual_identity_thread, &pkgbuild, nonet)));
     }
     if let Err(_) = threading::wait_remaining(
         threads, "building packages") 
@@ -831,6 +880,7 @@ fn clean_pkgdir(pkgbuilds: &Vec<PKGBUILD>) {
 }
 
 pub(crate) fn work<P: AsRef<Path>>(
+    actual_identity: Identity,
     pkgbuilds_yaml: P,
     proxy: Option<&str>,
     holdpkg: bool,
@@ -857,12 +907,12 @@ pub(crate) fn work<P: AsRef<Path>>(
     };
     let pkgbuilds_dir =
         tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
-    prepare_sources(pkgbuilds_dir, &mut pkgbuilds, 
+    prepare_sources(&actual_identity, pkgbuilds_dir, &mut pkgbuilds, 
                     holdgit, skipint, noclean, proxy, gmr.as_ref())?;
     if nobuild {
         return Ok(());
     }
-    build_any_needed(&pkgbuilds, nonet)?;
+    build_any_needed(&actual_identity, &pkgbuilds, nonet)?;
     if noclean {
         return Ok(());
     }

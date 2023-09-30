@@ -62,6 +62,7 @@ fn main() {
     };
     let arg = Arg::parse();
     if let Err(_) = pkgbuild::work(
+        actual_identity,
         &arg.pkgbuilds, 
         arg.proxy.as_deref(),
         arg.holdpkg,

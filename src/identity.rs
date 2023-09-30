@@ -1,3 +1,9 @@
+use std::{
+        os::unix::process::CommandExt,
+        process::Command,
+    };
+
+#[derive(Clone)]
 pub(crate) struct Identity {
     uid: u32,
     gid: u32,
@@ -49,11 +55,11 @@ impl Identity {
         self.uid == 0 && self.gid == 0
     }
 
-    fn is_real_root(&self) -> bool {
+    fn _is_real_root(&self) -> bool {
         self.is_root() && self.name == "root"
     }
 
-    fn is_sudo_root() -> bool {
+    fn _is_sudo_root() -> bool {
         Self::current().is_root() && !Self::acutal().is_root()
     }
 
@@ -79,7 +85,17 @@ impl Identity {
         }
     }
 
-    fn sete_root() -> Result<(), ()> {
+    pub(crate) fn set_command<'a>(&self, command: &'a mut Command) 
+        -> &'a mut Command 
+    {
+        command.uid(self.uid).gid(self.gid)
+    }
+
+    pub(crate) fn set_root_command(command: &mut Command) -> &mut Command {
+        command.uid(0).gid(0)
+    }
+
+    fn _sete_root() -> Result<(), ()> {
         unsafe {
             let i = libc::seteuid(0);
             let j = libc::setegid(0);
