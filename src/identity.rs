@@ -200,4 +200,42 @@ impl Identity {
             },
         }
     }
+
+    /// Run a block as root in a forked child
+    pub(crate) fn as_root<F>(f: F) -> Result<(), ()>
+        where F: FnOnce() -> Result<(), ()>
+    {
+        let child = unsafe {
+            libc::fork()
+        };
+        if child == 0 { // I am child
+            if Self::sete_root().is_err() || f().is_err() {
+                std::process::exit(-1)
+            }
+            std::process::exit(0)
+        } else if child < 0 { // Error encountered
+            eprintln!("Failed to fork: {}", std::io::Error::last_os_error());
+            return Err(())
+        }
+        // I am parent
+        let mut status: libc::c_int = 0;
+        let waited_pid = unsafe {
+            libc::waitpid(child, &mut status, 0)
+        };
+        if waited_pid <= 0 {
+            eprintln!("Failed to wait for child: {}", 
+                std::io::Error::last_os_error());
+            return Err(())
+        }
+        if waited_pid != child {
+            eprintln!("Waited child {} is not the child {} we forked", 
+                        waited_pid, child);
+            return Err(())
+        }
+        if status != 0 {
+            eprintln!("Child process failed");
+            return Err(())
+        }
+        Ok(())
+    }
 }
