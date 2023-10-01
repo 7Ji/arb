@@ -209,7 +209,12 @@ impl Identity {
             libc::fork()
         };
         if child == 0 { // I am child
-            if Self::sete_root().is_err() || f().is_err() {
+            if Self::sete_root().is_err() {
+                eprintln!("Child: Failed to seteuid back to root");
+                std::process::exit(-1)
+            }
+            if f().is_err() {
+                eprintln!("Child: Closure returned error");
                 std::process::exit(-1)
             }
             std::process::exit(0)

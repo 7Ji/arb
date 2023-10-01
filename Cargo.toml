@@ -20,6 +20,7 @@ hex = "0.4.3"
 reqwest = "0.11.20"
 tokio = "1.32.0"
 libc = "0.2.148"
+procfs = "0.15.1"
 
 [dependencies.clap]
 version = "4.3"
