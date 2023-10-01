@@ -1,13 +1,54 @@
 use std::{
-        os::unix::process::CommandExt,
-        process::Command,
+        ffi::OsString,
+        os::unix::{process::CommandExt, prelude::OsStringExt},
+        process::Command, str::FromStr,
     };
+
+#[derive(Clone)]
+struct Environment {
+    shell: OsString,
+    pwd: OsString,
+    home: OsString,
+    lang: OsString,
+    user: OsString,
+    path: OsString
+}
+
+impl Environment {
+    fn init(uid: libc::uid_t, name: &str) -> Option<Self> {
+        let pw_dir = unsafe {
+            let pw_dir = libc::getpwuid(uid).read().pw_dir;
+            let len_dir = libc::strlen(pw_dir);
+            std::slice::from_raw_parts(pw_dir as *const u8, len_dir)
+        };
+        Some(Self {
+            shell: OsString::from("/bin/bash"),
+            pwd: std::env::current_dir().ok()?.as_os_str().to_os_string(),
+            home: OsString::from_vec(pw_dir.to_vec()),
+            lang: OsString::from("en_US.UTF-8"),
+            user: OsString::from_str(name).ok()?,
+            path: std::env::var_os("PATH")?,
+        })
+
+    }
+    fn set_command<'a> (&self, command: &'a mut Command) -> &'a mut Command {
+        command.env_clear()
+            .env("SHELL", &self.shell)
+            .env("PWD", &self.pwd)
+            .env("LOGNAME", &self.user)
+            .env("HOME", &self.home)
+            .env("LANG", &self.lang)
+            .env("USER", &self.user)
+            .env("PATH", &self.path)
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct Identity {
     uid: u32,
     gid: u32,
-    name: String
+    name: String,
+    env: Option<Environment>,
 }
 
 impl std::fmt::Display for Identity {
@@ -32,7 +73,8 @@ impl Identity {
                 let slice = std::slice::from_raw_parts(
                     ptr as *mut u8, len);
                 String::from_utf8_lossy(slice).into_owned()
-            }
+            },
+            env: None,
         }
     }
 
@@ -42,10 +84,15 @@ impl Identity {
         if let Some(sudo_user) = std::env::var_os("SUDO_USER") {
         if let Ok(uid) = sudo_uid.to_string_lossy().parse() {
         if let Ok(gid) = sudo_gid.to_string_lossy().parse() {
+            let name = sudo_user.to_string_lossy();
+            let env = 
+                Environment::init(uid, &name)
+                .expect("Failed to get env for acutal user");
             return Self {
                 uid,
                 gid,
-                name: sudo_user.to_string_lossy().to_string()
+                name: name.to_string(),
+                env: Some(env),
             }
         }}}}}
         Self::current()
@@ -114,21 +161,8 @@ impl Identity {
     pub(crate) fn set_command<'a>(&self, command: &'a mut Command) 
         -> &'a mut Command 
     {
-        let pw_dir = unsafe {
-            let pw_dir = libc::getpwuid(self.uid).read().pw_dir;
-            let len_dir = libc::strlen(pw_dir);
-            std::slice::from_raw_parts(pw_dir as *const u8, len_dir)
-        };
-        command.env_clear()
-            .env("SHELL", "/bin/bash")
-            .env("PWD", std::env::current_dir()
-                .expect("Failed to get current dir"))
-            .env("LOGNAME", &self.name)
-            .env("HOME", String::from_utf8_lossy(pw_dir).to_string())
-            .env("LANG", "en_US.UTF-8")
-            .env("USER", &self.name)
-            .env("PATH", std::env::var("PATH")
-                .expect("Failed to get PATH"));
+        self.env.as_ref().expect("Env not parsed")
+            .set_command(command);
         Self::set_root_command(command);
         let uid = self.uid;
         let gid = self.gid;
