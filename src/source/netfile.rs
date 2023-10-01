@@ -186,7 +186,6 @@ pub(super) fn cache_source(
     proxy: Option<&str>
 ) -> Result<(), ()> 
 {
-    println!("Caching '{}'", source.url);
     assert!(integ_files.len() > 0, "No integ files");
     let mut good_files = vec![];
     let mut bad_files = vec![];
