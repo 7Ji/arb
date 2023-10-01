@@ -74,7 +74,7 @@ fn push_source(
     Err(())
 }
 
-pub(crate) fn get_sources<P> (pkgbuild: &Path) -> Option<Vec<Source>>
+pub(crate) fn get_sources<P> (pkgbuild: P) -> Option<Vec<Source>>
 where
     P: AsRef<Path>
 {
@@ -83,7 +83,7 @@ where
         .arg("-ec")
         .arg(SCRIPT)
         .arg("Source reader")
-        .arg(pkgbuild)
+        .arg(pkgbuild.as_ref())
         .output()
         .expect("Failed to run script");
     let mut name = None;
