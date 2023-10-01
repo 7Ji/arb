@@ -13,7 +13,6 @@ use crate::{
 use git2::Oid;
 use std::{
         collections::HashMap,
-        env,
         ffi::OsString,
         fs::{
             create_dir_all,
@@ -696,15 +695,11 @@ fn prepare_build_command(
             .arg("--ignorearch");
         command
     };
-    let path = env::var_os("PATH").ok_or(())?;
-    let home = env::var_os("HOME").ok_or(())?;
     let pkgdest = temp_pkgdir.canonicalize().or(Err(()))?;
-    command.current_dir(&pkgbuild.build)
+    actual_identity.set_command(&mut command)
+        .current_dir(&pkgbuild.build)
         .arg0(format!("[BUILDER/{}] /bin/bash", pkgbuild.pkgid))
-        .env("PATH", path)
-        .env("HOME", home)
         .env("PKGDEST", pkgdest);
-    actual_identity.set_command(&mut command);
     Ok(command)
 }
 
