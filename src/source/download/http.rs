@@ -10,7 +10,9 @@ use std::{
     process::Command,
 };
 
-fn http_native(url: &str, path: &Path, proxy: Option<&str>) -> Result<(), ()> {
+pub(crate) fn http_native(url: &str, path: &Path, proxy: Option<&str>) 
+    -> Result<(), ()> 
+{
     let mut target = match File::create(path) {
         Ok(target) => target,
         Err(e) => {
@@ -146,10 +148,4 @@ fn _http_curl(url: &str, path: &Path, proxy: Option<&str>) -> Result<(), ()> {
     let job = format!("download http(s) source from '{}' to '{}'",
                                 url, path.display());
     super::child::spawn_and_wait(&mut command, &job)
-}
-
-pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) 
-    -> Result<(), ()>
-{
-    http_native(url, path, proxy)
 }

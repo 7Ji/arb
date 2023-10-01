@@ -12,6 +12,6 @@ pub(crate) use file::{
     file
 };
 pub(crate) use ftp::ftp;
-pub(crate) use http::http;
+pub(crate) use http::http_native as http;
 pub(crate) use rsync::rsync;
 pub(crate) use scp::scp;

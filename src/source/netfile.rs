@@ -1,13 +1,5 @@
 
-use std::{
-        collections::HashMap,
-        fs::DirBuilder,
-        thread::{
-            self,
-            JoinHandle,
-        },
-    };
-
+use std::fs::DirBuilder;
 use super::{
         Source,
         protocol::{
@@ -15,7 +7,6 @@ use super::{
             Protocol,
         },
         download,
-        git::ToReposMap,
     };
 
 pub(super) fn ensure_parents() -> Result<(), ()>
@@ -237,99 +228,4 @@ pub(super) fn cache_source(
     } else {
         Ok(())
     }
-}
-
-
-fn _cache_netfile_sources_for_domain_mt(
-    netfile_sources: Vec<Source>, skipint:bool, proxy: Option<&str>
-) -> Result<(), ()> {
-    let (proxy_string, has_proxy) = match proxy {
-        Some(proxy) => (proxy.to_owned(), true),
-        None => (String::new(), false),
-    };
-    let mut bad = false;
-    let mut threads: Vec<JoinHandle<Result<(), ()>>> = vec![];
-    for netfile_source in netfile_sources {
-        let integ_files = 
-            super::IntegFile::vec_from_source(&netfile_source);
-        let proxy_string_thread = proxy_string.clone();
-        if let Err(_) = crate::threading::wait_if_too_busy(
-            &mut threads, 10, "caching network files") 
-            {
-                bad = true;
-            }
-        threads.push(thread::spawn(move ||{
-            let proxy = match has_proxy {
-                true => Some(proxy_string_thread.as_str()),
-                false => None,
-            };
-            cache_source(&netfile_source, &integ_files, skipint, proxy)
-        }));
-    }
-    if let Err(_) = crate::threading::wait_remaining(
-        threads, "caching network files") 
-    {
-        bad = true;
-    }
-    if bad { Err(()) } else { Ok(()) }
-}
-
-
-fn _cache_netfile_sources_mt(
-    netfile_sources: HashMap<u64, Vec<Source>>,
-    skipint: bool,
-    proxy: Option<&str>
-) -> Result<(), ()> 
-{
-    ensure_parents()?;
-    println!("Caching netfile sources with {} threads", netfile_sources.len());
-    let (proxy_string, has_proxy) = match proxy {
-        Some(proxy) => (proxy.to_owned(), true),
-        None => (String::new(), false),
-    };
-    let mut threads: Vec<JoinHandle<Result<(), ()>>> =  vec![];
-    for netfile_sources in netfile_sources.into_values() {
-        let proxy_string_thread = proxy_string.clone();
-        threads.push(thread::spawn(move || {
-            let proxy = match has_proxy {
-                true => Some(proxy_string_thread.as_str()),
-                false => None,
-            };
-            _cache_netfile_sources_for_domain_mt(
-                netfile_sources, skipint, proxy)
-        }));
-    }
-    let mut bad = false;
-    for thread in threads {
-        match thread.join() {
-            Ok(r) => match r {
-                Ok(_) => (),
-                Err(_) => bad = true,
-            },
-            Err(e) => {
-                eprintln!("Failed to join thread: {:?}", e);
-                bad = true
-            },
-        }
-    }
-    if bad { Err(()) } else { Ok(()) }
-}
-
-fn _cache_git_sources_mt(
-    git_sources_map: HashMap<u64, Vec<Source>>,
-    holdgit: bool,
-    proxy: Option<&str>,
-    gmr: Option<&super::git::Gmr>
-) -> Result<(), ()>
-{
-    let repos_map = match
-        Source::to_repos_map(git_sources_map, "sources/git", gmr) {
-            Some(repos_map) => repos_map,
-            None => {
-                eprintln!("Failed to convert to repos map");
-                return Err(())
-            },
-        };
-    super::git::Repo::sync_mt(
-        repos_map, super::git::Refspecs::HeadsTags, holdgit, proxy)
 }
