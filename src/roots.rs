@@ -223,6 +223,15 @@ impl Root {
 
     fn setup(&self) -> Result<(), ()> {
         assert!(self.overlay == false);
+        let mut command = std::process::Command::new("/usr/bin/pacman");
+        command
+            .arg("-Sy")
+            .arg("--root")
+            .arg(self.path.canonicalize().or(Err(()))?)
+            .arg("--noconfirm")
+            .arg("base-devel");
+        Identity::set_root_command(&mut command);
+        command.spawn().unwrap().wait().unwrap();
         Ok(())
     }
 
