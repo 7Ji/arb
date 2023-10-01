@@ -58,8 +58,6 @@ fn main() {
             std::process::exit(-1);
         },
     };
-    let base_root = roots::Root::new_base().unwrap();
-    return;
     let arg = Arg::parse();
     if let Err(_) = pkgbuild::work(
         actual_identity,
