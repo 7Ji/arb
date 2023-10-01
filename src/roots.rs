@@ -1,4 +1,5 @@
 use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all}, ffi::{CString, OsStr, OsString}, os::unix::prelude::OsStrExt};
+
 use super::identity::Identity;
 
 /// The basic root, with bare-minimum packages installed
@@ -20,47 +21,53 @@ fn cstring_from_path(path: &Path) -> Result<CString, ()> {
     }
 }
 
-fn mount(
-    src: &OsStr, target: &OsStr, fstype: Option<&OsStr>, flags: libc::c_ulong
-) 
-    -> Result<(), ()> 
+fn cstring_and_ptr_from_optional_osstr<S: AsRef<OsStr>> (osstr: Option<S>) 
+    -> Result<(Option<CString>, *const i8), ()> 
 {
-    let src = match CString::new(src.as_bytes()) {
-        Ok(src) => src,
-        Err(e) => {
-            eprintln!("Failed to create c string from '{:?}' for source: {}", 
-                src, e);
-            return Err(())
-        },
-    };
-    let target = match CString::new(target.as_bytes()) {
-        Ok(target) => target,
-        Err(e) => {
-            eprintln!("Failed to create c string from '{:?}' for target: {}", 
-                target, e);
-            return Err(())
-        },
-    };
-    let fstype = match fstype {
-        Some(fstype) => match CString::new(fstype.as_bytes()) {
-            Ok(fstype) => Some(fstype),
+    let cstring = match osstr {
+        Some(osstr) => match CString::new(osstr.as_ref().as_bytes()) {
+            Ok(osstr) => Some(osstr),
             Err(e) => {
                 eprintln!(
-                    "Failed to create c string from '{:?}' for target: {}", 
-                    src, e);
+                    "Failed to create c string from '{:?}': {}", 
+                    osstr.as_ref(), e);
                 return Err(())
             },
         },
         None => None,
     };
-    println!("Mounting {:?} to {:?}, type {:?}", &src, &target, &fstype);
-    let fstype_ptr = match fstype {
-        Some(fstype) => fstype.as_ptr(),
+    let ptr = match &cstring {
+        Some(cstring) => cstring.as_ptr(),
         None => std::ptr::null(),
     };
+    Ok((cstring, ptr))
+}
+
+fn mount<S: AsRef<OsStr>>(
+    src: Option<S>, target: S, fstype: Option<S>, 
+    flags: libc::c_ulong, data: Option<S>
+) 
+    -> Result<(), ()> 
+{
+    let (src, src_ptr) = 
+        cstring_and_ptr_from_optional_osstr(src)?;
+    let target = match CString::new(target.as_ref().as_bytes()) {
+        Ok(target) => target,
+        Err(e) => {
+            eprintln!("Failed to create c string from '{:?}' for target: {}", 
+                target.as_ref(), e);
+            return Err(())
+        },
+    };
+    let (fstype, fstype_ptr) = 
+        cstring_and_ptr_from_optional_osstr(fstype)?;
+    let (data, data_ptr) = 
+        cstring_and_ptr_from_optional_osstr(data)?;
+    println!("Mounting {:?} to {:?}, type {:?}, data {:?}", 
+        &src, &target, &fstype, &data);
     let r = unsafe {
-        libc::mount(src.as_ptr(), target.as_ptr(), fstype_ptr, 
-            flags, std::ptr::null())
+        libc::mount(src_ptr, target.as_ptr(), fstype_ptr, 
+            flags, data_ptr as *const libc::c_void)
     };
     if r != 0 {
         eprintln!("Failed to mount: {}", 
@@ -91,36 +98,43 @@ impl Root {
                 return Err(())
             },
         };
-        let process = match procfs::process::Process::myself() {
-            Ok(process) => process,
-            Err(e) => {
-                eprintln!("Failed to get myself: {}", e);
-                return Err(())
-            },
-        };
-        let mut mountinfos = match process.mountinfo() {
-            Ok(mountinfos) => mountinfos,
-            Err(e) => {
-                eprintln!("Failed to get mountinfos: {}", e);
-                return Err(())
-            },
-        };
-        mountinfos.retain(|mountinfo| {
-            mountinfo.mount_point.starts_with(&absolute_path)
-        });
         Identity::as_root(||{
-            for mountinfo in mountinfos.iter().rev() {
-                println!("Umounting {}", mountinfo.mount_point.display());
-                let path = cstring_from_path(
-                        &mountinfo.mount_point)?;
-                let r = unsafe {
-                    libc::umount(path.as_ptr())
-                };
-                if r != 0 {
-                    eprintln!("Failed to umount '{}': {}",
-                        mountinfo.mount_point.display(), 
-                        std::io::Error::last_os_error());
+            // as_root() actually forks, so we get the child's mountinfo
+            let process = match procfs::process::Process::myself() {
+                Ok(process) => process,
+                Err(e) => {
+                    eprintln!("Failed to get myself: {}", e);
                     return Err(())
+                },
+            };
+            let mut exist = true;
+            while exist {
+                let mountinfos = match process.mountinfo() {
+                    Ok(mountinfos) => mountinfos,
+                    Err(e) => {
+                        eprintln!("Failed to get mountinfos: {}", e);
+                        return Err(())
+                    },
+                };
+                exist = false;
+                for mountinfo in mountinfos.iter().rev() {
+                    if mountinfo.mount_point.starts_with(&absolute_path) {
+                        println!("Umounting {}", 
+                            mountinfo.mount_point.display());
+                        let path = cstring_from_path(
+                                &mountinfo.mount_point)?;
+                        let r = unsafe {
+                            libc::umount(path.as_ptr())
+                        };
+                        if r != 0 {
+                            eprintln!("Failed to umount '{}': {}",
+                                mountinfo.mount_point.display(), 
+                                std::io::Error::last_os_error());
+                            return Err(())
+                        }
+                        exist = true;
+                        break
+                    }
                 }
             }
             Ok(())
@@ -149,11 +163,6 @@ impl Root {
 
     /// The minimum mounts needed for execution, like how it's done by pacstrap
     fn mount(&self) -> Result<(), ()> {
-        const FLAG_PROC: libc::c_ulong = 
-            libc::MS_NOSUID | libc::MS_NOEXEC | libc::MS_NODEV;
-        const FLAG_SYS: libc::c_ulong =
-            libc::MS_NOSUID | libc::MS_NOEXEC | libc::MS_NODEV |
-            libc::MS_RDONLY;
         let subdirs = [
             "boot", "dev/pts", "dev/shm", "etc/pacman.d", "proc", "run", "sys", 
             "tmp", "var/cache/pacman/pkg", "var/lib/pacman", "var/log"];
@@ -167,23 +176,49 @@ impl Root {
                     return Err(())
                 }
             }
-            mount(self.path.as_os_str(), self.path.as_os_str(),
-                 None, libc::MS_BIND)?;
-            let proc = OsString::from("proc");
-            // mount(&proc, self.path.join("proc").as_os_str(),
-            //     Some(&proc), FLAG_PROC)?;
-            // mount(&OsString::from("sys"),
-            //     self.path.join("sys").as_os_str(),
-            //     Some(&OsString::from("sysfs")), FLAG_SYS)?;
-            
-            
+            mount(Some(self.path.as_os_str()),
+                self.path.as_os_str(),
+                None,
+                libc::MS_BIND,
+                None)?;
+            mount(None,
+                self.path.join("proc").as_os_str(),
+                Some(&OsString::from("proc")),
+                libc::MS_NOSUID | libc::MS_NOEXEC | libc::MS_NODEV,
+                None)?;
+            mount(None, 
+                self.path.join("sys").as_os_str(),
+                Some(&OsString::from("sysfs")),
+                libc::MS_NOSUID | libc::MS_NOEXEC | libc::MS_NODEV | 
+                    libc::MS_RDONLY,
+                None)?;
+            mount(None,
+                self.path.join("dev").as_os_str(),
+                Some(&OsString::from("devtmpfs")),
+                libc::MS_NOSUID,
+                Some(&OsString::from("mode=0755")))?;
+            mount(None,
+                self.path.join("dev/pts").as_os_str(),
+                Some(&OsString::from("devpts")),
+                libc::MS_NOSUID | libc::MS_NOEXEC,
+                Some(&OsString::from("mode=0620,gid=5")))?;
+            mount(None,
+                self.path.join("dev/shm").as_os_str(),
+                Some(&OsString::from("tmpfs")),
+                libc::MS_NOSUID | libc::MS_NODEV,
+                Some(&OsString::from("mode=1777")))?;
+            mount(None,
+                self.path.join("run").as_os_str(),
+                Some(&OsString::from("tmpfs")),
+                libc::MS_NOSUID | libc::MS_NODEV,
+                Some(&OsString::from("mode=0755")))?;
+            mount(None,
+                self.path.join("tmp").as_os_str(),
+                Some(&OsString::from("tmpfs")),
+                libc::MS_STRICTATIME | libc::MS_NODEV | libc::MS_NOSUID,
+                Some(&OsString::from("mode=1777")))?;
             Ok(())
         })
-        // sudo mount udev "${root}"/dev -t devtmpfs -o mode=0755,nosuid
-        // sudo mount devpts "${root}"/dev/pts -t devpts -o mode=0620,gid=5,nosuid,noexec
-        // sudo mount shm "${root}"/dev/shm -t tmpfs -o mode=1777,nosuid,nodev
-        // sudo mount run "${root}"/run -t tmpfs -o nosuid,nodev,mode=0755
-        // sudo mount tmp "${root}"/tmp -t tmpfs -o mode=1777,strictatime,nodev,nosuid
     }
 
     fn setup(&self) -> Result<(), ()> {
@@ -200,7 +235,6 @@ impl Root {
         root.remove()?;
         root.mount()?;
         root.setup()?;
-        std::thread::sleep(std::time::Duration::from_secs(100));
         root.umount_recursive()?;
         root.complete = true;
         Ok(root)
