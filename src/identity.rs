@@ -36,7 +36,7 @@ impl Identity {
         }
     }
 
-    pub(crate) fn acutal() -> Self {
+    pub(crate) fn actual() -> Self {
         if let Some(sudo_uid) = std::env::var_os("SUDO_UID") {
         if let Some(sudo_gid) = std::env::var_os("SUDO_GID") {
         if let Some(sudo_user) = std::env::var_os("SUDO_USER") {
@@ -60,11 +60,11 @@ impl Identity {
     }
 
     fn _is_sudo_root() -> bool {
-        Self::current().is_root() && !Self::acutal().is_root()
+        Self::current().is_root() && !Self::actual().is_root()
     }
 
     fn current_and_actual() -> (Self, Self) {
-        (Self::current(), Self::acutal())
+        (Self::current(), Self::actual())
     }
 
     fn sete_raw(uid: libc::uid_t, gid: libc::gid_t) 
