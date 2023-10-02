@@ -173,7 +173,7 @@ trait CommonRoot {
             "tmp", "var/cache/pacman/pkg", "var/lib/pacman", "var/log"]
         {
             let subdir = self.path().join(subdir);
-            println!("Creating '{}'...", subdir.display());
+            // println!("Creating '{}'...", subdir.display());
             if let Err(e) = create_dir_all(&subdir) {
                 eprintln!("Failed to create dir '{}': {}", 
                     subdir.display(), e);
@@ -258,6 +258,7 @@ impl BaseRoot {
     fn setup(&self) -> Result<&Self, ()> {
         let mut command = Command::new("/usr/bin/pacman");
         command
+            .env("LANG", "C")
             .arg("-Sy")
             .arg("--root")
             .arg(self.path().canonicalize().or(Err(()))?)
@@ -322,11 +323,16 @@ impl OverlayRoot {
     }
 
     fn pkgs(&self, pkgs: &Vec<String>) -> Result<&Self, ()> {
+        if pkgs.len() == 0 {
+            return Ok(self)
+        }
         let mut command = Command::new("/usr/bin/pacman");
         command
-            .arg("-Sy")
+            .env("LANG", "C")
+            .arg("-S")
             .arg("--root")
             .arg(self.path().canonicalize().or(Err(()))?)
+            .arg("--needed")
             .arg("--noconfirm")
             .args(pkgs);
         Identity::set_root_command(&mut command);
@@ -362,5 +368,15 @@ impl OverlayRoot {
 impl CommonRoot for OverlayRoot {
     fn path(&self) -> &Path {
         self.merged.0.as_path()
+    }
+}
+
+impl Drop for OverlayRoot {
+    fn drop(&mut self) {
+        if Identity::as_root(||{
+            self.remove().and(Ok(()))
+        }).is_err() {
+            eprintln!("Failed to drop overlay root '{}'", self.parent.display())
+        }
     }
 }
