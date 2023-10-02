@@ -164,8 +164,11 @@ impl Drop for MountedFolder {
     }
 }
 
-trait CommonRoot {
+pub(crate) trait CommonRoot {
     fn path(&self) -> &Path;
+    fn db_path(&self) -> PathBuf {
+        self.path().join("var/lib/pacman")
+    }
     /// Root is expected
     fn base_layout(&self) -> Result<&Self, ()> {
         for subdir in [

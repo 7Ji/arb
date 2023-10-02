@@ -9,6 +9,7 @@ use crate::{
             MapByDomain,
         },
         roots::{
+            CommonRoot,
             BaseRoot,
             OverlayRoot,
         },
@@ -708,7 +709,9 @@ impl PKGBUILDs {
         if bad { Err(()) } else { Ok(()) }
     }
 
-    fn get_deps<P: AsRef<Path>> (&self, actual_identity: &Identity, dir: P) 
+    fn get_deps<P: AsRef<Path>> (
+        &self, actual_identity: &Identity, dir: P, db_path: P
+    ) 
         -> Option<(PkgsDepends, Depends)>
     {
         let mut bad = false;
@@ -782,14 +785,14 @@ impl PKGBUILDs {
     }
 
     fn check_deps<P: AsRef<Path>> (
-        &mut self, actual_identity: &Identity, dir: P
+        &mut self, actual_identity: &Identity, dir: P, db_path: P
     )   -> Result<(), ()>
     {
-        let (pkgs_deps, all_deps) 
-            = self.get_deps(actual_identity, dir).ok_or(())?;
-        if all_deps.0.len() > 0 {
-            all_deps.install_deps(actual_identity)?;
-        }
+        let (pkgs_deps, _) 
+            = self.get_deps(actual_identity, dir, db_path).ok_or(())?;
+        // if all_deps.0.len() > 0 {
+        //     all_deps.install_deps(actual_identity)?;
+        // }
         self.calc_dep_hashes(actual_identity, &pkgs_deps);
         Ok(())
     }
@@ -1028,7 +1031,9 @@ impl PKGBUILDs {
         Ok(())
     }
 
-    fn build_any_needed(&mut self, actual_identity: &Identity, nonet: bool) 
+    fn build_any_needed<P: AsRef<Path>>(
+        &mut self, actual_identity: &Identity, pkgbuilds_dir: P, nonet: bool
+    ) 
         -> Result<(), ()>
     {
         let _ = remove_dir_all("pkgs/updated");
@@ -1041,8 +1046,8 @@ impl PKGBUILDs {
             eprintln!("Failed to create pkgs/latest: {}", e);
             return Err(())
         }
-        // self.get_deps(actual_identity, dir)
         let base_root = BaseRoot::new()?;
+        self.check_deps(actual_identity, pkgbuilds_dir.as_ref(), &base_root.db_path())?;
         let mut bad = false;
         let mut threads = vec![];
         for pkgbuild in self.0.iter() {
@@ -1133,12 +1138,12 @@ pub(crate) fn work<P: AsRef<Path>>(
             &pkgbuilds_yaml, holdpkg, noclean, proxy).ok_or(())?;
     let pkgbuilds_dir =
         tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
-    pkgbuilds.prepare_sources(&actual_identity, pkgbuilds_dir,  
+    pkgbuilds.prepare_sources(&actual_identity, &pkgbuilds_dir,  
                     holdgit, skipint, noclean, proxy, gmr.as_ref())?;
     if nobuild {
         return Ok(());
     }
-    pkgbuilds.build_any_needed(&actual_identity, nonet)?;
+    pkgbuilds.build_any_needed(&actual_identity, &pkgbuilds_dir, nonet)?;
     if noclean {
         return Ok(());
     }
