@@ -8,6 +8,10 @@ use crate::{
             git,
             MapByDomain,
         },
+        roots::{
+            BaseRoot,
+            OverlayRoot,
+        },
         threading::{
             self,
             wait_if_too_busy,
@@ -45,11 +49,89 @@ use std::{
 use tempfile::tempdir;
 use xxhash_rust::xxh3::xxh3_64;
 
-
 #[derive(Clone)]
 enum Pkgver {
     Plain,
     Func { pkgver: String },
+}
+
+struct Depends (Vec<String>);
+
+impl Depends {
+    // Todo: use libalpm instead of running command
+    fn install_deps(&self, actual_identity: &Identity) -> Result<(), ()> {
+        println!("Checking if needed to install {} deps: {:?}", 
+            self.0.len(), self.0);
+        let output = match actual_identity.set_command(
+            Command::new("/usr/bin/pacman")
+                .arg("-T")
+                .args(&self.0))
+            .output() 
+        {
+            Ok(output) => output,
+            Err(e) => {
+                eprintln!("Failed to spawn child to check deps: {}", e);
+                return Err(());
+            },
+        };
+        match output.status.code() {
+            Some(code) => match code {
+                0 => return Ok(()),
+                127 => (),
+                _ => {
+                    eprintln!(
+                        "Pacman returned unexpected {} which marks fatal error",
+                        code);
+                    return Err(())
+                }
+            },
+            None => {
+                eprintln!("Failed to get return code from pacman");
+                return Err(())
+            },
+        }
+        let mut missing_deps = vec![];
+        missing_deps.clear();
+        for line in output.stdout.split(|byte| *byte == b'\n') 
+        {
+            if line.len() == 0 {
+                continue;
+            }
+            missing_deps.push(String::from_utf8_lossy(line).into_owned());
+        }
+        if missing_deps.len() == 0 {
+            return Ok(())
+        }
+        println!("Installing {} missing deps: {:?}",
+                missing_deps.len(), missing_deps);
+        let mut child = Identity::set_root_command(
+            Command::new("/usr/bin/pacman")
+                .arg("-S")
+                .arg("--noconfirm")
+                .args(&missing_deps))
+            .spawn()
+            .expect("Failed to run sudo pacman to install missing deps");
+        let exit_status = child.wait()
+            .expect("Failed to wait for child sudo pacman process");
+        if match exit_status.code() {
+            Some(code) => {
+                if code == 0 {
+                    true
+                } else {
+                    println!("Failed to run sudo pacman, return: {}", code);
+                    false
+                }
+            },
+            None => false,
+        } {
+            println!("Successfully installed {} missing deps", 
+                missing_deps.len());
+            Ok(())
+        } else {
+            eprintln!("Failed to install missing deps");
+            Err(())
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -457,91 +539,51 @@ impl PKGBUILD {
         let temp_pkgdir = self.get_temp_pkgdir()?;
         let mut command = self.get_build_command(
             actual_identity, nonet, &temp_pkgdir)?;
+        let deps = Self::get_deps_file(actual_identity,
+            self.build.join("PKGBUILD")).or(Err(()))?;
+        let root = OverlayRoot::new(&self.name, &deps.0)?;
         self.build_try(actual_identity, &mut command, &temp_pkgdir)?;
         self.build_finish(&temp_pkgdir)
     }
 
-
-}
-
-struct Depends (Vec<String>);
-
-impl Depends {
-    // Todo: use libalpm instead of running command
-    fn install_deps(&self, actual_identity: &Identity) -> Result<(), ()> {
-        println!("Checking if needed to install {} deps: {:?}", 
-            self.0.len(), self.0);
-        let output = match actual_identity.set_command(
-            Command::new("/usr/bin/pacman")
-                .arg("-T")
-                .args(&self.0))
-            .output() 
-        {
+    fn get_deps_file<P: AsRef<Path>> (
+        actual_identity: &Identity, pkgbuild_file: P
+    ) -> std::io::Result<Depends> 
+    {
+        let child = match 
+            Self::dep_reader_file(actual_identity, &pkgbuild_file) {
+                Ok(child) => child,
+                Err(e) => {
+                    eprintln!(
+                        "Failed to spawn child to read deps from '{}': {}",
+                        pkgbuild_file.as_ref().display(), e);
+                    return Err(e)
+                },
+            };
+        let output = match child.wait_with_output() {
             Ok(output) => output,
             Err(e) => {
-                eprintln!("Failed to spawn child to check deps: {}", e);
-                return Err(());
+                eprintln!("Failed to wait for child to read dep");
+                return Err(e)
             },
         };
-        match output.status.code() {
-            Some(code) => match code {
-                0 => return Ok(()),
-                127 => (),
-                _ => {
-                    eprintln!(
-                        "Pacman returned unexpected {} which marks fatal error",
-                        code);
-                    return Err(())
-                }
-            },
-            None => {
-                eprintln!("Failed to get return code from pacman");
-                return Err(())
-            },
-        }
-        let mut missing_deps = vec![];
-        missing_deps.clear();
-        for line in output.stdout.split(|byte| *byte == b'\n') 
+        let mut pkg_deps = Depends(vec![]);
+        for line in 
+            output.stdout.split(|byte| byte == &b'\n') 
         {
             if line.len() == 0 {
                 continue;
             }
-            missing_deps.push(String::from_utf8_lossy(line).into_owned());
+            let dep = String::from_utf8_lossy(line).into_owned();
+            pkg_deps.0.push(dep);
         }
-        if missing_deps.len() == 0 {
-            return Ok(())
-        }
-        println!("Installing {} missing deps: {:?}",
-                missing_deps.len(), missing_deps);
-        let mut child = Identity::set_root_command(
-            Command::new("/usr/bin/pacman")
-                .arg("-S")
-                .arg("--noconfirm")
-                .args(&missing_deps))
-            .spawn()
-            .expect("Failed to run sudo pacman to install missing deps");
-        let exit_status = child.wait()
-            .expect("Failed to wait for child sudo pacman process");
-        if match exit_status.code() {
-            Some(code) => {
-                if code == 0 {
-                    true
-                } else {
-                    println!("Failed to run sudo pacman, return: {}", code);
-                    false
-                }
-            },
-            None => false,
-        } {
-            println!("Successfully installed {} missing deps", 
-                missing_deps.len());
-            Ok(())
-        } else {
-            eprintln!("Failed to install missing deps");
-            Err(())
-        }
+        pkg_deps.0.sort();
+        pkg_deps.0.dedup();
+        Ok(pkg_deps)
     }
+
 }
+
 struct PkgsDepends (Vec<Depends>);
 struct PKGBUILDs (Vec<PKGBUILD>);
 
@@ -956,7 +998,6 @@ impl PKGBUILDs {
             false => None,
         };
         self.dump(&dir)?;
-        self.check_deps(actual_identity, &dir)?;
         let (netfile_sources, git_sources, _)
             = self.get_all_sources(&dir).ok_or(())?;
         source::cache_sources_mt(
@@ -1000,6 +1041,8 @@ impl PKGBUILDs {
             eprintln!("Failed to create pkgs/latest: {}", e);
             return Err(())
         }
+        // self.get_deps(actual_identity, dir)
+        let base_root = BaseRoot::new()?;
         let mut bad = false;
         let mut threads = vec![];
         for pkgbuild in self.0.iter() {
@@ -1013,14 +1056,16 @@ impl PKGBUILDs {
                 bad = true;
             }
             let actual_identity_thread = actual_identity.clone();
-            threads.push(thread::spawn(
-                move || pkgbuild.build(&actual_identity_thread, nonet)));
+            threads.push(thread::spawn(move || 
+                pkgbuild.build(&actual_identity_thread, nonet)));
         }
         if let Err(_) = threading::wait_remaining(
             threads, "building packages") 
         {
             bad = true;
         }
+        // Force a ref to base_root here, to avoid it being dropped too early
+        let _ = base_root;
         let thread_cleaner =
             thread::spawn(|| remove_dir_recursively("build"));
         let rel = PathBuf::from("..");

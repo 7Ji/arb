@@ -32,7 +32,10 @@ impl Environment {
 
     }
     fn set_command<'a> (&self, command: &'a mut Command) -> &'a mut Command {
-        command.env_clear()
+        command
+            .env_remove("SUDO_UID")
+            .env_remove("SUDO_GID")
+            .env_remove("SUDO_USER")
             .env("SHELL", &self.shell)
             .env("PWD", &self.pwd)
             .env("LOGNAME", &self.user)

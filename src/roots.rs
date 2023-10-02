@@ -1,12 +1,19 @@
-use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all}, ffi::{CString, OsStr, OsString}, os::unix::prelude::OsStrExt};
+use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all}, ffi::{CString, OsStr, OsString}, os::unix::prelude::OsStrExt, process::Command};
 
 use super::identity::Identity;
 
+#[derive(Clone)]
+struct MountedFolder (PathBuf);
+
 /// The basic root, with bare-minimum packages installed
-pub(super) struct Root {
-    path: PathBuf,
-    overlay: bool,
-    complete: bool,
+#[derive(Clone)]
+pub(super) struct BaseRoot (MountedFolder);
+
+pub(super) struct OverlayRoot {
+    parent: PathBuf,
+    upper: PathBuf,
+    work: PathBuf,
+    merged: MountedFolder,
 }
 
 fn cstring_from_path(path: &Path) -> Result<CString, ()> {
@@ -43,6 +50,7 @@ fn cstring_and_ptr_from_optional_osstr<S: AsRef<OsStr>> (osstr: Option<S>)
     Ok((cstring, ptr))
 }
 
+/// Root is expected
 fn mount<S: AsRef<OsStr>>(
     src: Option<S>, target: S, fstype: Option<S>, 
     flags: libc::c_ulong, data: Option<S>
@@ -63,8 +71,8 @@ fn mount<S: AsRef<OsStr>>(
         cstring_and_ptr_from_optional_osstr(fstype)?;
     let (data, data_ptr) = 
         cstring_and_ptr_from_optional_osstr(data)?;
-    println!("Mounting {:?} to {:?}, type {:?}, data {:?}", 
-        &src, &target, &fstype, &data);
+    // println!("Mounting {:?} to {:?}, type {:?}, data {:?}", 
+    //     &src, &target, &fstype, &data);
     let r = unsafe {
         libc::mount(src_ptr, target.as_ptr(), fstype_ptr, 
             flags, data_ptr as *const libc::c_void)
@@ -77,193 +85,282 @@ fn mount<S: AsRef<OsStr>>(
     Ok(())
 }
 
-impl Root {
-    fn new(name: &str, overlay: bool) -> Self {
-        let mut path = PathBuf::from("roots");
-        path.push(name);
-        Self {
-            path,
-            overlay,
-            complete: false
-        }
-    }
-
-    fn umount_recursive(&self) -> Result<(), ()> {
-        println!("Umounting '{}' recursively...", self.path.display());
-        let absolute_path = match self.path.canonicalize() {
+impl MountedFolder {
+    /// Umount any folder starting from the path.
+    /// Root is expected
+    fn umount_recursive(&self) -> Result<&Self, ()> {
+        println!("Umounting '{}' recursively...", self.0.display());
+        let absolute_path = match self.0.canonicalize() {
             Ok(path) => path,
             Err(e) => {
                 eprintln!("Failed to canoicalize path '{}': {}",
-                    self.path.display(), e);
+                    self.0.display(), e);
                 return Err(())
             },
         };
-        Identity::as_root(||{
-            // as_root() actually forks, so we get the child's mountinfo
-            let process = match procfs::process::Process::myself() {
-                Ok(process) => process,
+        let process = match procfs::process::Process::myself() {
+            Ok(process) => process,
+            Err(e) => {
+                eprintln!("Failed to get myself: {}", e);
+                return Err(())
+            },
+        };
+        let mut exist = true;
+        while exist {
+            let mountinfos = match process.mountinfo() {
+                Ok(mountinfos) => mountinfos,
                 Err(e) => {
-                    eprintln!("Failed to get myself: {}", e);
+                    eprintln!("Failed to get mountinfos: {}", e);
                     return Err(())
                 },
             };
-            let mut exist = true;
-            while exist {
-                let mountinfos = match process.mountinfo() {
-                    Ok(mountinfos) => mountinfos,
-                    Err(e) => {
-                        eprintln!("Failed to get mountinfos: {}", e);
+            exist = false;
+            for mountinfo in mountinfos.iter().rev() {
+                if mountinfo.mount_point.starts_with(&absolute_path) {
+                    // println!("Umounting {}", 
+                    //     mountinfo.mount_point.display());
+                    let path = cstring_from_path(
+                            &mountinfo.mount_point)?;
+                    let r = unsafe {
+                        libc::umount(path.as_ptr())
+                    };
+                    if r != 0 {
+                        eprintln!("Failed to umount '{}': {}",
+                            mountinfo.mount_point.display(), 
+                            std::io::Error::last_os_error());
                         return Err(())
-                    },
-                };
-                exist = false;
-                for mountinfo in mountinfos.iter().rev() {
-                    if mountinfo.mount_point.starts_with(&absolute_path) {
-                        println!("Umounting {}", 
-                            mountinfo.mount_point.display());
-                        let path = cstring_from_path(
-                                &mountinfo.mount_point)?;
-                        let r = unsafe {
-                            libc::umount(path.as_ptr())
-                        };
-                        if r != 0 {
-                            eprintln!("Failed to umount '{}': {}",
-                                mountinfo.mount_point.display(), 
-                                std::io::Error::last_os_error());
-                            return Err(())
-                        }
-                        exist = true;
-                        break
                     }
+                    exist = true;
+                    break
                 }
             }
-            Ok(())
-        })?;
-        println!("Umounted '{}'", self.path.display());
-        Ok(())
+        }
+        // println!("Umounted '{}'", self.0.display());
+        Ok(self)
     }
 
-    fn remove(&self) -> Result<(), ()> {
-        if self.path.exists() {
-            println!("Removing '{}'...", self.path.display());
+    /// Root is expected
+    fn remove(&self) -> Result<&Self, ()> {
+        if self.0.exists() {
+            println!("Removing '{}'...", self.0.display());
             self.umount_recursive()?;
-            Identity::as_root(||{
-                if let Err(e) = remove_dir_all(&self.path) {
-                    eprintln!("Failed to remove '{}': {}", 
-                                self.path.display(), e);
-                    Err(())
-                } else {
-                    Ok(())
-                }
-            })
-        } else {
-            Ok(())
+            if let Err(e) = remove_dir_all(&self.0) {
+                eprintln!("Failed to remove '{}': {}", 
+                            self.0.display(), e);
+                return Err(())
+            }
+        }
+        Ok(self)
+    }
+}
+
+impl Drop for MountedFolder {
+    fn drop(&mut self) {
+        if Identity::as_root(||{
+            self.remove().and(Ok(()))
+        }).is_err() {
+            eprintln!("Failed to drop mounted folder '{}'", self.0.display());
         }
     }
+}
 
-    /// The minimum mounts needed for execution, like how it's done by pacstrap
-    fn mount(&self) -> Result<(), ()> {
-        let subdirs = [
+trait CommonRoot {
+    fn path(&self) -> &Path;
+    /// Root is expected
+    fn base_layout(&self) -> Result<&Self, ()> {
+        for subdir in [
             "boot", "dev/pts", "dev/shm", "etc/pacman.d", "proc", "run", "sys", 
-            "tmp", "var/cache/pacman/pkg", "var/lib/pacman", "var/log"];
-        Identity::as_root(|| {
-            for subdir in subdirs {
-                let subdir = self.path.join(subdir);
-                println!("Creating '{}'...", subdir.display());
-                if let Err(e) = create_dir_all(&subdir) {
-                    eprintln!("Failed to create dir '{}': {}", 
-                        subdir.display(), e);
-                    return Err(())
-                }
+            "tmp", "var/cache/pacman/pkg", "var/lib/pacman", "var/log"]
+        {
+            let subdir = self.path().join(subdir);
+            println!("Creating '{}'...", subdir.display());
+            if let Err(e) = create_dir_all(&subdir) {
+                eprintln!("Failed to create dir '{}': {}", 
+                    subdir.display(), e);
+                return Err(())
             }
-            mount(Some(self.path.as_os_str()),
-                self.path.as_os_str(),
+        }
+        Ok(self)
+    }
+
+    /// The minimum mounts needed for execution, like how it's done by pacstrap.
+    /// Root is expected. 
+    fn base_mounts(&self) -> Result<&Self, ()> {
+        mount(None,
+            self.path().join("proc").as_os_str(),
+            Some(&OsString::from("proc")),
+            libc::MS_NOSUID | libc::MS_NOEXEC | libc::MS_NODEV,
+            None)?;
+        mount(None, 
+            self.path().join("sys").as_os_str(),
+            Some(&OsString::from("sysfs")),
+            libc::MS_NOSUID | libc::MS_NOEXEC | libc::MS_NODEV | 
+                libc::MS_RDONLY,
+            None)?;
+        mount(None,
+            self.path().join("dev").as_os_str(),
+            Some(&OsString::from("devtmpfs")),
+            libc::MS_NOSUID,
+            Some(&OsString::from("mode=0755")))?;
+        mount(None,
+            self.path().join("dev/pts").as_os_str(),
+            Some(&OsString::from("devpts")),
+            libc::MS_NOSUID | libc::MS_NOEXEC,
+            Some(&OsString::from("mode=0620,gid=5")))?;
+        mount(None,
+            self.path().join("dev/shm").as_os_str(),
+            Some(&OsString::from("tmpfs")),
+            libc::MS_NOSUID | libc::MS_NODEV,
+            Some(&OsString::from("mode=1777")))?;
+        mount(None,
+            self.path().join("run").as_os_str(),
+            Some(&OsString::from("tmpfs")),
+            libc::MS_NOSUID | libc::MS_NODEV,
+            Some(&OsString::from("mode=0755")))?;
+        mount(None,
+            self.path().join("tmp").as_os_str(),
+            Some(&OsString::from("tmpfs")),
+            libc::MS_STRICTATIME | libc::MS_NODEV | libc::MS_NOSUID,
+            Some(&OsString::from("mode=1777")))?;
+        Ok(self)
+    }
+}
+
+impl BaseRoot {
+    fn path(&self) -> &Path {
+        &self.0.0
+    }
+
+    /// Root is expected
+    fn bind_self(&self) -> Result<&Self, ()> {
+        mount(Some(self.path().as_os_str()),
+                self.path().as_os_str(),
                 None,
                 libc::MS_BIND,
                 None)?;
-            mount(None,
-                self.path.join("proc").as_os_str(),
-                Some(&OsString::from("proc")),
-                libc::MS_NOSUID | libc::MS_NOEXEC | libc::MS_NODEV,
-                None)?;
-            mount(None, 
-                self.path.join("sys").as_os_str(),
-                Some(&OsString::from("sysfs")),
-                libc::MS_NOSUID | libc::MS_NOEXEC | libc::MS_NODEV | 
-                    libc::MS_RDONLY,
-                None)?;
-            mount(None,
-                self.path.join("dev").as_os_str(),
-                Some(&OsString::from("devtmpfs")),
-                libc::MS_NOSUID,
-                Some(&OsString::from("mode=0755")))?;
-            mount(None,
-                self.path.join("dev/pts").as_os_str(),
-                Some(&OsString::from("devpts")),
-                libc::MS_NOSUID | libc::MS_NOEXEC,
-                Some(&OsString::from("mode=0620,gid=5")))?;
-            mount(None,
-                self.path.join("dev/shm").as_os_str(),
-                Some(&OsString::from("tmpfs")),
-                libc::MS_NOSUID | libc::MS_NODEV,
-                Some(&OsString::from("mode=1777")))?;
-            mount(None,
-                self.path.join("run").as_os_str(),
-                Some(&OsString::from("tmpfs")),
-                libc::MS_NOSUID | libc::MS_NODEV,
-                Some(&OsString::from("mode=0755")))?;
-            mount(None,
-                self.path.join("tmp").as_os_str(),
-                Some(&OsString::from("tmpfs")),
-                libc::MS_STRICTATIME | libc::MS_NODEV | libc::MS_NOSUID,
-                Some(&OsString::from("mode=1777")))?;
-            Ok(())
-        })
+        Ok(self)
     }
 
-    fn setup(&self) -> Result<(), ()> {
-        assert!(self.overlay == false);
-        let mut command = std::process::Command::new("/usr/bin/pacman");
+    fn remove(&self) -> Result<&Self, ()> {
+        match self.0.remove() {
+            Ok(_) => Ok(self),
+            Err(_) => Err(()),
+        }
+    }
+
+    fn umount_recursive(&self) -> Result<&Self, ()> {
+        match self.0.umount_recursive() {
+            Ok(_) => Ok(self),
+            Err(_) => Err(()),
+        }
+    }
+
+    fn setup(&self) -> Result<&Self, ()> {
+        let mut command = Command::new("/usr/bin/pacman");
         command
             .arg("-Sy")
             .arg("--root")
-            .arg(self.path.canonicalize().or(Err(()))?)
+            .arg(self.path().canonicalize().or(Err(()))?)
             .arg("--noconfirm")
             .arg("base-devel");
         Identity::set_root_command(&mut command);
         command.spawn().unwrap().wait().unwrap();
-        Ok(())
+        Ok(self)
     }
 
     /// Create a base rootfs containing the minimum packages and user setup
     /// This should not be used directly for building packages
-    /// Rather, you should later call .new_overlay()
-    pub(crate) fn new_base() -> Result<Self, ()> {
-        println!("Creating base root");
-        let mut root = Self::new("base", false);
-        root.remove()?;
-        root.mount()?;
-        root.setup()?;
-        root.umount_recursive()?;
-        root.complete = true;
-        Ok(root)
-    }
-
-    /// Should only be called on root
-    fn new_overlay(&self, name: &str, pkgs: &[&str]) -> Result<Self, ()> {
-        if ! self.path.exists() {
-            eprintln!("Cannot create overlay root from incomplete root");
-            return Err(())
-        }
-        let mut root = Self::new(name, true);
-        root.remove()?;
-        root.complete = true;
+    pub(crate) fn new() -> Result<Self, ()> {
+        println!("Creating base chroot");
+        let root = Self(MountedFolder(PathBuf::from("roots/base")));
+        Identity::as_root(||{
+            root.remove()?
+                .base_layout()?
+                .bind_self()?
+                .base_mounts()?
+                .setup()?
+                .umount_recursive()?;
+            Ok(())
+        })?;
         Ok(root)
     }
 }
 
-impl Drop for Root {
-    fn drop(&mut self) {
-        self.remove().expect("Failed to drop root")
+impl CommonRoot for BaseRoot {
+    fn path(&self) -> &Path {
+        self.0.0.as_path()
+    }
+}
+
+impl OverlayRoot {
+    fn remove(&self) -> Result<&Self, ()> {
+        if self.merged.remove().is_err() {
+            return Err(())
+        }
+        if self.parent.exists() {
+            if let Err(e) = remove_dir_all(&self.parent) {
+                eprintln!("Failed to remove '{}': {}", 
+                            self.parent.display(), e);
+                return Err(())
+            }
+        }
+        Ok(self)
+    }
+
+    fn overlay(&self) -> Result<&Self, ()> {
+        for dir in [&self.upper, &self.work, &self.merged.0] {
+            create_dir_all(dir).or(Err(()))?
+        }
+        mount(None,
+            self.merged.0.as_os_str(),
+            Some(&OsString::from("overlay")),
+            0,
+            Some(&OsString::from(format!(
+                "lowerdir=roots/base,upperdir={},workdir={}", 
+                self.upper.display(), self.work.display()))))?;
+        Ok(self)
+    }
+
+    fn pkgs(&self, pkgs: &Vec<String>) -> Result<&Self, ()> {
+        let mut command = Command::new("/usr/bin/pacman");
+        command
+            .arg("-Sy")
+            .arg("--root")
+            .arg(self.path().canonicalize().or(Err(()))?)
+            .arg("--noconfirm")
+            .args(pkgs);
+        Identity::set_root_command(&mut command);
+        command.spawn().unwrap().wait().unwrap();
+        Ok(self)
+    }
+
+    /// Different from base, overlay would have two folders, a work, and a union
+    pub(crate) fn new(name: &str, pkgs: &Vec<String>) -> Result<Self, ()> 
+    {
+        println!("Creating overlay chroot '{}'", name);
+        let parent = PathBuf::from(format!("roots/overlay-{}", name));
+        let upper = parent.join("upper");
+        let work = parent.join("work");
+        let merged = MountedFolder(parent.join("merged"));
+        let root = Self {
+            parent,
+            upper,
+            work,
+            merged,
+        };
+        Identity::as_root(||{
+            root.remove()?
+                .overlay()?
+                .base_mounts()?
+                .pkgs(pkgs)?;
+            Ok(())
+        })?;
+        Ok(root)
+    }
+}
+
+impl CommonRoot for OverlayRoot {
+    fn path(&self) -> &Path {
+        self.merged.0.as_path()
     }
 }
