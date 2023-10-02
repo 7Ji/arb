@@ -364,7 +364,7 @@ impl PKGBUILD {
     }
 
     fn build_try(
-        &self,
+        &mut self,
         actual_identity: &Identity, 
         command: &mut Command, 
         temp_pkgdir: &Path
@@ -372,9 +372,23 @@ impl PKGBUILD {
         -> Result<(), ()>
     {
         const BUILD_MAX_TRIES: u8 = 3;
-        for i in 1..BUILD_MAX_TRIES {
+        for i in 0..BUILD_MAX_TRIES {
+            if ! self.extract {
+                let mut child = match 
+                    self.extractor_source(actual_identity) 
+                {
+                    Some(child) => child,
+                    None => return Err(()),
+                };
+                if let Err(e) = child.wait() {
+                    eprintln!("Failed to re-extract source for '{}': {}",
+                            self.pkgid, e);
+                    return Err(())
+                }
+                self.extract = true
+            }
             println!("Building '{}', try {}/{}", 
-                    &self.pkgid, i , BUILD_MAX_TRIES);
+                    &self.pkgid, i + 1 , BUILD_MAX_TRIES);
             let exit_status = command
                 .spawn()
                 .or(Err(()))?
@@ -386,6 +400,7 @@ impl PKGBUILD {
                             self.build.display(), e);
                 return Err(())
             }
+            self.extract = false;
             match exit_status.code() {
                 Some(0) => {
                     println!("Successfully built to '{}'", 
@@ -397,20 +412,6 @@ impl PKGBUILD {
                     if let Err(e) = remove_dir_all(&temp_pkgdir) {
                         eprintln!("Failed to remove temp pkgdir '{}': {}", 
                                     temp_pkgdir.display(), e);
-                        return Err(())
-                    }
-                    if i == BUILD_MAX_TRIES {
-                        break
-                    }
-                    let mut child = match 
-                        self.extractor_source(actual_identity) 
-                    {
-                        Some(child) => child,
-                        None => return Err(()),
-                    };
-                    if let Err(e) = child.wait() {
-                        eprintln!("Failed to re-extract source for '{}': {}",
-                                self.pkgid, e);
                         return Err(())
                     }
                 }
@@ -450,7 +451,7 @@ impl PKGBUILD {
         Ok(())
     }
 
-    fn build(&self, actual_identity: &Identity, nonet: bool) 
+    fn build(&mut self, actual_identity: &Identity, nonet: bool) 
         -> Result<(), ()> 
     {
         let temp_pkgdir = self.get_temp_pkgdir()?;
@@ -1005,7 +1006,7 @@ impl PKGBUILDs {
             if ! pkgbuild.extract {
                 continue
             }
-            let pkgbuild = pkgbuild.clone();
+            let mut pkgbuild = pkgbuild.clone();
             if let Err(_) = wait_if_too_busy(
                 &mut threads, 5, "building packages") 
             {
