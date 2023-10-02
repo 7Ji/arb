@@ -22,7 +22,7 @@ fn cstring_from_path(path: &Path) -> Result<CString, ()> {
 }
 
 fn cstring_and_ptr_from_optional_osstr<S: AsRef<OsStr>> (osstr: Option<S>) 
-    -> Result<(Option<CString>, *const i8), ()> 
+    -> Result<(Option<CString>, *const libc::c_char), ()> 
 {
     let cstring = match osstr {
         Some(osstr) => match CString::new(osstr.as_ref().as_bytes()) {
