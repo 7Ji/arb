@@ -1,6 +1,4 @@
 // TODO: Split this into multiple modules
-// TODO: Use libalpm to handle deps
-// TODO: Use clean chroots to build to avoid tainting host
 use crate::{
         identity::Identity,
         source::{

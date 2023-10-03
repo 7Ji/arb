@@ -43,9 +43,7 @@ yaopenvfd: https://aur.archlinux.org/yaopenvfd.git
 ## TODO
  - [ ] Resolve inter-dependencies if necessary, to trigger builds if some of our pacakges changed which are deps of other pacakges
    - doing this would also mean splitting builds into multiple steps (build -> install -> build)
- - [ ] Use unshare to build in dedicated containers
  - [ ] Remove all explicit panics introduced in early prototype stage
- - [ ] Use libalpm to interact with pkgdep, etc
 
 ## Internal
 The builder does the following to save a great chunk of build time and resource:
