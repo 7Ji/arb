@@ -785,7 +785,8 @@ impl PKGBUILDs {
         {
             match child.wait_with_output() {
                 Ok(output) => 
-                    if output.stdout.as_slice() ==  b"function\n" {
+                    if output.stdout.ends_with(b"function\n") 
+                    {
                         pkgbuilds.push(pkgbuild);
                     },
                 Err(e) => {
