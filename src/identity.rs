@@ -1,7 +1,7 @@
 use std::{
         ffi::OsString,
-        os::unix::{process::CommandExt, prelude::OsStringExt},
-        process::Command, str::FromStr,
+        os::unix::{process::CommandExt, prelude::OsStringExt, fs::chroot},
+        process::{Command, exit}, str::FromStr, path::{PathBuf, Path},
     };
 
 #[derive(Clone)]
@@ -161,6 +161,13 @@ impl Identity {
         Self::sete_raw(0, 0)
     }
 
+    pub(crate) fn set_root_command(command: &mut Command) -> &mut Command {
+        unsafe {
+            command.pre_exec(|| Self::sete_root());
+        }
+        command
+    }
+
     pub(crate) fn set_command<'a>(&self, command: &'a mut Command) 
         -> &'a mut Command 
     {
@@ -175,11 +182,95 @@ impl Identity {
         command
     }
 
-    pub(crate) fn set_root_command(command: &mut Command) -> &mut Command {
+    pub(crate) fn set_chroot_command<P: AsRef<Path>>(
+        command: &mut Command, root: P
+    ) -> &mut Command
+    {
+        let root = root.as_ref().to_owned();
         unsafe {
-            command.pre_exec(move || Self::sete_root());
+            command.pre_exec(move || chroot(&root));
         }
         command
+    }
+
+    pub(crate) fn run_chroot_command<P: AsRef<Path>>(
+        command: &mut Command, root: P
+    ) -> Result<(), ()>
+    {
+        let r = Identity::set_chroot_command(command, root)
+            .spawn()
+            .or_else(|e|{
+                eprintln!("Failed to spawn chroot command {:?}: {}", 
+                    command, e);
+                Err(())
+            })?
+            .wait()
+            .or_else(|e|{
+                eprintln!("Failed to wait for chroot command {:?}: {}",
+                     command, e);
+                Err(())
+            })?
+            .code()
+            .ok_or_else(||{
+                eprintln!("Failed to get exit code for chroot command {:?}",
+                            command);
+                ()
+            })?;
+        if r == 0 {
+            Ok(())
+        } else {
+            eprintln!("Bad return from chroot command {:?}", command);
+            Err(())
+        }
+    }
+    // pub(crate) fn chroot_command<P: AsRef<Path>>(
+    //     command: &mut Command, root: P
+    // ) -> Result<(), ()> 
+    // {
+    //     Self::with_chroot(|| {
+    //         let child = match command.exec() {
+    //             Ok(child) => ,
+    //             Err(_) => todo!(),
+    //         }
+    //     }, root)
+    // }
+
+    fn fork_and_run<F: FnOnce() -> Result<(), ()>,>(f: F)  -> Result<(), ()>
+    {
+        let child = unsafe {
+            libc::fork()
+        };
+        if child == 0 { // I am child
+            if f().is_err() {
+                exit(-1)
+            } else {
+                exit(0)
+            }
+        } else if child < 0 { // Error encountered
+            eprintln!("Failed to fork: {}", std::io::Error::last_os_error());
+            return Err(())
+        }
+        // I am parent
+        let mut status: libc::c_int = 0;
+        let waited_pid = unsafe {
+            libc::waitpid(child, &mut status, 0)
+        };
+        if waited_pid <= 0 {
+            eprintln!("Failed to wait for child: {}", 
+                std::io::Error::last_os_error());
+            return Err(())
+        }
+        if waited_pid != child {
+            eprintln!("Waited child {} is not the child {} we forked", 
+                        waited_pid, child);
+            return Err(())
+        }
+        if status != 0 {
+            eprintln!("Child process failed");
+            return Err(())
+        }
+        Ok(())
+        
     }
 
     pub(crate) fn get_actual_and_drop() -> Result<Self, ()> {
@@ -205,45 +296,69 @@ impl Identity {
     }
 
     /// Run a block as root in a forked child
-    pub(crate) fn as_root<F>(f: F) -> Result<(), ()>
-        where F: FnOnce() -> Result<(), ()>
+    pub(crate) fn as_root_with_chroot<F, P>(f: F, root: P) 
+        -> Result<(), ()>
+    where 
+        F: FnOnce() -> Result<(), ()>,
+        P: AsRef<Path>
     {
-        let child = unsafe {
-            libc::fork()
-        };
-        if child == 0 { // I am child
+        Self::fork_and_run(||{
+            if let Err(e) = chroot(root.as_ref()) {
+                eprintln!("Child: Failed to chroot to '{}': {}", 
+                    root.as_ref().display(), e);
+                return Err(())
+            }
             if Self::sete_root().is_err() {
                 eprintln!("Child: Failed to seteuid back to root");
-                std::process::exit(-1)
+                return Err(())
             }
-            if f().is_err() {
-                eprintln!("Child: Closure returned error");
-                std::process::exit(-1)
+            f()
+        })
+    }
+
+    pub(crate) fn as_root<F: FnOnce() -> Result<(), ()>>(f: F) -> Result<(), ()>
+    {
+        Self::fork_and_run(||{
+            if Self::sete_root().is_err() {
+                eprintln!("Child: Failed to seteuid back to root");
+                return Err(())
             }
-            std::process::exit(0)
-        } else if child < 0 { // Error encountered
-            eprintln!("Failed to fork: {}", std::io::Error::last_os_error());
-            return Err(())
+            f()
+        })
+    }
+
+    pub(crate) fn with_chroot<F, P>(f: F, root: P) 
+        -> Result<(), ()>
+    where 
+        F: FnOnce() -> Result<(), ()>,
+        P: AsRef<Path>
+    {
+        Self::fork_and_run(||{
+            if let Err(e) = chroot(root.as_ref()) {
+                eprintln!("Child: Failed to chroot to '{}': {}", 
+                    root.as_ref().display(), e);
+                return Err(())
+            }
+            f()
+        })
+    }
+
+    pub(crate) fn home(&self) -> Result<PathBuf, ()> {
+        if let Some(env) = &self.env {
+            Ok(PathBuf::from(&env.home))
+        } else {
+            eprint!("Failed to get home dir, this should not happen");
+            Err(())
         }
-        // I am parent
-        let mut status: libc::c_int = 0;
-        let waited_pid = unsafe {
-            libc::waitpid(child, &mut status, 0)
-        };
-        if waited_pid <= 0 {
-            eprintln!("Failed to wait for child: {}", 
-                std::io::Error::last_os_error());
-            return Err(())
+    }
+
+    pub(crate) fn user(&self) -> Result<String, ()> {
+        if let Some(env) = &self.env {
+            if let Some(str) = env.user.to_str() {
+                return Ok(str.to_string())
+            }
         }
-        if waited_pid != child {
-            eprintln!("Waited child {} is not the child {} we forked", 
-                        waited_pid, child);
-            return Err(())
-        }
-        if status != 0 {
-            eprintln!("Child process failed");
-            return Err(())
-        }
-        Ok(())
+        eprint!("Failed to get user name, this should not happen");
+        Err(())
     }
 }

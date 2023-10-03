@@ -993,7 +993,7 @@ impl PKGBUILDs {
         };
         self.fill_all_pkgvers(actual_identity, &dir)?;
         // Use the fresh DBs in target root
-        let base_root = BaseRoot::new()?;
+        let base_root = BaseRoot::new(actual_identity)?;
         self.check_deps(actual_identity, dir.as_ref(), base_root.as_str())?;
         self.fill_all_ids_dirs();
         self.extract_if_need_build(actual_identity)?;

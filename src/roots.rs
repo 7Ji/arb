@@ -1,4 +1,5 @@
-use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all}, ffi::CString, os::unix::prelude::OsStrExt, process::Command};
+use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all, copy, set_permissions, Permissions, Metadata, create_dir}, ffi::{CString, OsStr}, os::unix::prelude::{OsStrExt, MetadataExt}, process::Command};
+
 
 use super::identity::Identity;
 
@@ -162,6 +163,7 @@ pub(crate) trait CommonRoot {
     fn db_path(&self) -> PathBuf {
         self.path().join("var/lib/pacman")
     }
+    // fn fresh_install() -> bool;
     /// Root is expected
     fn base_layout(&self) -> Result<&Self, ()> {
         for subdir in [
@@ -220,6 +222,92 @@ pub(crate) trait CommonRoot {
             Some("mode=1777"))?;
         Ok(self)
     }
+
+    fn install_pkgs_raw<I, S>(&self, refresh: bool, pkgs: I) 
+        -> Result<&Self, ()> 
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let mut command = Command::new("/usr/bin/pacman");
+        command
+            .env("LANG", "C")
+            .arg(if refresh { "-Sy" } else { "-S" })
+            .arg("--root")
+            .arg(self.path().canonicalize().or(Err(()))?)
+            .arg("--noconfirm");
+        let mut has_pkg = false;
+        for pkg in pkgs {
+            command.arg(pkg);
+            has_pkg = true
+        }
+        if ! has_pkg {
+            return Ok(self)
+        }
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(e) => {
+                eprintln!("Failed to spawn child to install base pkgs: {}", e);
+                return Err(())
+            },
+        };
+        let status = match child.wait() {
+            Ok(status) => status,
+            Err(e) => {
+                eprintln!(
+                    "Failed to wait for child installing base pkgs: {}", e);
+                return Err(())
+            },
+        };
+        let code = match status.code() {
+            Some(code) => code,
+            None => {
+                eprintln!("Failed to get return code for child install pkgs");
+                return Err(())     
+            },
+        };
+        if code != 0 {
+            eprintln!("Failed to execute install command, return: {}", code);
+            return Err(())
+        }
+        Ok(self)
+    }
+
+    fn install_pkgs<I, S>(&self, pkgs: I) -> Result<&Self, ()>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>;
+
+
+    fn copy_file<P: AsRef<Path>, Q: AsRef<Path>>(source: P, target: Q) 
+        -> Result<(), ()> 
+    {
+        match copy(&source, &target) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                eprintln!("Failed to copy from '{}' to '{}': {}",
+                    source.as_ref().display(), target.as_ref().display(), e);
+                Err(())
+            },
+        }
+
+    }
+
+    fn copy_file_same<P: AsRef<Path>>(&self, suffix: P) -> Result<&Self, ()> {
+        let source = PathBuf::from("/").join(&suffix);
+        let target = self.path().join(&suffix);
+        Self::copy_file(source, target).and(Ok(self))
+    }
+
+    fn home(&self, actual_identity: &Identity) -> Result<PathBuf, ()> {
+        Ok(self.path().join(actual_identity.home()?)
+            .strip_prefix("/")
+            .or_else(|e| {
+                eprintln!("Failed to strip home prefix: {}", e);
+                Err(())
+            })?
+            .to_path_buf())
+    }
 }
 
 impl BaseRoot {
@@ -241,6 +329,7 @@ impl BaseRoot {
         Ok(self)
     }
 
+    /// Root is expected
     fn remove(&self) -> Result<&Self, ()> {
         match self.0.remove() {
             Ok(_) => Ok(self),
@@ -248,6 +337,7 @@ impl BaseRoot {
         }
     }
 
+    /// Root is expected
     fn umount_recursive(&self) -> Result<&Self, ()> {
         match self.0.umount_recursive() {
             Ok(_) => Ok(self),
@@ -255,26 +345,38 @@ impl BaseRoot {
         }
     }
 
-    fn setup(&self) -> Result<&Self, ()> {
-        let mut command = Command::new("/usr/bin/pacman");
-        command
-            .env("LANG", "C")
-            .arg("-Sy")
-            .arg("--root")
-            .arg(self.path().canonicalize().or(Err(()))?)
-            .arg("--noconfirm")
-            .arg("base-devel");
-        Identity::set_root_command(&mut command);
-        if command.spawn().unwrap().wait().unwrap().code().unwrap() != 0 {
-            eprintln!("Install command failed to execute correctly");
-            return Err(())
-        }
+    /// Root is expected
+    fn create_home(&self, actual_identity: &Identity) -> Result<&Self, ()> {
+        Identity::run_chroot_command(
+            Command::new("/usr/bin/mkhomedir_helper")
+                .arg(actual_identity.user()?),
+            self.path())?;
+        Ok(self)
+    }
+
+    /// Root is expected
+    fn setup(&self, actual_identity: &Identity) -> Result<&Self, ()> {
+        self.install_pkgs(&["base-devel"])?
+            .copy_file_same("etc/passwd")?
+            .copy_file_same("etc/group")?
+            .copy_file_same("etc/shadow")?
+            .copy_file_same("etc/makepkg.conf")?
+            .create_home(actual_identity)?;
+        let mut builder = self.path().to_owned();
+        builder.push(self.home(actual_identity)?);
+        builder.push("builder");
+        create_dir(&builder)
+            .or_else(|e|{
+                eprintln!("Failed to create chroot builder dir: {}", e);
+                Err(())
+            })?;
+        eprintln!("Finished base root setup");
         Ok(self)
     }
 
     /// Create a base rootfs containing the minimum packages and user setup
     /// This should not be used directly for building packages
-    pub(crate) fn new() -> Result<Self, ()> {
+    pub(crate) fn new(actual_identity: &Identity) -> Result<Self, ()> {
         println!("Creating base chroot");
         let root = Self(MountedFolder(PathBuf::from("roots/base")));
         Identity::as_root(||{
@@ -282,7 +384,7 @@ impl BaseRoot {
                 .base_layout()?
                 .bind_self()?
                 .base_mounts()?
-                .setup()?
+                .setup(actual_identity)?
                 .umount_recursive()?;
             Ok(())
         })?;
@@ -293,6 +395,14 @@ impl BaseRoot {
 impl CommonRoot for BaseRoot {
     fn path(&self) -> &Path {
         self.0.0.as_path()
+    }
+
+    fn install_pkgs<I, S>(&self, pkgs: I) -> Result<&Self, ()>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr> 
+    {
+        self.install_pkgs_raw(true, pkgs)
     }
 }
 
@@ -325,24 +435,6 @@ impl OverlayRoot {
         Ok(self)
     }
 
-    fn pkgs(&self, pkgs: &Vec<String>) -> Result<&Self, ()> {
-        if pkgs.len() == 0 {
-            return Ok(self)
-        }
-        let mut command = Command::new("/usr/bin/pacman");
-        command
-            .env("LANG", "C")
-            .arg("-S")
-            .arg("--root")
-            .arg(self.path().canonicalize().or(Err(()))?)
-            .arg("--needed")
-            .arg("--noconfirm")
-            .args(pkgs);
-        Identity::set_root_command(&mut command);
-        command.spawn().unwrap().wait().unwrap();
-        Ok(self)
-    }
-
     /// Different from base, overlay would have upper, work, and merged.
     /// Note that the pkgs here can only come from repos, not as raw pkg files.
     pub(crate) fn new(name: &str, pkgs: &Vec<String>) -> Result<Self, ()> 
@@ -362,7 +454,7 @@ impl OverlayRoot {
             root.remove()?
                 .overlay()?
                 .base_mounts()?
-                .pkgs(pkgs)?;
+                .install_pkgs(pkgs)?;
             Ok(())
         })?;
         Ok(root)
@@ -373,7 +465,16 @@ impl CommonRoot for OverlayRoot {
     fn path(&self) -> &Path {
         self.merged.0.as_path()
     }
+
+    fn install_pkgs<I, S>(&self, pkgs: I) -> Result<&Self, ()>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr> 
+    {
+        self.install_pkgs_raw(false, pkgs)
+    }
 }
+    
 
 impl Drop for OverlayRoot {
     fn drop(&mut self) {
