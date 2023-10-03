@@ -49,6 +49,7 @@ use std::{
     };
 use xxhash_rust::xxh3::xxh3_64;
 use super::depend::Depends;
+use super::depend::DbHandle;
 
 #[derive(Clone)]
 enum Pkgver {
@@ -485,9 +486,8 @@ impl PKGBUILD {
         let temp_pkgdir = self.get_temp_pkgdir()?;
         let mut command = self.get_build_command(
             actual_identity, nonet, &temp_pkgdir)?;
-        let deps = Self::get_deps_file(actual_identity,
-            self.build.join("PKGBUILD")).or(Err(()))?;
-        let root = OverlayRoot::new(&self.base, &deps.0)?;
+        let root = OverlayRoot::new(
+            &self.base, &self.depends)?;
         self.build_try(actual_identity, &mut command, &temp_pkgdir)?;
         self.build_finish(&temp_pkgdir)
     }
@@ -530,7 +530,7 @@ impl PKGBUILD {
 
 }
 
-struct PkgsDepends (Vec<Depends>);
+// struct PkgsDepends (Vec<Depends>);
 pub(super) struct PKGBUILDs (Vec<PKGBUILD>);
 
 impl PKGBUILDs {
@@ -655,9 +655,8 @@ impl PKGBUILDs {
     }
 
     fn get_deps<P: AsRef<Path>> (
-        &self, actual_identity: &Identity, dir: P, db_path: P
-    ) 
-        -> Option<(PkgsDepends, Depends)>
+        &mut self, actual_identity: &Identity, dir: P, db_handle: &DbHandle
+    ) -> Result<(), ()>
     {
         let mut bad = false;
         let mut children = vec![];
@@ -672,11 +671,21 @@ impl PKGBUILDs {
                 },
             }
         }
-        let mut pkgs_deps = PkgsDepends(vec![]);
-        let mut all_deps = Depends(vec![]);
-        for child in children {
+        if bad {
+            for mut child in children {
+                if let Err(e) = child.kill() {
+                    eprintln!("Failed to kill child: {}", e)
+                }
+            }
+            return Err(())
+        }
+        assert!(self.0.len() == children.len());
+        for (pkgbuild, child) in 
+            zip(self.0.iter_mut(), children) 
+        {
             let output = child.wait_with_output()
                 .expect("Failed to wait for child");
+            pkgbuild.depends.clear();
             let mut pkg_deps = Depends(vec![]);
             for line in 
                 output.stdout.split(|byte| byte == &b'\n') 
@@ -684,58 +693,63 @@ impl PKGBUILDs {
                 if line.len() == 0 {
                     continue;
                 }
-                let dep = String::from_utf8_lossy(line).into_owned();
-                all_deps.0.push(dep.clone());
-                pkg_deps.0.push(dep);
+                pkg_deps.0.push(String::from_utf8_lossy(line).into_owned());
             }
             pkg_deps.0.sort();
             pkg_deps.0.dedup();
-            pkgs_deps.0.push(pkg_deps);
+            match pkg_deps.needed_and_hash(db_handle) {
+                Ok((needed, hash)) => {
+                    println!("PKGBUILD '{}' dephash {:016x}, \
+                            needed dependencies: {:?}", 
+                            &pkgbuild.base, hash, &needed);
+                    pkgbuild.depends = needed;
+                    pkgbuild.dephash = hash;
+                },
+                Err(_) => {
+                    eprintln!("Failed to get needed deps for package '{}'",
+                            &pkgbuild.base);
+                    bad = true
+                },
+            }
         }
-        all_deps.0.sort();
-        all_deps.0.dedup();
-        if bad {
-            None
-        } else {
-            Some((pkgs_deps, all_deps))
-        }
+        if bad { Err(()) } else { Ok(()) }
     }
 
-    fn calc_dep_hashes(
-        &mut self,
-        actual_identity: &Identity,
-        pkgs_deps: &PkgsDepends,
-    ) {
-        assert!(self.0.len() == pkgs_deps.0.len());
-        let children: Vec<Child> = pkgs_deps.0.iter().map(|pkg_deps| {
-            actual_identity.set_command(
-                Command::new("/usr/bin/pacman")
-                    .arg("-Qi")
-                    .env("LANG", "C")
-                    .args(&pkg_deps.0)
-                    .stdout(Stdio::piped()))
-                .spawn()
-                .expect("Failed to spawn dep info reader")
-        }).collect();
-        assert!(self.0.len() == children.len());
-        for (pkgbuild, child) in 
-            zip(self.0.iter_mut(), children) 
-        {
-            let output = child.wait_with_output()
-                .expect("Failed to wait for child");
-            pkgbuild.dephash = xxh3_64(output.stdout.as_slice());
-            println!("PKGBUILD '{}' dephash is '{:016x}'", 
-                    pkgbuild.base, pkgbuild.dephash);
-        }
-    }
+    // fn calc_dep_hashes(
+    //     &mut self,
+    //     actual_identity: &Identity,
+    //     db_handle: &DbHandle
+    // ) {
+    //     assert!(self.0.len() == pkgs_deps.0.len());
+    //     let children: Vec<Child> = pkgs_deps.0.iter().map(|pkg_deps| {
+    //         actual_identity.set_command(
+    //             Command::new("/usr/bin/pacman")
+    //                 .arg("-Qi")
+    //                 .env("LANG", "C")
+    //                 .args(&pkg_deps.0)
+    //                 .stdout(Stdio::piped()))
+    //             .spawn()
+    //             .expect("Failed to spawn dep info reader")
+    //     }).collect();
+    //     assert!(self.0.len() == children.len());
+    //     for (pkgbuild, child) in 
+    //         zip(self.0.iter_mut(), children) 
+    //     {
+    //         let output = child.wait_with_output()
+    //             .expect("Failed to wait for child");
+    //         pkgbuild.dephash = xxh3_64(output.stdout.as_slice());
+    //         println!("PKGBUILD '{}' dephash is '{:016x}'", 
+    //                 pkgbuild.base, pkgbuild.dephash);
+    //     }
+    // }
 
-    fn check_deps<P: AsRef<Path>> (
-        &mut self, actual_identity: &Identity, dir: P, db_path: P
+    fn check_deps<P: AsRef<Path>, S: AsRef<str>> (
+        &mut self, actual_identity: &Identity, dir: P, root: S
     )   -> Result<(), ()>
     {
-        let (pkgs_deps, _) 
-            = self.get_deps(actual_identity, dir, db_path).ok_or(())?;
-        self.calc_dep_hashes(actual_identity, &pkgs_deps);
+        let db_handle = DbHandle::new(root)?;
+        self.get_deps(actual_identity, dir, &db_handle)?;
+        // self.calc_dep_hashes(actual_identity, &db_handle)?;
         Ok(())
     }
 
@@ -999,7 +1013,7 @@ impl PKGBUILDs {
         self.fill_all_pkgvers(actual_identity, &dir)?;
         // Use the fresh DBs in target root
         let base_root = BaseRoot::new()?;
-        self.check_deps(actual_identity, dir.as_ref(), &base_root.db_path())?;
+        self.check_deps(actual_identity, dir.as_ref(), base_root.as_str())?;
         self.fill_all_ids_dirs();
         self.extract_if_need_build(actual_identity)?;
         if let Some(cleaners) = cleaners {

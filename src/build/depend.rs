@@ -1,13 +1,17 @@
-use alpm;
+use std::hash::Hasher;
 
+use alpm::{self, Package};
+use xxhash_rust::xxh3::{self, Xxh3};
+
+#[derive(Clone)]
 pub(super) struct Depends (pub(super) Vec<String>);
 
-struct DbHandle {
+pub(super) struct DbHandle {
     alpm_handle: alpm::Alpm,
 }
 
 impl DbHandle {
-    fn new<S: AsRef<str>>(root: S) -> Result<Self, ()> {
+    pub(super) fn new<S: AsRef<str>>(root: S) -> Result<Self, ()> {
         let handle = match alpm::Alpm::new(
             root.as_ref(), "/var/lib/pacman") 
         {
@@ -53,12 +57,12 @@ impl DbHandle {
         Ok(DbHandle { alpm_handle: handle })
     }
 
-    fn find_satisfier<S: AsRef<str>>(&self, dep: S) -> Option<String> {
+    fn find_satisfier<S: AsRef<str>>(&self, dep: S) -> Option<Package> {
         for db in self.alpm_handle.syncdbs() {
             if let Some(pkg) = 
                 db.pkgs().find_satisfier(dep.as_ref()) 
             {
-                return Some(pkg.name().into())
+                return Some(pkg)
             }
         }
         None
@@ -72,18 +76,68 @@ impl DbHandle {
     }
 }
 
+fn update_hash_from_opt_str(hash: &mut Xxh3, opt_str: Option<&str>) {
+    if let Some(content) = opt_str {
+        hash.update(content.as_bytes())
+    }
+}
+
 impl Depends {
-    fn needed(&self, db_handle: &DbHandle) -> Vec<String> {
+    // pub(super) fn needed(&self, db_handle: &DbHandle) -> Result<Vec<String>, ()>
+    // {
+    //     let mut needs = vec![];
+    //     for dep in self.0.iter() {
+    //         match db_handle.find_satisfier(dep) {
+    //             Some(dep) => needs.push(dep),
+    //             None => {
+    //                 eprintln!("Warning: dep {} not found", dep);
+    //                 return Err(())
+    //             },
+    //         }
+    //     }
+    //     needs.sort_unstable();
+    //     needs.dedup();
+    //     needs.retain(|pkg|!db_handle.is_installed(pkg));
+    //     Ok(needs)
+    // }
+
+    pub(super) fn needed_and_hash(&self, db_handle: &DbHandle) 
+        -> Result<(Vec<String>, u64), ()> 
+    {
+        let mut hash_box = Box::new(xxh3::Xxh3::new());
+        let hash = hash_box.as_mut();
         let mut needs = vec![];
         for dep in self.0.iter() {
-            match db_handle.find_satisfier(dep) {
-                Some(dep) => needs.push(dep),
-                None => eprintln!("Warning: dep {} not found", dep),
+            let dep = match db_handle.find_satisfier(dep) {
+                Some(dep) => dep,
+                None => {
+                    eprintln!("Warning: dep {} not found", dep);
+                    return Err(())
+                },
+            };
+            needs.push(dep.name().to_string());
+            if let Some(sig) = dep.base64_sig() {
+                hash.update(sig.as_bytes());
+                continue
             }
+            if let Some(sha256) = dep.sha256sum() {
+                hash.update(sha256.as_bytes());
+                continue
+            }
+            if let Some(md5) = dep.md5sum() {
+                hash.update(md5.as_bytes());
+                continue
+            }
+            // The last resort
+            hash.update(dep.name().as_bytes());
+            hash.update(dep.version().as_bytes());
+            hash.write_i64(dep.build_date());
+            // There're of couse other vars, but as we add more of them
+            // we will add the possibility of fake-positive
         }
         needs.sort_unstable();
         needs.dedup();
         needs.retain(|pkg|!db_handle.is_installed(pkg));
-        needs
+        Ok((needs, hash.finish()))
     }
 }

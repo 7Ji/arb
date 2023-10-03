@@ -223,6 +223,10 @@ pub(crate) trait CommonRoot {
 }
 
 impl BaseRoot {
+    pub(crate) fn as_str(&self) -> &str {
+        "roots/base"
+    }
+
     fn path(&self) -> &Path {
         &self.0.0
     }
