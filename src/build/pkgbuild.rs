@@ -500,11 +500,7 @@ impl PKGBUILD {
             &self.base, actual_identity, &self.depends)?;
         let mut command = self.get_build_command(
             actual_identity, &root, nonet, &temp_pkgdir)?;
-        self.build_try(actual_identity, &mut command, &temp_pkgdir).or_else(|_|{
-            eprintln!("Boom, waiting for 100 seconds");
-            std::thread::sleep(std::time::Duration::from_secs(100));
-            Err(())
-        })?;
+        self.build_try(actual_identity, &mut command, &temp_pkgdir)?;
         self.build_finish(&temp_pkgdir)
     }
 
