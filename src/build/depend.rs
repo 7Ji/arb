@@ -45,7 +45,9 @@ impl DbHandle {
                 continue
             }
             match handle.register_syncdb(section, sig_level) {
-                Ok(_) => (),
+                Ok(_) => {
+                    println!("Registered syncdb '{}'", section);
+                },
                 Err(e) => {
                     eprintln!("Failed to register repo '{}': {}", section, e);
                     return Err(())
@@ -60,14 +62,18 @@ impl DbHandle {
     }
 
     fn find_satisfier<S: AsRef<str>>(&self, dep: S) -> Option<Package> {
+        let mut pkg_satisfier = None;
         for db in self.alpm_handle.syncdbs() {
+            if let Ok(pkg) = db.pkg(dep.as_ref()) {
+                return Some(pkg)
+            }
             if let Some(pkg) = 
                 db.pkgs().find_satisfier(dep.as_ref()) 
             {
-                return Some(pkg)
+                pkg_satisfier = Some(pkg)
             }
         }
-        None
+        pkg_satisfier
     }
 
     fn is_installed<S: AsRef<str>>(&self, pkg: S) -> bool {
@@ -115,7 +121,7 @@ impl Depends {
         }
         needs.sort_unstable();
         needs.dedup();
-        needs.retain(|pkg|!db_handle.is_installed(pkg));
+        // needs.retain(|pkg|!db_handle.is_installed(pkg));
         Ok((needs, hash.finish()))
     }
 

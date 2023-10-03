@@ -223,19 +223,26 @@ pub(crate) trait CommonRoot {
         Ok(self)
     }
 
-    fn install_pkgs_raw<I, S>(&self, refresh: bool, pkgs: I) 
+    fn install_pkgs_raw<I, S>(&self, base: bool, pkgs: I) 
         -> Result<&Self, ()> 
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
         let mut command = Command::new("/usr/bin/pacman");
+        command.env("LANG", "C");
+        if base {
+            command.arg("-Sy");
+        } else {
+            command.arg("-S");
+        }
         command
-            .env("LANG", "C")
-            .arg(if refresh { "-Sy" } else { "-S" })
             .arg("--root")
             .arg(self.path().canonicalize().or(Err(()))?)
             .arg("--noconfirm");
+        if ! base {
+            command.arg("--needed");
+        }      
         let mut has_pkg = false;
         for pkg in pkgs {
             command.arg(pkg);
