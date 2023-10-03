@@ -318,12 +318,12 @@ pub(crate) trait CommonRoot {
     }
 
     fn home(&self, actual_identity: &Identity) -> Result<PathBuf, ()> {
-        Ok(self.path().join(actual_identity.home()?)
+        Ok(self.path().join(actual_identity.home()?
             .strip_prefix("/")
             .or_else(|e| {
                 eprintln!("Failed to strip home prefix: {}", e);
                 Err(())
-            })?
+            })?)
             .to_path_buf())
     }
 
