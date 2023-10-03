@@ -1,8 +1,8 @@
-./build/
-./pkgs/
-./roots/
-./sources/
-./target/
+/build/
+/pkgs/
+/roots/
+/sources/
+/target/
 Cargo.lock
 pkgbuilds*.yaml
 
