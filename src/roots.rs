@@ -198,22 +198,22 @@ pub(crate) trait CommonRoot {
             Some("devtmpfs"),
             libc::MS_NOSUID,
             Some("mode=0755"))?;
-        mount(None,
+        mount(Some("devpts"),
             &self.path().join("dev/pts"),
             Some("devpts"),
             libc::MS_NOSUID | libc::MS_NOEXEC,
             Some("mode=0620,gid=5"))?;
-        mount(None,
+        mount(Some("shm"),
             &self.path().join("dev/shm"),
             Some("tmpfs"),
             libc::MS_NOSUID | libc::MS_NODEV,
             Some("mode=1777"))?;
-        mount(None,
+        mount(Some("run"),
             &self.path().join("run"),
             Some("tmpfs"),
             libc::MS_NOSUID | libc::MS_NODEV,
             Some("mode=0755"))?;
-        mount(None,
+        mount(Some("tmp"),
             &self.path().join("tmp"),
             Some("tmpfs"),
             libc::MS_STRICTATIME | libc::MS_NODEV | libc::MS_NOSUID,
