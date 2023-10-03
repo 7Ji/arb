@@ -1,4 +1,4 @@
-use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all}, ffi::{CString, OsStr, OsString}, os::unix::prelude::OsStrExt, process::Command};
+use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all}, ffi::CString, os::unix::prelude::OsStrExt, process::Command};
 
 use super::identity::Identity;
 
@@ -28,16 +28,16 @@ fn cstring_from_path(path: &Path) -> Result<CString, ()> {
     }
 }
 
-fn cstring_and_ptr_from_optional_osstr<S: AsRef<OsStr>> (osstr: Option<S>) 
+fn cstring_and_ptr_from_optional_str<S: AsRef<str>> (opstr: Option<S>) 
     -> Result<(Option<CString>, *const libc::c_char), ()> 
 {
-    let cstring = match osstr {
-        Some(osstr) => match CString::new(osstr.as_ref().as_bytes()) {
-            Ok(osstr) => Some(osstr),
+    let cstring = match opstr {
+        Some(opstr) => match CString::new(opstr.as_ref().as_bytes()) {
+            Ok(opstr) => Some(opstr),
             Err(e) => {
                 eprintln!(
                     "Failed to create c string from '{:?}': {}", 
-                    osstr.as_ref(), e);
+                    opstr.as_ref(), e);
                 return Err(())
             },
         },
@@ -50,36 +50,29 @@ fn cstring_and_ptr_from_optional_osstr<S: AsRef<OsStr>> (osstr: Option<S>)
     Ok((cstring, ptr))
 }
 
-/// Root is expected
-fn mount<S: AsRef<OsStr>>(
-    src: Option<S>, target: S, fstype: Option<S>, 
-    flags: libc::c_ulong, data: Option<S>
+fn mount(
+    src: Option<&str>, target: &Path, fstype: Option<&str>,
+    flags: libc::c_ulong, data: Option<&str>
 ) 
     -> Result<(), ()> 
 {
-    let (_, src_ptr) = 
-        cstring_and_ptr_from_optional_osstr(src)?;
-    let target = match CString::new(target.as_ref().as_bytes()) {
-        Ok(target) => target,
-        Err(e) => {
-            eprintln!("Failed to create c string from '{:?}' for target: {}", 
-                target.as_ref(), e);
-            return Err(())
-        },
-    };
-    let (_, fstype_ptr) = 
-        cstring_and_ptr_from_optional_osstr(fstype)?;
-    let (_, data_ptr) = 
-        cstring_and_ptr_from_optional_osstr(data)?;
-    // println!("Mounting {:?} to {:?}, type {:?}, data {:?}", 
-    //     &src, &target, &fstype, &data);
+    let (_src, src_ptr) = 
+        cstring_and_ptr_from_optional_str(src)?;
+    let (_fstype, fstype_ptr) = 
+        cstring_and_ptr_from_optional_str(fstype)?;
+    let (_data, data_ptr) = 
+        cstring_and_ptr_from_optional_str(data)?;
+    let target = 
+        CString::new(target.as_os_str().as_bytes()).or(Err(()))?;
     let r = unsafe {
-        libc::mount(src_ptr, target.as_ptr(), fstype_ptr, 
-            flags, data_ptr as *const libc::c_void)
+        libc::mount(src_ptr, target.as_ptr(), fstype_ptr, flags, 
+            data_ptr as *const libc::c_void)
     };
     if r != 0 {
-        eprintln!("Failed to mount: {}", 
-            std::io::Error::last_os_error());
+        eprintln!("Failed to mount {:?} to {:?}, fstype {:?}, flags {:?}, \
+                    data {:?}: {}",
+                    src, target, fstype, flags, data, 
+                    std::io::Error::last_os_error());
         return Err(())
     }
     Ok(())
@@ -189,42 +182,42 @@ pub(crate) trait CommonRoot {
     /// The minimum mounts needed for execution, like how it's done by pacstrap.
     /// Root is expected. 
     fn base_mounts(&self) -> Result<&Self, ()> {
-        mount(None,
-            self.path().join("proc").as_os_str(),
-            Some(&OsString::from("proc")),
+        mount(Some("proc"),
+            &self.path().join("proc"),
+            Some("proc"),
             libc::MS_NOSUID | libc::MS_NOEXEC | libc::MS_NODEV,
             None)?;
-        mount(None, 
-            self.path().join("sys").as_os_str(),
-            Some(&OsString::from("sysfs")),
+        mount(Some("sys"),
+            &self.path().join("sys"),
+            Some("sysfs"),
             libc::MS_NOSUID | libc::MS_NOEXEC | libc::MS_NODEV | 
                 libc::MS_RDONLY,
             None)?;
-        mount(None,
-            self.path().join("dev").as_os_str(),
-            Some(&OsString::from("devtmpfs")),
+        mount(Some("udev"),
+            &self.path().join("dev"),
+            Some("devtmpfs"),
             libc::MS_NOSUID,
-            Some(&OsString::from("mode=0755")))?;
+            Some("mode=0755"))?;
         mount(None,
-            self.path().join("dev/pts").as_os_str(),
-            Some(&OsString::from("devpts")),
+            &self.path().join("dev/pts"),
+            Some("devpts"),
             libc::MS_NOSUID | libc::MS_NOEXEC,
-            Some(&OsString::from("mode=0620,gid=5")))?;
+            Some("mode=0620,gid=5"))?;
         mount(None,
-            self.path().join("dev/shm").as_os_str(),
-            Some(&OsString::from("tmpfs")),
+            &self.path().join("dev/shm"),
+            Some("tmpfs"),
             libc::MS_NOSUID | libc::MS_NODEV,
-            Some(&OsString::from("mode=1777")))?;
+            Some("mode=1777"))?;
         mount(None,
-            self.path().join("run").as_os_str(),
-            Some(&OsString::from("tmpfs")),
+            &self.path().join("run"),
+            Some("tmpfs"),
             libc::MS_NOSUID | libc::MS_NODEV,
-            Some(&OsString::from("mode=0755")))?;
+            Some("mode=0755"))?;
         mount(None,
-            self.path().join("tmp").as_os_str(),
-            Some(&OsString::from("tmpfs")),
+            &self.path().join("tmp"),
+            Some("tmpfs"),
             libc::MS_STRICTATIME | libc::MS_NODEV | libc::MS_NOSUID,
-            Some(&OsString::from("mode=1777")))?;
+            Some("mode=1777"))?;
         Ok(self)
     }
 }
@@ -236,8 +229,8 @@ impl BaseRoot {
 
     /// Root is expected
     fn bind_self(&self) -> Result<&Self, ()> {
-        mount(Some(self.path().as_os_str()),
-                self.path().as_os_str(),
+        mount(Some("roots/base"),
+                self.path(),
                 None,
                 libc::MS_BIND,
                 None)?;
@@ -315,13 +308,13 @@ impl OverlayRoot {
         for dir in [&self.upper, &self.work, &self.merged.0] {
             create_dir_all(dir).or(Err(()))?
         }
-        mount(None,
-            self.merged.0.as_os_str(),
-            Some(&OsString::from("overlay")),
+        mount(Some("overlay"),
+            &self.merged.0,
+            Some("overlay"),
             0,
-            Some(&OsString::from(format!(
+            Some(&format!(
                 "lowerdir=roots/base,upperdir={},workdir={}", 
-                self.upper.display(), self.work.display()))))?;
+                self.upper.display(), self.work.display())))?;
         Ok(self)
     }
 
