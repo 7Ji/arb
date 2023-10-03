@@ -466,6 +466,25 @@ impl OverlayRoot {
         Ok(self)
     }
 
+    fn bind_gpg(&self, actual_identity: &Identity) -> Result<&Self, ()> {
+        let gpg = actual_identity.home()?.join(".gnupg");
+        if ! gpg.exists() {
+            return Ok(self)
+        }
+        let gpg_chroot = self.home(actual_identity)?
+            .join(".gnupg");
+        create_dir(&gpg_chroot).or_else(|e|{
+            eprintln!("Failed to create chroot GPG dir: {}", e);
+            Err(())
+        })?;
+        mount(Some(gpg.to_str().ok_or(())?),
+            &gpg_chroot,
+            None,
+            libc::MS_BIND,
+            None)?;
+        Ok(self)
+    }
+
     /// Different from base, overlay would have upper, work, and merged.
     /// Note that the pkgs here can only come from repos, not as raw pkg files.
     pub(crate) fn new<I, S>(
