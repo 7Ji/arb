@@ -1,4 +1,4 @@
-use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all, copy, set_permissions, Permissions, Metadata, create_dir}, ffi::{CString, OsStr}, os::unix::prelude::{OsStrExt, MetadataExt}, process::Command};
+use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all, copy, set_permissions, Permissions, Metadata, create_dir, remove_file}, ffi::{CString, OsStr}, os::unix::prelude::{OsStrExt, MetadataExt}, process::Command};
 
 
 use super::identity::Identity;
@@ -285,6 +285,17 @@ pub(crate) trait CommonRoot {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>;
 
+    fn resolv(&self) -> Result<&Self, ()> {
+        let resolv = self.path().join("etc/resolv.conf");
+        if resolv.exists() {
+            remove_file(&resolv).or_else(|e|{
+                eprintln!("Failed to remove resolv from root: {}", e);
+                Err(())
+            })?;
+        }
+        Self::copy_file("/etc/resolv.conf", &resolv)?;
+        Ok(self)
+    }
 
     fn copy_file<P: AsRef<Path>, Q: AsRef<Path>>(source: P, target: Q) 
         -> Result<(), ()> 
@@ -480,7 +491,8 @@ impl OverlayRoot {
                 .overlay()?
                 .base_mounts()?
                 .install_pkgs(pkgs)?
-                .bind_builder(actual_identity)?;
+                .bind_builder(actual_identity)?
+                .resolv()?;
             Ok(())
         })?;
         Ok(root)
