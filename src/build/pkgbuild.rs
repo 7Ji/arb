@@ -47,8 +47,8 @@ use std::{
         thread,
         iter::zip,
     };
-use tempfile::tempdir;
 use xxhash_rust::xxh3::xxh3_64;
+use super::depend::Depends;
 
 #[derive(Clone)]
 enum Pkgver {
@@ -56,7 +56,6 @@ enum Pkgver {
     Func { pkgver: String },
 }
 
-struct Depends (Vec<String>);
 
 // impl Depends {
 //     // Todo: use libalpm instead of running command
@@ -136,7 +135,7 @@ struct Depends (Vec<String>);
 // }
 
 #[derive(Clone)]
-pub(crate) struct PKGBUILD {
+struct PKGBUILD {
     name: String,
     url: String,
     build: PathBuf,
@@ -353,7 +352,7 @@ impl PKGBUILD {
 
     fn extractor_source(&self, actual_identity: &Identity) -> Option<Child> 
     {
-        const SCRIPT: &str = include_str!("../scripts/extract_sources.bash");
+        const SCRIPT: &str = include_str!("../../scripts/extract_sources.bash");
         if let Err(e) = create_dir_all(&self.build) {
             eprintln!("Failed to create build dir: {}", e);
             return None;
@@ -586,10 +585,10 @@ impl PKGBUILD {
 }
 
 struct PkgsDepends (Vec<Depends>);
-struct PKGBUILDs (Vec<PKGBUILD>);
+pub(super) struct PKGBUILDs (Vec<PKGBUILD>);
 
 impl PKGBUILDs {
-    fn from_yaml_config<P: AsRef<Path>>(yaml: P) -> Option<Self> {
+    pub(super) fn from_yaml_config<P: AsRef<Path>>(yaml: P) -> Option<Self> {
         let f = match std::fs::File::open(&yaml) {
             Ok(f) => f,
             Err(e) => {
@@ -655,7 +654,7 @@ impl PKGBUILDs {
     }
 
 
-    fn from_yaml_config_healthy<P:AsRef<Path>>(
+    pub(super) fn from_yaml_config_healthy<P:AsRef<Path>>(
         yaml: P, hold: bool, noclean: bool, proxy: Option<&str>
     ) -> Option<Self>
     {
@@ -980,7 +979,7 @@ impl PKGBUILDs {
         remove_dir("build")
     }
 
-    fn prepare_sources<P: AsRef<Path>>(
+    pub(super) fn prepare_sources<P: AsRef<Path>>(
         &mut self,
         actual_identity: &Identity, 
         dir: P,
@@ -1031,7 +1030,7 @@ impl PKGBUILDs {
         Ok(base_root)
     }
 
-    fn build_any_needed<P: AsRef<Path>>(
+    pub(super) fn build_any_needed<P: AsRef<Path>>(
         &mut self, actual_identity: &Identity, pkgbuilds_dir: P, base_root: &BaseRoot, nonet: bool
     ) 
         -> Result<(), ()>
@@ -1102,7 +1101,7 @@ impl PKGBUILDs {
         if bad { Err(()) } else { Ok(()) }
     }
     
-    fn clean_pkgdir(&self) {
+    pub(super) fn clean_pkgdir(&self) {
         let mut used: Vec<String> = self.0.iter().map(
             |pkgbuild| pkgbuild.pkgid.clone()).collect();
         used.push(String::from("updated"));
@@ -1110,41 +1109,4 @@ impl PKGBUILDs {
         used.sort_unstable();
         source::remove_unused("pkgs", &used);
     }
-}
-
-
-pub(crate) fn work<P: AsRef<Path>>(
-    actual_identity: Identity,
-    pkgbuilds_yaml: P,
-    proxy: Option<&str>,
-    holdpkg: bool,
-    holdgit: bool,
-    skipint: bool,
-    nobuild: bool,
-    noclean: bool,
-    nonet: bool,
-    gmr: Option<&str>,
-) -> Result<(), ()>
-{
-    let gmr = match gmr {
-        Some(gmr) => Some(git::Gmr::init(gmr)),
-        None => None,
-    };
-    let mut pkgbuilds = 
-        PKGBUILDs::from_yaml_config_healthy(
-            &pkgbuilds_yaml, holdpkg, noclean, proxy).ok_or(())?;
-    let pkgbuilds_dir =
-        tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
-    let base_root = pkgbuilds.prepare_sources(&actual_identity, 
-        &pkgbuilds_dir, holdgit, skipint, noclean, proxy, gmr.as_ref())?;
-    if nobuild {
-        return Ok(());
-    }
-    pkgbuilds.build_any_needed(
-        &actual_identity, &pkgbuilds_dir, &base_root, nonet)?;
-    if noclean {
-        return Ok(());
-    }
-    pkgbuilds.clean_pkgdir();
-    Ok(())
 }

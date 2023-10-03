@@ -1,7 +1,7 @@
 use clap::Parser;
 
 mod identity;
-mod pkgbuild;
+mod build;
 mod source;
 mod roots;
 mod threading;
@@ -59,7 +59,7 @@ fn main() {
         },
     };
     let arg = Arg::parse();
-    if let Err(_) = pkgbuild::work(
+    if let Err(_) = build::work(
         actual_identity,
         &arg.pkgbuilds, 
         arg.proxy.as_deref(),
