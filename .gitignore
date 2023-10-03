@@ -1,4 +1,5 @@
 build/
+roots/
 sources/
 target/
 Cargo.lock

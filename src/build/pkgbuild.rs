@@ -58,17 +58,19 @@ enum Pkgver {
 
 #[derive(Clone)]
 struct PKGBUILD {
-    name: String,
-    url: String,
+    base: String,
     build: PathBuf,
+    commit: git2::Oid,
+    depends: Vec<String>,
+    dephash: u64,
+    extract: bool,
     git: PathBuf,
+    names: Vec<String>,
     pkgid: String,
     pkgdir: PathBuf,
-    commit: git2::Oid,
-    dephash: u64,
     pkgver: Pkgver,
-    extract: bool,
     sources: Vec<source::Source>,
+    url: String,
 }
 
 impl source::MapByDomain for PKGBUILD {
@@ -121,43 +123,24 @@ fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
 }
 
 impl PKGBUILD {
-    fn _init(name: &str, url: &str) -> Self {
-        let mut build = PathBuf::from("build");
-        build.push(name);
-        let mut git = PathBuf::from("sources/PKGBUILD");
-        git.push(name);
-        Self {
-            name: name.to_string(),
-            url: url.to_string(),
-            build,
-            git,
-            pkgid: String::new(),
-            pkgdir: PathBuf::from("pkgs"),
-            commit: Oid::zero(),
-            dephash: 0,
-            pkgver: Pkgver::Plain,
-            extract: false,
-            sources: vec![],
-        }
-    }
-
-    fn init_light<P: AsRef<Path>>(
-        name: &str, url: &str, build_parent: P, git_parent: P
-    ) 
-        -> Self 
+    fn new<S: AsRef<str>, P: AsRef<Path>>(
+        name: S, url: S, build_parent: P, git_parent: P
+    ) -> Self 
     {
         Self {
-            name: name.to_string(),
-            url: url.to_string(),
-            build: build_parent.as_ref().join(name),
-            git: git_parent.as_ref().join(name),
+            base: name.as_ref().to_string(),
+            build: build_parent.as_ref().join(name.as_ref()),
+            commit: Oid::zero(),
+            depends: vec![],
+            dephash: 0,
+            extract: false,
+            git: git_parent.as_ref().join(name.as_ref()),
+            names: vec![],
             pkgid: String::new(),
             pkgdir: PathBuf::from("pkgs"),
-            commit: Oid::zero(),
-            dephash: 0,
             pkgver: Pkgver::Plain,
-            extract: false,
             sources: vec![],
+            url: url.as_ref().to_string(),
         }
     }
     // If healthy, return the latest commit id
@@ -175,11 +158,11 @@ impl PKGBUILD {
             Some(id) => id,
             None => {
                 eprintln!("Failed to get commit id for pkgbuild {}",
-                            self.name);
+                            self.base);
                 return None
             },
         };
-        println!("PKGBUILD '{}' at commit '{}'", self.name, commit);
+        println!("PKGBUILD '{}' at commit '{}'", self.base, commit);
         let blob = repo.get_pkgbuild_blob();
         match blob {
             Some(_) => Some(commit),
@@ -209,6 +192,42 @@ impl PKGBUILD {
         file.write_all(blob.content()).or(Err(()))
     }
 
+    /// Parse the PKGBUILD natively in Rust to set some value.
+    /// Currently the only option possibly native to check is pkgver
+    fn parse(&mut self) -> Result<(), ()>{
+        let repo = git::Repo::open_bare(
+            &self.git, &self.url, None).ok_or(())?;
+        let blob = repo.get_pkgbuild_blob().ok_or(())?;
+        let content = String::from_utf8_lossy(blob.content());
+        for mut line in content.lines() {
+            line = line.trim();
+            if line.starts_with("function") {
+                line = line.trim_start_matches("function");
+                line = line.trim_start();
+            }
+            if ! line.starts_with("pkgver") {
+                continue
+            }
+            line = line.trim_start_matches("pkgver");
+            line = line.trim_start();
+            if line.starts_with('(') {
+                line = line.trim_start_matches('(');
+                line = line.trim_start();
+                if line.starts_with(')') {
+                    line = line.trim_start_matches(')');
+                    line = line.trim_start();
+                } else {
+                    continue
+                }
+            } else {
+                continue
+            }
+            println!("Parse: Package '{}' has a pkgver function", self.base);
+            self.pkgver = Pkgver::Func { pkgver: String::new() };
+        }
+        Ok(())
+    }
+
     fn dep_reader_file<P: AsRef<Path>> (
         actual_identity: &Identity, pkgbuild_file: P
     ) -> std::io::Result<Child> 
@@ -229,7 +248,7 @@ impl PKGBUILD {
     fn dep_reader<P: AsRef<Path>>(&self, actual_identity: &Identity, dir: P) 
         -> std::io::Result<Child>
     {
-        let pkgbuild_file = dir.as_ref().join(&self.name);
+        let pkgbuild_file = dir.as_ref().join(&self.base);
         Self::dep_reader_file(actual_identity, &pkgbuild_file)
     }
 
@@ -240,7 +259,7 @@ impl PKGBUILD {
     }
 
     fn get_sources<P: AsRef<Path>> (&mut self, dir: P) -> Result<(), ()> {
-        let pkgbuild_file = dir.as_ref().join(&self.name);
+        let pkgbuild_file = dir.as_ref().join(&self.base);
         match Self::get_sources_file(&pkgbuild_file) {
             Some(sources) => {
                 self.sources = sources;
@@ -254,6 +273,8 @@ impl PKGBUILD {
         actual_identity: &Identity, pkgbuild_file: P
     ) -> std::io::Result<Child> 
     {
+        // let content = std::fs::read_to_string(pkgbuild_file);
+
         actual_identity.set_command(
             Command::new("/bin/bash")
                 .arg("-c")
@@ -268,7 +289,7 @@ impl PKGBUILD {
         &self, actual_identity: &Identity, dir: P)
         -> std::io::Result<Child> 
     {
-        let pkgbuild_file = dir.as_ref().join(&self.name);
+        let pkgbuild_file = dir.as_ref().join(&self.base);
         Self::pkgver_type_reader_file(actual_identity, &pkgbuild_file)
     }
 
@@ -285,7 +306,7 @@ impl PKGBUILD {
         source::extract(&self.build, &self.sources);
         let pkgbuild_dir = self.build.canonicalize().ok()?;
         let mut arg0 = OsString::from("[EXTRACTOR/");
-        arg0.push(&self.name);
+        arg0.push(&self.base);
         arg0.push("] /bin/bash");
         match actual_identity.set_command(
             Command::new("/bin/bash")
@@ -306,14 +327,14 @@ impl PKGBUILD {
 
     fn fill_id_dir(&mut self) {
         let mut pkgid = format!( "{}-{}-{:016x}", 
-            self.name, self.commit, self.dephash);
+            self.base, self.commit, self.dephash);
         if let Pkgver::Func { pkgver } = &self.pkgver {
             pkgid.push('-');
             pkgid.push_str(&pkgver);
         }
         self.pkgdir.push(&pkgid);
         self.pkgid = pkgid;
-        println!("PKGBUILD '{}' pkgid is '{}'", self.name, self.pkgid);
+        println!("PKGBUILD '{}' pkgid is '{}'", self.base, self.pkgid);
     }
 
     fn get_temp_pkgdir(&self) -> Result<PathBuf, ()> {
@@ -463,7 +484,7 @@ impl PKGBUILD {
             actual_identity, nonet, &temp_pkgdir)?;
         let deps = Self::get_deps_file(actual_identity,
             self.build.join("PKGBUILD")).or(Err(()))?;
-        let root = OverlayRoot::new(&self.name, &deps.0)?;
+        let root = OverlayRoot::new(&self.base, &deps.0)?;
         self.build_try(actual_identity, &mut command, &temp_pkgdir)?;
         self.build_finish(&temp_pkgdir)
     }
@@ -533,10 +554,10 @@ impl PKGBUILDs {
         let git_parent = PathBuf::from("sources/PKGBUILD");
         let mut pkgbuilds: Vec<PKGBUILD> = config.iter().map(
             |(name, url)| 
-            PKGBUILD::init_light(name, url, &build_parent, &git_parent)
+            PKGBUILD::new(name, url, &build_parent, &git_parent)
         ).collect();
         pkgbuilds.sort_unstable_by(
-            |a, b| a.name.cmp(&b.name));
+            |a, b| a.base.cmp(&b.base));
         Some(Self(pkgbuilds))
     }
 
@@ -596,7 +617,7 @@ impl PKGBUILDs {
         };
         // Should not need sort, as it's done when pkgbuilds was read
         let used: Vec<String> = pkgbuilds.0.iter().map(
-            |pkgbuild| pkgbuild.name.clone()).collect();
+            |pkgbuild| pkgbuild.base.clone()).collect();
         let cleaner = match noclean {
             true => None,
             false => Some(thread::spawn(move || 
@@ -620,10 +641,10 @@ impl PKGBUILDs {
         let dir = dir.as_ref();
         let mut bad = false;
         for pkgbuild in self.0.iter() {
-            let target = dir.join(&pkgbuild.name);
+            let target = dir.join(&pkgbuild.base);
             if pkgbuild.dump(&target).is_err() {
                 eprintln!("Failed to dump PKGBUILD '{}' to '{}'",
-                    pkgbuild.name, target.display());
+                    pkgbuild.base, target.display());
                 bad = true
             }
         }
@@ -643,7 +664,7 @@ impl PKGBUILDs {
                 Err(e) => {
                     eprintln!(
                         "Failed to spawn dep reader for PKGBUILD '{}': {}",
-                        pkgbuild.name, e);
+                        pkgbuild.base, e);
                     bad = true
                 },
             }
@@ -701,7 +722,7 @@ impl PKGBUILDs {
                 .expect("Failed to wait for child");
             pkgbuild.dephash = xxh3_64(output.stdout.as_slice());
             println!("PKGBUILD '{}' dephash is '{:016x}'", 
-                    pkgbuild.name, pkgbuild.dephash);
+                    pkgbuild.base, pkgbuild.dephash);
         }
     }
 
@@ -723,7 +744,7 @@ impl PKGBUILDs {
         for pkgbuild in self.0.iter_mut() {
             if pkgbuild.get_sources(&dir).is_err() {
                 eprintln!("Failed to get sources for PKGBUILD '{}'", 
-                    pkgbuild.name);
+                    pkgbuild.base);
                 bad = true
             } else {
                 for source in pkgbuild.sources.iter() {
@@ -750,7 +771,7 @@ impl PKGBUILDs {
                 Ok(child) => children.push(child),
                 Err(e) => {
                     eprintln!("Failed to spawn child to identify pkgver type \
-                            for PKGBUILD '{}': {}", pkgbuild.name, e);
+                            for PKGBUILD '{}': {}", pkgbuild.base, e);
                     bad = true;
                 },
             }
