@@ -318,18 +318,17 @@ pub(crate) trait CommonRoot {
     }
 
     fn home(&self, actual_identity: &Identity) -> Result<PathBuf, ()> {
-        Ok(self.path().join(actual_identity.home()?
-            .strip_prefix("/")
-            .or_else(|e| {
+        let home = actual_identity.home()?;
+        let home_suffix = home.strip_prefix("/").or_else(
+            |e| {
                 eprintln!("Failed to strip home prefix: {}", e);
                 Err(())
-            })?)
-            .to_path_buf())
+            })?;
+        Ok(self.path().join(home_suffix))
     }
 
     fn builder(&self, actual_identity: &Identity) -> Result<PathBuf, ()> {
-        let mut builder = self.path().to_owned();
-        builder.push(self.home(actual_identity)?);
+        let mut builder = self.home(actual_identity)?;
         builder.push("builder");
         Ok(builder)
     }
