@@ -467,12 +467,13 @@ impl OverlayRoot {
     }
 
     fn bind_gpg(&self, actual_identity: &Identity) -> Result<&Self, ()> {
-        let gpg = actual_identity.home()?.join(".gnupg");
+        let mut gpg = actual_identity.home()?;
+        gpg.push(".gnupg");
         if ! gpg.exists() {
             return Ok(self)
         }
-        let gpg_chroot = self.home(actual_identity)?
-            .join(".gnupg");
+        let mut gpg_chroot = self.home(actual_identity)?;
+        gpg_chroot.push(".gnupg");
         create_dir(&gpg_chroot).or_else(|e|{
             eprintln!("Failed to create chroot GPG dir: {}", e);
             Err(())
@@ -511,6 +512,7 @@ impl OverlayRoot {
                 .base_mounts()?
                 .install_pkgs(pkgs)?
                 .bind_builder(actual_identity)?
+                .bind_gpg(actual_identity)?
                 .resolv()?;
             Ok(())
         })?;
