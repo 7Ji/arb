@@ -33,7 +33,7 @@ use std::{
         io::Write,
         os::unix::{
             fs::symlink,
-            process::CommandExt
+            process::CommandExt, prelude::OsStrExt
         },
         path::{
             PathBuf,
@@ -766,41 +766,74 @@ impl PKGBUILDs {
         &mut self, actual_identity: &Identity, dir: P
     ) -> Option<Vec<&mut PKGBUILD>> 
     {
-        let _ = remove_dir_recursively("build");
-        let mut bad = false;
-        let mut children = vec![];
+        let mut buffer = vec![];
         for pkgbuild in self.0.iter() {
-            match pkgbuild.pkgver_type_reader(actual_identity, &dir) {
-                Ok(child) => children.push(child),
-                Err(e) => {
-                    eprintln!("Failed to spawn child to identify pkgver type \
-                            for PKGBUILD '{}': {}", pkgbuild.base, e);
-                    bad = true;
-                },
+            for byte in pkgbuild.base.bytes() {
+                buffer.push(byte)
+            }
+            buffer.push(b'\n');
+        }
+        let mut child = match actual_identity.set_command(
+            Command::new("/bin/bash")
+                .arg("-c")
+                .arg(
+                   "cd \"$1\"
+                    while read -r line; do \
+                        source \"$line\"; \
+                        type -t pkgver; \
+                        printf '|'; \
+                        unset -f pkgver; \
+                    done")
+                .arg("Type Identifier")
+                .arg(dir.as_ref())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped()))
+                .stderr(Stdio::null())
+            .spawn() 
+        {
+            Ok(child) => child,
+            Err(e) => {
+                eprintln!("Failed to spawn child to read pkgver types");
+                return None
+            },
+        };
+        let mut stdin = match child.stdin.take() {
+            Some(stdin) => stdin,
+            None => {
+                eprintln!("Failed to open stdin");
+                child.kill().expect("Failed to kill child");
+                return None
+            },
+        };
+        match stdin.write_all(&buffer) {
+            Ok(_) => (),
+            Err(e) => {
+                eprintln!("Failed to write to child stdin: {}", e);
+                child.kill().expect("Failed to kill child");
+                return None
+            },
+        }
+        drop(stdin);
+        let output = match child.wait_with_output() {
+            Ok(output) => output,
+            Err(e) => {
+                eprintln!("Failed to wait for spawned script: {}", e);
+                return None
+            },
+        };
+        let mut types: Vec<&[u8]> = 
+            output.stdout.split(|byte| *byte == b'|').collect();
+        types.pop().expect("Failed to remove last element in types");
+        assert!(types.len() == self.0.len());
+        let mut pkgbuilds_with_pkgver_func = vec![];
+        for (pkgbuild, pkgver_type) in 
+            zip(self.0.iter_mut(), types.iter()) 
+        {
+            if pkgver_type == b"function\n" {
+                pkgbuilds_with_pkgver_func.push(pkgbuild)
             }
         }
-        let mut pkgbuilds = vec![];
-        for (child, pkgbuild) in 
-            zip(children, self.0.iter_mut()) 
-        {
-            match child.wait_with_output() {
-                Ok(output) => 
-                    if output.stdout.ends_with(b"function\n") 
-                    {
-                        pkgbuilds.push(pkgbuild);
-                    },
-                Err(e) => {
-                    eprintln!("Failed to wait for spawned script: {}", e);
-                    bad = true;
-                },
-            };
-        }
-        if bad {
-            eprintln!("Failed to filter PKGBUILDs to get those with pkgver()");
-            None
-        } else {
-            Some(pkgbuilds)
-        }
+        Some(pkgbuilds_with_pkgver_func)
     }
 
     fn extract_sources_many(
@@ -833,6 +866,7 @@ impl PKGBUILDs {
     {
         let mut pkgbuilds = 
             self.filter_with_pkgver_func(actual_identity, dir).ok_or(())?;
+        let _ = remove_dir_recursively("build");
         Self::extract_sources_many(actual_identity, &mut pkgbuilds)?;
         let children: Vec<Child> = pkgbuilds.iter().map(
         |pkgbuild|
@@ -1044,7 +1078,6 @@ impl PKGBUILDs {
         }
         let _ = thread_cleaner.join()
             .expect("Failed to join cleaner thread");
-        std::thread::sleep(std::time::Duration::from_secs(100));
         if bad { Err(()) } else { Ok(()) }
     }
     
