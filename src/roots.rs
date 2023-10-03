@@ -57,7 +57,7 @@ fn mount<S: AsRef<OsStr>>(
 ) 
     -> Result<(), ()> 
 {
-    let (src, src_ptr) = 
+    let (_, src_ptr) = 
         cstring_and_ptr_from_optional_osstr(src)?;
     let target = match CString::new(target.as_ref().as_bytes()) {
         Ok(target) => target,
@@ -67,9 +67,9 @@ fn mount<S: AsRef<OsStr>>(
             return Err(())
         },
     };
-    let (fstype, fstype_ptr) = 
+    let (_, fstype_ptr) = 
         cstring_and_ptr_from_optional_osstr(fstype)?;
-    let (data, data_ptr) = 
+    let (_, data_ptr) = 
         cstring_and_ptr_from_optional_osstr(data)?;
     // println!("Mounting {:?} to {:?}, type {:?}, data {:?}", 
     //     &src, &target, &fstype, &data);
@@ -343,7 +343,8 @@ impl OverlayRoot {
         Ok(self)
     }
 
-    /// Different from base, overlay would have two folders, a work, and a union
+    /// Different from base, overlay would have upper, work, and merged.
+    /// Note that the pkgs here can only come from repos, not as raw pkg files.
     pub(crate) fn new(name: &str, pkgs: &Vec<String>) -> Result<Self, ()> 
     {
         println!("Creating overlay chroot '{}'", name);
