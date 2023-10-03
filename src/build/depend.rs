@@ -1,7 +1,9 @@
-use std::hash::Hasher;
+use std::{hash::Hasher, process::Command};
 
 use alpm::{self, Package};
-use xxhash_rust::xxh3::{self, Xxh3};
+use xxhash_rust::xxh3;
+
+use crate::identity::Identity;
 
 #[derive(Clone)]
 pub(super) struct Depends (pub(super) Vec<String>);
@@ -76,31 +78,7 @@ impl DbHandle {
     }
 }
 
-fn update_hash_from_opt_str(hash: &mut Xxh3, opt_str: Option<&str>) {
-    if let Some(content) = opt_str {
-        hash.update(content.as_bytes())
-    }
-}
-
 impl Depends {
-    // pub(super) fn needed(&self, db_handle: &DbHandle) -> Result<Vec<String>, ()>
-    // {
-    //     let mut needs = vec![];
-    //     for dep in self.0.iter() {
-    //         match db_handle.find_satisfier(dep) {
-    //             Some(dep) => needs.push(dep),
-    //             None => {
-    //                 eprintln!("Warning: dep {} not found", dep);
-    //                 return Err(())
-    //             },
-    //         }
-    //     }
-    //     needs.sort_unstable();
-    //     needs.dedup();
-    //     needs.retain(|pkg|!db_handle.is_installed(pkg));
-    //     Ok(needs)
-    // }
-
     pub(super) fn needed_and_hash(&self, db_handle: &DbHandle) 
         -> Result<(Vec<String>, u64), ()> 
     {
@@ -139,5 +117,34 @@ impl Depends {
         needs.dedup();
         needs.retain(|pkg|!db_handle.is_installed(pkg));
         Ok((needs, hash.finish()))
+    }
+
+    pub(super) fn cache<S: AsRef<str>>(&self, root: S) -> Result<(), ()> {
+        if self.0.len() == 0 {
+            return Ok(())
+        }
+        println!("Caching the following dependencies on host: {:?}", self.0);
+        let mut child = match Identity::set_root_command(
+            Command::new("/usr/bin/pacman")
+                .env("LANG", "C")
+                .arg("-S")
+                .arg("--root")
+                .arg(root.as_ref())
+                .arg("--noconfirm")
+                .arg("--downloadonly")
+                .args(&self.0)
+            ).spawn() 
+        {
+            Ok(child) => child,
+            Err(e) => {
+                eprintln!("Failed to spawn child: {}", e);
+                return Err(());
+            },
+        };
+        if child.wait().unwrap().code().unwrap() != 0 {
+            eprintln!("Download-only command failed to execute correctly");
+            return Err(())
+        }
+        Ok(())
     }
 }

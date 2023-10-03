@@ -265,7 +265,10 @@ impl BaseRoot {
             .arg("--noconfirm")
             .arg("base-devel");
         Identity::set_root_command(&mut command);
-        command.spawn().unwrap().wait().unwrap();
+        if command.spawn().unwrap().wait().unwrap().code().unwrap() != 0 {
+            eprintln!("Install command failed to execute correctly");
+            return Err(())
+        }
         Ok(self)
     }
 
