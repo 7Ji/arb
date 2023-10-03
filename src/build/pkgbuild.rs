@@ -357,6 +357,7 @@ impl PKGBUILD {
     fn get_build_command(
         &self,
         actual_identity: &Identity,
+        root: &OverlayRoot,
         nonet: bool,
         temp_pkgdir: &Path
     ) 
@@ -384,11 +385,14 @@ impl PKGBUILD {
                 .arg("--ignorearch");
             command
         };
-        let pkgdest = temp_pkgdir.canonicalize().or(Err(()))?;
-        actual_identity.set_command(&mut command)
-            .current_dir(&self.build)
+        let mut pkgdest = actual_identity.home()?;
+        pkgdest.push("builder");
+        pkgdest.push(temp_pkgdir);
+        actual_identity.set_chroot_drop_command(&mut command, 
+            root.path().canonicalize().or(Err(()))?)
+            .current_dir(root.builder(actual_identity)?.join(&self.build))
             .arg0(format!("[BUILDER/{}] /bin/bash", self.pkgid))
-            .env("PKGDEST", pkgdest);
+            .env("PKGDEST", &pkgdest);
         Ok(command)
     }
 
@@ -420,9 +424,17 @@ impl PKGBUILD {
                     &self.pkgid, i + 1 , BUILD_MAX_TRIES);
             let exit_status = command
                 .spawn()
-                .or(Err(()))?
+                .or_else(|e|{
+                    eprintln!("Failed to spawn child with command {:?}: {}",
+                        command, e);
+                    Err(())
+                })?
                 .wait()
-                .or(Err(()))?;
+                .or_else(|e|{
+                    eprintln!("Failed to wait child with command {:?}: {}",
+                        command, e);
+                    Err(())
+                })?;
             if let Err(e) = remove_dir_recursively(&self.build) 
             {
                 eprintln!("Failed to remove build dir '{}': {}",
@@ -484,11 +496,15 @@ impl PKGBUILD {
         -> Result<(), ()> 
     {
         let temp_pkgdir = self.get_temp_pkgdir()?;
-        let mut command = self.get_build_command(
-            actual_identity, nonet, &temp_pkgdir)?;
         let root = OverlayRoot::new(
             &self.base, actual_identity, &self.depends)?;
-        self.build_try(actual_identity, &mut command, &temp_pkgdir)?;
+        let mut command = self.get_build_command(
+            actual_identity, &root, nonet, &temp_pkgdir)?;
+        self.build_try(actual_identity, &mut command, &temp_pkgdir).or_else(|_|{
+            eprintln!("Boom, waiting for 100 seconds");
+            std::thread::sleep(std::time::Duration::from_secs(100));
+            Err(())
+        })?;
         self.build_finish(&temp_pkgdir)
     }
 
