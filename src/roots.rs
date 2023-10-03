@@ -308,6 +308,13 @@ pub(crate) trait CommonRoot {
             })?
             .to_path_buf())
     }
+
+    fn builder(&self, actual_identity: &Identity) -> Result<PathBuf, ()> {
+        let mut builder = self.path().to_owned();
+        builder.push(self.home(actual_identity)?);
+        builder.push("builder");
+        Ok(builder)
+    }
 }
 
 impl BaseRoot {
@@ -362,10 +369,7 @@ impl BaseRoot {
             .copy_file_same("etc/shadow")?
             .copy_file_same("etc/makepkg.conf")?
             .create_home(actual_identity)?;
-        let mut builder = self.path().to_owned();
-        builder.push(self.home(actual_identity)?);
-        builder.push("builder");
-        create_dir(&builder)
+        create_dir(&self.builder(actual_identity)?)
             .or_else(|e|{
                 eprintln!("Failed to create chroot builder dir: {}", e);
                 Err(())
@@ -435,9 +439,23 @@ impl OverlayRoot {
         Ok(self)
     }
 
+    fn bind_builder(&self, actual_identity: &Identity) -> Result<&Self, ()> {
+        mount(Some("."),
+            &self.builder(actual_identity)?,
+            None,
+            libc::MS_BIND,
+            None)?;
+        Ok(self)
+    }
+
     /// Different from base, overlay would have upper, work, and merged.
     /// Note that the pkgs here can only come from repos, not as raw pkg files.
-    pub(crate) fn new(name: &str, pkgs: &Vec<String>) -> Result<Self, ()> 
+    pub(crate) fn new<I, S>(
+        name: &str, actual_identity: &Identity, pkgs: I
+    ) -> Result<Self, ()> 
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr> 
     {
         println!("Creating overlay chroot '{}'", name);
         let parent = PathBuf::from(format!("roots/overlay-{}", name));
@@ -454,7 +472,8 @@ impl OverlayRoot {
             root.remove()?
                 .overlay()?
                 .base_mounts()?
-                .install_pkgs(pkgs)?;
+                .install_pkgs(pkgs)?
+                .bind_builder(actual_identity)?;
             Ok(())
         })?;
         Ok(root)

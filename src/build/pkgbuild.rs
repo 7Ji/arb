@@ -487,7 +487,7 @@ impl PKGBUILD {
         let mut command = self.get_build_command(
             actual_identity, nonet, &temp_pkgdir)?;
         let root = OverlayRoot::new(
-            &self.base, &self.depends)?;
+            &self.base, actual_identity, &self.depends)?;
         self.build_try(actual_identity, &mut command, &temp_pkgdir)?;
         self.build_finish(&temp_pkgdir)
     }
