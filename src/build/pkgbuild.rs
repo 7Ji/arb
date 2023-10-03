@@ -194,7 +194,9 @@ impl PKGBUILD {
 
     /// Parse the PKGBUILD natively in Rust to set some value.
     /// Currently the only option possibly native to check is pkgver
-    fn parse(&mut self) -> Result<(), ()>{
+    /// 
+    /// To-be-fixed: fake positive on aur/usbrelay
+    fn _parse(&mut self) -> Result<(), ()>{
         let repo = git::Repo::open_bare(
             &self.git, &self.url, None).ok_or(())?;
         let blob = repo.get_pkgbuild_blob().ok_or(())?;
@@ -224,6 +226,7 @@ impl PKGBUILD {
             }
             println!("Parse: Package '{}' has a pkgver function", self.base);
             self.pkgver = Pkgver::Func { pkgver: String::new() };
+            return Ok(())
         }
         Ok(())
     }
