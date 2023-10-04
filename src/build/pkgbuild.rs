@@ -923,8 +923,10 @@ impl PKGBUILDs {
             true
         };
         // Should not need sort, as it's done when pkgbuilds was read
-        let used: Vec<String> = pkgbuilds.0.iter().map(
-            |pkgbuild| pkgbuild.base.clone()).collect();
+        let mut used: Vec<String> = pkgbuilds.0.iter().map(|pkgbuild|
+            format!("{:016x}", xxh3_64(pkgbuild.url.as_bytes()))).collect();
+        used.sort_unstable();
+        used.dedup();
         let cleaner = match noclean {
             true => None,
             false => Some(thread::spawn(move || 
