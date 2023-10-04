@@ -370,6 +370,7 @@ impl PKGBUILD {
         let mut temp_name = self.pkgid.clone();
         temp_name.push_str(".temp");
         let temp_pkgdir = self.pkgdir.with_file_name(temp_name);
+        let _ = remove_dir_all(&temp_pkgdir);
         match create_dir_all(&temp_pkgdir) {
             Ok(_) => Ok(temp_pkgdir),
             Err(e) => {
@@ -422,10 +423,12 @@ impl PKGBUILD {
     }
 
     fn remove_build(&mut self) -> Result<(), ()> {
-        remove_dir_all(&self.build).or_else(|e|{
-            eprintln!("Failed to remove build folder naively: {}", e);
-            Err(())
-        })?;
+        match remove_dir_all(&self.build) {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                eprintln!("Failed to remove build folder naively: {}", e);
+            },
+        }
         remove_dir_recursively(&self.build).or_else(|e|{
             eprintln!("Failed to remove build folder recursively: {}", e);
             Err(())
