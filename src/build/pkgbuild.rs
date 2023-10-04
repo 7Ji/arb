@@ -73,7 +73,7 @@ struct PKGBUILD {
 }
 
 struct Builder<'a> {
-    pkgbuild: &'a PKGBUILD,
+    pkgbuild: &'a mut PKGBUILD,
     temp_pkgdir: PathBuf,
     command: Command,
     root: OverlayRoot,
@@ -337,6 +337,23 @@ impl PKGBUILD {
         }
     }
 
+    fn extract_source(&self, actual_identity: &Identity) -> Result<(), ()> {
+        if self.extractor_source(actual_identity).ok_or_else(||{
+            eprintln!("Failed to spawn child to extract source");
+        })?
+            .wait().or_else(|e|{
+                eprintln!("Failed to wait for extractor: {}", e);
+                Err(())
+            })?
+            .code().ok_or_else(||{
+                eprintln!("Failed to get extractor return code");
+            })? == 0 {
+                Ok(())
+            } else {
+                Err(())
+            }
+    }
+
     fn fill_id_dir(&mut self) {
         let mut pkgid = format!( "{}-{}-{:016x}", 
             self.base, self.commit, self.dephash);
@@ -402,6 +419,21 @@ impl PKGBUILD {
             .arg0(format!("[BUILDER/{}] /bin/bash", self.pkgid))
             .env("PKGDEST", &pkgdest);
         Ok(command)
+    }
+
+    fn remove_build(&mut self) -> Result<(), ()> {
+        remove_dir_all(&self.build).or_else(|e|{
+            eprintln!("Failed to remove build folder naively: {}", e);
+            Err(())
+        })?;
+        remove_dir_recursively(&self.build).or_else(|e|{
+            eprintln!("Failed to remove build folder recursively: {}", e);
+            Err(())
+        })?;
+        remove_dir(&self.build).or_else(|e|{
+            eprintln!("Failed to remove build folder itself: {}", e);
+            Err(())
+        })
     }
 
     fn build_try(
@@ -500,7 +532,7 @@ impl PKGBUILD {
         Ok(())
     }
 
-    fn builder(&self, actual_identity: &Identity, nonet: bool) 
+    fn builder(&mut self, actual_identity: &Identity, nonet: bool) 
         -> Result<Builder, ()> 
     {
         let temp_pkgdir = self.get_temp_pkgdir()?;
@@ -563,10 +595,11 @@ struct Builders<'a> (Vec<Builder<'a>>);
 
 impl<'a> Builders<'a> {
     const BUILD_MAX_TRIES: usize = 3;
-    fn wait_noop(&mut self) -> bool {
+    fn wait_noop(&mut self, actual_identity: &Identity) -> bool {
         let mut bad = false;
-        let mut finished = None;
+        let mut finished_good = false;
         loop {
+            let mut finished = None;
             for (id, builder) in 
                 self.0.iter_mut().enumerate() 
             {
@@ -575,7 +608,7 @@ impl<'a> Builders<'a> {
                         Some(status) => status,
                         None => continue,
                     }
-                    Err(e) => {
+                    Err(e) => { // Kill bad child
                         eprintln!("Failed to wait for child: {}", e);
                         if let Err(e) = builder.child.kill() {
                             eprintln!("Failed to kill child: {}", e);
@@ -585,6 +618,11 @@ impl<'a> Builders<'a> {
                         break
                     },
                 };
+                if builder.pkgbuild.remove_build().is_err() {
+                    finished = Some(id);
+                    bad = true;
+                    break
+                }
                 let code = match status.code() {
                     Some(code) => code,
                     None => {
@@ -596,11 +634,18 @@ impl<'a> Builders<'a> {
                 };
                 if code == 0 {
                     finished = Some(id);
+                    finished_good = true;
                     break
                 }
                 eprintln!("Bad retrun from child: {}", code);
                 if builder.tries >= Self::BUILD_MAX_TRIES {
                     eprintln!("Max tries met, giving up");
+                    finished = Some(id);
+                    bad = true;
+                    break
+                }
+                if builder.pkgbuild.extract_source(actual_identity).is_err() {
+                    eprintln!("Failed to re-extract source to rebuild");
                     finished = Some(id);
                     bad = true;
                     break
@@ -614,14 +659,28 @@ impl<'a> Builders<'a> {
                         bad = true;
                         break
                     },
-                }
+                };
             }
             let builder = match finished {
                 Some(finished) => self.0.swap_remove(finished),
                 None => break,
             };
-            if builder.pkgbuild.build_finish(&builder.temp_pkgdir).is_err() {
-                bad = true
+            if finished_good {
+                if builder.pkgbuild
+                    .build_finish(&builder.temp_pkgdir).is_err() 
+                {
+                    eprintln!(
+                        "Failed to finish build for {}", &builder.pkgbuild.base);
+                    bad = true
+                }
+            } else {
+                if let Err(e) = remove_dir_all(
+                    &builder.temp_pkgdir
+                ) {
+                    eprintln!("Failed to remove temp pkg dir for failed \
+                            build: {}", e);
+                    bad = true
+                }
             }
         }
         bad
@@ -1126,12 +1185,15 @@ impl PKGBUILDs {
             Err(())
         })?;
         let cores = cpuinfo.num_cores();
-        let mut builders: Vec<Builder> = Vec::new();
-        for pkgbuild in self.0.iter() {
+        let mut builders = Builders(vec![]);
+        for pkgbuild in self.0.iter_mut() {
             if ! pkgbuild.extract {
                 continue
             }
             loop { // Wait for CPU resource
+                if builders.wait_noop(actual_identity) {
+                    bad = true
+                }
                 let heavy_load = match procfs::LoadAverage::new() {
                     Ok(load_avg) => load_avg.one >= cores as f32,
                     Err(e) => {
@@ -1139,8 +1201,11 @@ impl PKGBUILDs {
                         true
                     },
                 };
-                if builders.len() < 4 && !heavy_load {
+                if builders.0.len() < 4 && !heavy_load {
                     break
+                } else {
+                    std::thread::sleep(
+                        std::time::Duration::from_millis(100))
                 }
             }
             let builder = match 
@@ -1152,7 +1217,13 @@ impl PKGBUILDs {
                     continue
                 },
             };
-            builders.push(builder)
+            builders.0.push(builder)
+        }
+        while builders.0.len() > 0 {
+            if builders.wait_noop(actual_identity) {
+                bad = true
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100))
         }
         let thread_cleaner =
             thread::spawn(|| remove_dir_recursively("build"));
