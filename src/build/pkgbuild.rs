@@ -1205,11 +1205,12 @@ impl PKGBUILDs {
     }
     
     fn extract_if_need_build(&mut self, actual_identity: &Identity) 
-        -> Result<(), ()> 
+        -> Result<u32, ()> 
     {
         let mut pkgbuilds_need_build = vec![];
         let mut cleaners = vec![];
         let mut bad = false;
+        let mut need_build = 0;
         for pkgbuild in self.0.iter_mut() {
             let mut built = false;
             if let Ok(mut dir) = pkgbuild.pkgdir.read_dir() {
@@ -1237,6 +1238,7 @@ impl PKGBUILDs {
                     pkgbuild.extract = true;
                     pkgbuilds_need_build.push(pkgbuild);
                 }
+                need_build += 1;
             }
         }
         if let Err(_) = Self::extract_sources_many(actual_identity, 
@@ -1249,7 +1251,7 @@ impl PKGBUILDs {
         {
             bad = true
         }
-        if bad { Err(()) } else { Ok(()) }
+        if bad { Err(()) } else { Ok(need_build) }
     }
 
     fn remove_builddir() -> Result<(), std::io::Error> {
@@ -1273,7 +1275,7 @@ impl PKGBUILDs {
         noclean: bool,
         proxy: Option<&str>,
         gmr: Option<&git::Gmr>
-    ) -> Result<BaseRoot, ()> 
+    ) -> Result<Option<BaseRoot>, ()> 
     {
         let cleaner = match 
             PathBuf::from("build").exists() 
@@ -1303,17 +1305,24 @@ impl PKGBUILDs {
         };
         self.fill_all_pkgvers(actual_identity, &dir)?;
         // Use the fresh DBs in target root
-        let base_root = BaseRoot::new(actual_identity)?;
+        let base_root = BaseRoot::db_only()?;
         self.check_deps(actual_identity, dir.as_ref(), base_root.as_str())?;
         self.fill_all_ids_dirs();
-        self.extract_if_need_build(actual_identity)?;
+        let need_builds = self.extract_if_need_build(actual_identity)? > 0;
+        if need_builds {
+            base_root.finish(actual_identity)?;
+        }
         if let Some(cleaners) = cleaners {
             for cleaner in cleaners {
                 cleaner.join()
                 .expect("Failed to join sources cleaner thread");
             }
         }
-        Ok(base_root)
+        if need_builds {
+            Ok(Some(base_root))
+        } else {
+            Ok(None)
+        }
     }
 
     pub(super) fn build_any_needed(

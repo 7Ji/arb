@@ -28,15 +28,20 @@ pub(crate) fn work(
             pkgbuilds_config, holdpkg, noclean, proxy, gmr.as_ref())?;
     let pkgbuilds_dir =
         tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
-    let _base_root = pkgbuilds.prepare_sources(&actual_identity, 
-        &pkgbuilds_dir, holdgit, skipint, noclean, proxy, gmr.as_ref())?;
-    if nobuild {
-        return Ok(());
+    match pkgbuilds.prepare_sources(&actual_identity, 
+        &pkgbuilds_dir, holdgit, skipint, noclean, proxy, gmr.as_ref())? 
+    {
+        Some(_root) => {
+            if ! nobuild {
+                pkgbuilds.build_any_needed(&actual_identity, nonet, sign)?
+            }
+        },
+        None => {
+            println!("No need to build any packages");
+        },
+    };
+    if ! noclean {
+        pkgbuilds.clean_pkgdir();
     }
-    pkgbuilds.build_any_needed(&actual_identity, nonet, sign)?;
-    if noclean {
-        return Ok(());
-    }
-    pkgbuilds.clean_pkgdir();
     Ok(())
 }

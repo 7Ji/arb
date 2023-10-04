@@ -250,41 +250,65 @@ pub(crate) trait CommonRoot {
         Ok(self)
     }
 
-    fn install_pkgs_raw<I, S>(&self, base: bool, pkgs: I) 
+    // Todo: split out common wait child parts
+    fn refresh_dbs(&self) -> Result<&Self, ()> {
+        let mut child = match Command::new("/usr/bin/pacman")
+            .env("LANG", "C")
+            .arg("-Sy")
+            .arg("--root")
+            .arg(self.path().canonicalize().or(Err(()))?)
+            .spawn() {
+                Ok(child) => child,
+                Err(e) => {
+                    eprintln!(
+                        "Failed to spawn child to refresh dbs: {}", e);
+                    return Err(())
+                },
+            };
+        let status = match child.wait() {
+            Ok(status) => status,
+            Err(e) => {
+                eprintln!(
+                    "Failed to wait for child refreshing dbs: {}", e);
+                return Err(())
+            },
+        };
+        let code = match status.code() {
+            Some(code) => code,
+            None => {
+                eprintln!("Failed to get return code for child refreshing dbs");
+                return Err(())     
+            },
+        };
+        if code != 0 {
+            eprintln!("Failed to execute refresh command, return: {}", code);
+            return Err(())
+        }
+        Ok(self)
+    }
+
+    fn install_pkgs<I, S>(&self, pkgs: I) 
         -> Result<&Self, ()> 
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let mut command = Command::new("/usr/bin/pacman");
-        command.env("LANG", "C");
-        if base {
-            command.arg("-Sy");
-        } else {
-            command.arg("-S");
-        }
-        command
+        let mut child = match Command::new("/usr/bin/pacman")
+            .env("LANG", "C")
+            .arg("-S")
             .arg("--root")
             .arg(self.path().canonicalize().or(Err(()))?)
-            .arg("--noconfirm");
-        if ! base {
-            command.arg("--needed");
-        }      
-        let mut has_pkg = false;
-        for pkg in pkgs {
-            command.arg(pkg);
-            has_pkg = true
-        }
-        if ! has_pkg {
-            return Ok(self)
-        }
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(e) => {
-                eprintln!("Failed to spawn child to install base pkgs: {}", e);
-                return Err(())
-            },
-        };
+            .arg("--noconfirm")
+            .arg("--needed")
+            .args(pkgs)
+            .spawn() {
+                Ok(child) => child,
+                Err(e) => {
+                    eprintln!(
+                        "Failed to spawn child to install base pkgs: {}", e);
+                    return Err(())
+                },
+            };
         let status = match child.wait() {
             Ok(status) => status,
             Err(e) => {
@@ -306,11 +330,6 @@ pub(crate) trait CommonRoot {
         }
         Ok(self)
     }
-
-    fn install_pkgs<I, S>(&self, pkgs: I) -> Result<&Self, ()>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<OsStr>;
 
     fn resolv(&self) -> Result<&Self, ()> {
         let resolv = self.path().join("etc/resolv.conf");
@@ -402,6 +421,7 @@ impl BaseRoot {
 
     /// Root is expected
     fn create_home(&self, actual_identity: &Identity) -> Result<&Self, ()> {
+        // std::thread::sleep(std::time::Duration::from_secs(100));
         Identity::run_chroot_command(
             Command::new("/usr/bin/mkhomedir_helper")
                 .arg(actual_identity.user()?),
@@ -434,9 +454,24 @@ impl BaseRoot {
         Ok(self)
     }
 
+    pub(crate) fn db_only() -> Result<Self, ()> {
+        Identity::as_root(||MountedFolder::remove_all())?;
+        println!("Creating base chroot (DB only)");
+        let root = Self(MountedFolder(PathBuf::from("roots/base")));
+        Identity::as_root(||{
+            root.remove()?
+                .base_layout()?
+                .bind_self()?
+                .base_mounts()?
+                .refresh_dbs()?;
+            Ok(())
+        })?;
+        Ok(root)
+    }
+
     /// Create a base rootfs containing the minimum packages and user setup
     /// This should not be used directly for building packages
-    pub(crate) fn new(actual_identity: &Identity) -> Result<Self, ()> {
+    pub(crate) fn _new(actual_identity: &Identity) -> Result<Self, ()> {
         Identity::as_root(||MountedFolder::remove_all())?;
         println!("Creating base chroot");
         let root = Self(MountedFolder(PathBuf::from("roots/base")));
@@ -445,25 +480,30 @@ impl BaseRoot {
                 .base_layout()?
                 .bind_self()?
                 .base_mounts()?
+                .refresh_dbs()?
                 .setup(actual_identity)?
                 .umount_recursive()?;
             Ok(())
         })?;
         Ok(root)
     }
+
+    /// Finish a DB-only base root
+    pub(crate) fn finish(&self, actual_identity: &Identity) 
+        -> Result<&Self, ()> 
+    {
+        Identity::as_root(||{
+            self.setup(actual_identity)?
+                .umount_recursive()?;
+            Ok(())
+        })?;
+        Ok(self)
+    }
 }
 
 impl CommonRoot for BaseRoot {
     fn path(&self) -> &Path {
         self.0.0.as_path()
-    }
-
-    fn install_pkgs<I, S>(&self, pkgs: I) -> Result<&Self, ()>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<OsStr> 
-    {
-        self.install_pkgs_raw(true, pkgs)
     }
 }
 
@@ -578,14 +618,6 @@ impl OverlayRoot {
 impl CommonRoot for OverlayRoot {
     fn path(&self) -> &Path {
         self.merged.0.as_path()
-    }
-
-    fn install_pkgs<I, S>(&self, pkgs: I) -> Result<&Self, ()>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<OsStr> 
-    {
-        self.install_pkgs_raw(false, pkgs)
     }
 }
     
