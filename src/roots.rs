@@ -166,6 +166,8 @@ impl Drop for MountedFolder {
 }
 
 pub(crate) trait CommonRoot {
+    const BUILDER_DIRS: [&'static str; 3] = ["build", "pkgs", "sources"];
+
     fn path(&self) -> &Path;
     fn db_path(&self) -> PathBuf {
         self.path().join("var/lib/pacman")
@@ -335,9 +337,14 @@ pub(crate) trait CommonRoot {
     }
 
     fn builder(&self, actual_identity: &Identity) -> Result<PathBuf, ()> {
-        let mut builder = self.home(actual_identity)?;
-        builder.push("builder");
-        Ok(builder)
+        let home = actual_identity.home()?;
+        let cwd = actual_identity.cwd()?;
+        let suffix = cwd.strip_prefix(&home).or_else(
+            |e|{
+                eprintln!("Failed to strip suffix from home: {}", e);
+                Err(())
+            })?;
+        Ok(self.path().join(suffix))
     }
 }
 
@@ -394,14 +401,13 @@ impl BaseRoot {
             .copy_file_same("etc/shadow")?
             .copy_file_same("etc/makepkg.conf")?
             .create_home(actual_identity)?;
-        let dirs = [
-            &builder,
-            &builder.join("build"), 
-            &builder.join("pkgs"), 
-            &builder.join("sources")
-        ];
-        for dir in dirs {
-            create_dir(dir)
+        create_dir_all(&builder)
+            .or_else(|e|{
+                eprintln!("Failed to create chroot builder dir: {}", e);
+                Err(())
+            })?;
+        for dir in Self::BUILDER_DIRS {
+            create_dir(builder.join(dir))
                 .or_else(|e|{
                     eprintln!("Failed to create chroot builder dir: {}", e);
                     Err(())
@@ -475,7 +481,7 @@ impl OverlayRoot {
 
     fn bind_builder(&self, actual_identity: &Identity) -> Result<&Self, ()> {
         let builder = self.builder(actual_identity)?;
-        for dir in ["build", "pkgs", "sources"] {
+        for dir in Self::BUILDER_DIRS {
             mount(Some(dir),
                 &builder.join(dir),
                 None,

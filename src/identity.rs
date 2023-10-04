@@ -7,7 +7,7 @@ use std::{
 #[derive(Clone)]
 struct Environment {
     shell: OsString,
-    pwd: OsString,
+    cwd: OsString,
     home: OsString,
     lang: OsString,
     user: OsString,
@@ -23,7 +23,7 @@ impl Environment {
         };
         Some(Self {
             shell: OsString::from("/bin/bash"),
-            pwd: std::env::current_dir().ok()?.as_os_str().to_os_string(),
+            cwd: std::env::current_dir().ok()?.as_os_str().to_os_string(),
             home: OsString::from_vec(pw_dir.to_vec()),
             lang: OsString::from("en_US.UTF-8"),
             user: OsString::from_str(name).ok()?,
@@ -37,7 +37,7 @@ impl Environment {
             .env_remove("SUDO_GID")
             .env_remove("SUDO_USER")
             .env("SHELL", &self.shell)
-            .env("PWD", &self.pwd)
+            .env("PWD", &self.cwd)
             .env("LOGNAME", &self.user)
             .env("HOME", &self.home)
             .env("LANG", &self.lang)
@@ -380,5 +380,14 @@ impl Identity {
         }
         eprint!("Failed to get user name, this should not happen");
         Err(())
+    }
+
+    pub(crate) fn cwd(&self) -> Result<PathBuf, ()> {
+        if let Some(env) = &self.env {
+            Ok(PathBuf::from(&env.cwd))
+        } else {
+            eprint!("Failed to get home dir, this should not happen");
+            Err(())
+        }
     }
 }
