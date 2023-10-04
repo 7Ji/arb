@@ -14,6 +14,7 @@ pub(crate) fn work<P: AsRef<std::path::Path>>(
     noclean: bool,
     nonet: bool,
     gmr: Option<&str>,
+    sign: Option<&str>
 ) -> Result<(), ()>
 {
     let gmr = match gmr {
@@ -30,7 +31,7 @@ pub(crate) fn work<P: AsRef<std::path::Path>>(
     if nobuild {
         return Ok(());
     }
-    pkgbuilds.build_any_needed(&actual_identity, nonet)?;
+    pkgbuilds.build_any_needed(&actual_identity, nonet, sign)?;
     if noclean {
         return Ok(());
     }

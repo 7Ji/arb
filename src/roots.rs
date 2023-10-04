@@ -468,7 +468,7 @@ impl CommonRoot for BaseRoot {
 }
 
 impl OverlayRoot {
-    const HOME_DIRS: [&str; 3] = [".cargo", ".gnupg", "go"];
+    const HOME_DIRS: [&str; 2] = [".cargo", "go"];
     fn remove(&self) -> Result<&Self, ()> {
         if self.merged.remove().is_err() {
             return Err(())

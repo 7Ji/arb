@@ -46,6 +46,10 @@ struct Arg {
     /// The mirror would be tried first before actual git remote
     #[arg(short='g', long)]
     gmr: Option<String>,
+
+    /// The GnuPG key ID used to sign packages
+    #[arg(short, long)]
+    sign: Option<String>
 }
 
 fn main() {
@@ -69,7 +73,8 @@ fn main() {
         arg.nobuild,
         arg.noclean,
         arg.nonet,
-        arg.gmr.as_deref()) 
+        arg.gmr.as_deref(),
+        arg.sign.as_deref()) 
     {
         std::process::exit(-1)
     }

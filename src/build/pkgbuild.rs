@@ -384,40 +384,28 @@ impl PKGBUILD {
         &self,
         actual_identity: &Identity,
         root: &OverlayRoot,
-        nonet: bool,
         temp_pkgdir: &Path
     ) 
         -> Result<Command, ()> 
     {
-        let mut command = if nonet {
-            let mut command = Command::new("/usr/bin/unshare");
-            command.arg("--map-root-user")
-                .arg("--net")
-                .arg("--")
-                .arg("sh")
-                .arg("-c")
-                .arg(format!(
-                    "ip link set dev lo up
-                    unshare --map-users={}:0:1 --map-groups={}:0:1 -- \
-                        makepkg --holdver --nodeps --noextract --ignorearch", 
-                    unsafe {libc::getuid()}, unsafe {libc::getgid()}));
-            command
-        } else {
-            let mut command = Command::new("/bin/bash");
-            command.arg("/usr/bin/makepkg")
-                .arg("--holdver")
-                .arg("--nodeps")
-                .arg("--noextract")
-                .arg("--ignorearch");
-            command
-        };
         let mut pkgdest = actual_identity.cwd()?;
         pkgdest.push(temp_pkgdir);
-        actual_identity.set_chroot_drop_command(&mut command, 
-            root.path().canonicalize().or(Err(()))?)
-            .current_dir(root.builder(actual_identity)?.join(&self.build))
+        let mut cwd = root.builder(actual_identity)?;
+        cwd.push(&self.build);
+        let mut command = Command::new("/bin/bash");
+        command
+            .current_dir(cwd)
             .arg0(format!("[BUILDER/{}] /bin/bash", self.pkgid))
-            .env("PKGDEST", &pkgdest);
+            .arg("/usr/bin/makepkg")
+            .arg("--holdver")
+            .arg("--nodeps")
+            .arg("--noextract")
+            .arg("--ignorearch")
+            .arg("--nosign")
+            .env("PKGDEST", &pkgdest)
+            .env("PKGEXT", ".pkg.tar");
+        actual_identity.set_chroot_drop_command(&mut command, 
+            root.path().canonicalize().or(Err(()))?);
         Ok(command)
     }
 
@@ -505,7 +493,91 @@ impl PKGBUILD {
         Err(())
     }
 
-    fn build_finish(&self, temp_pkgdir: &Path) -> Result<(), ()> {
+    fn sign_pkgs(dir: &Path, key: &str) -> Result<(), ()> {
+        let reader = match read_dir(dir) {
+            Ok(reader) => reader,
+            Err(e) => {
+                eprintln!("Failed to read temp pkgdir: {}", e);
+                return Err(())
+            },
+        };
+        let mut bad = false;
+        for entry in reader {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(e) => {
+                    eprintln!("Failed to read entry from temp pkgdir: {}", e);
+                    bad = true;
+                    continue
+                },
+            }.path();
+            if entry.ends_with(".sig") {
+                continue
+            }
+            // gpg --detach-sign --use-agent "${SIGNWITHKEY[@]}" --no-armor "$filename" 
+            let mut child = match Command::new("/usr/bin/gpg")
+                .arg("--detach-sign")
+                .arg("--local-user")
+                .arg(key)
+                .arg(&entry)
+                .spawn() {
+                    Ok(child) => child,
+                    Err(e) => {
+                        eprintln!("Failed to call gpg to sign pkg '{}': {}", 
+                            entry.display(), e);
+                        bad = true;
+                        continue;
+                    },
+                };
+            let status = match child.wait() {
+                Ok(status) => status,
+                Err(e) => {
+                    eprintln!("Failed to wait for gpg: {}", e);
+                    bad = true;
+                    continue
+                },
+            };
+            if Some(0) != status.code() {
+                eprintln!("Bad return from gpg");
+                bad = true
+            }
+        }
+        if bad { Err(()) } else { Ok(()) }
+    }
+
+    fn link_pkgs(&self) -> Result<(), ()> {
+        let mut rel = PathBuf::from("..");
+        rel.push(&self.pkgid);
+        let updated = PathBuf::from("pkgs/updated");
+        let mut bad = false;
+        for entry in
+            self.pkgdir.read_dir().or_else(|e|{
+                eprintln!("Failed to read pkg dir: {}", e);
+                Err(())
+            })?
+        {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(e) => {
+                    eprintln!("Failed to read entry from pkg dir: {}", e);
+                    bad = true;
+                    continue
+                },
+            };
+            let original = rel.join(entry.file_name());
+            let link = updated.join(entry.file_name());
+            if let Err(e) = symlink(&original, &link) {
+                eprintln!("Failed to symlink '{}' => '{}': {}", 
+                    link.display(), original.display(), e);
+                bad = true
+            }
+        }
+        if bad { Err(()) } else { Ok(()) }
+    }
+
+    fn build_finish(&self, temp_pkgdir: &Path, sign: Option<&str>) 
+        -> Result<(), ()> 
+    {
         println!("Finishing building '{}'", &self.pkgid);
         if self.pkgdir.exists() {
             if let Err(e) = remove_dir_all(&self.pkgdir) {
@@ -513,35 +585,27 @@ impl PKGBUILD {
                 return Err(())
             }
         }
+        if let Some(key) = sign {
+            Self::sign_pkgs(temp_pkgdir, key)?;
+        }
         if let Err(e) = rename(&temp_pkgdir, &self.pkgdir) {
             eprintln!("Failed to rename temp pkgdir '{}' to persistent pkgdir \
                 '{}': {}", temp_pkgdir.display(), self.pkgdir.display(), e);
             return Err(())
         }
-        let mut rel = PathBuf::from("..");
-        rel.push(&self.pkgid);
-        let updated = PathBuf::from("pkgs/updated");
-        for entry in
-            self.pkgdir.read_dir().expect("Failed to read dir")
-        {
-            if let Ok(entry) = entry {
-                let original = rel.join(entry.file_name());
-                let link = updated.join(entry.file_name());
-                let _ = symlink(original, link);
-            }
-        }
+        self.link_pkgs()?;
         println!("Finished building '{}'", &self.pkgid);
         Ok(())
     }
 
-    fn builder(&mut self, actual_identity: &Identity, nonet: bool) 
+    fn builder(&mut self, actual_identity: &Identity, _nonet: bool) 
         -> Result<Builder, ()> 
     {
         let temp_pkgdir = self.get_temp_pkgdir()?;
         let root = OverlayRoot::new(
             &self.base, actual_identity, &self.depends)?;
         let mut command = self.get_build_command(
-            actual_identity, &root, nonet, &temp_pkgdir)?;
+            actual_identity, &root, &temp_pkgdir)?;
         let child = command.spawn().or_else(|e|{
             eprintln!("Failed to spawn child: {}", e); Err(())
         })?;
@@ -597,7 +661,9 @@ struct Builders<'a> (Vec<Builder<'a>>);
 
 impl<'a> Builders<'a> {
     const BUILD_MAX_TRIES: usize = 3;
-    fn wait_noop(&mut self, actual_identity: &Identity) -> bool {
+    fn wait_noop(&mut self, actual_identity: &Identity, sign: Option<&str>) 
+        -> bool 
+    {
         let mut bad = false;
         let mut finished_good = false;
         loop {
@@ -669,7 +735,7 @@ impl<'a> Builders<'a> {
             };
             if finished_good {
                 if builder.pkgbuild
-                    .build_finish(&builder.temp_pkgdir).is_err() 
+                    .build_finish(&builder.temp_pkgdir, sign).is_err() 
                 {
                     eprintln!(
                         "Failed to finish build for {}", &builder.pkgbuild.base);
@@ -1167,7 +1233,7 @@ impl PKGBUILDs {
     }
 
     pub(super) fn build_any_needed(
-        &mut self, actual_identity: &Identity, nonet: bool
+        &mut self, actual_identity: &Identity, nonet: bool, sign: Option<&str>
     ) 
         -> Result<(), ()>
     {
@@ -1193,7 +1259,7 @@ impl PKGBUILDs {
                 continue
             }
             loop { // Wait for CPU resource
-                if builders.wait_noop(actual_identity) {
+                if builders.wait_noop(actual_identity, sign) {
                     bad = true
                 }
                 let heavy_load = match procfs::LoadAverage::new() {
@@ -1222,7 +1288,7 @@ impl PKGBUILDs {
             builders.0.push(builder)
         }
         while builders.0.len() > 0 {
-            if builders.wait_noop(actual_identity) {
+            if builders.wait_noop(actual_identity, sign) {
                 bad = true
             }
             std::thread::sleep(std::time::Duration::from_millis(100))
