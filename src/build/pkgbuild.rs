@@ -209,7 +209,7 @@ impl PKGBUILD {
         };
         println!("PKGBUILD '{}' at commit '{}'", self.base, commit);
         let blob = repo.get_pkgbuild_blob(
-            self.subtree.as_deref());
+            &self.branch, self.subtree.as_deref());
         match blob {
             Some(_) => Some(commit),
             None => {
@@ -232,7 +232,7 @@ impl PKGBUILD {
     fn dump<P: AsRef<Path>> (&self, target: P) -> Result<(), ()> {
         let repo = git::Repo::open_bare(
             &self.git, &self.url, None).ok_or(())?;
-        let blob = repo.get_pkgbuild_blob(
+        let blob = repo.get_pkgbuild_blob(&self.branch,
             self.subtree.as_deref()).ok_or(())?;
         let mut file =
             std::fs::File::create(target).or(Err(()))?;
@@ -246,7 +246,7 @@ impl PKGBUILD {
     fn _parse(&mut self) -> Result<(), ()>{
         let repo = git::Repo::open_bare(
             &self.git, &self.url, None).ok_or(())?;
-        let blob = repo.get_pkgbuild_blob(
+        let blob = repo.get_pkgbuild_blob(&self.branch,
             self.subtree.as_deref()).ok_or(())?;
         let content = String::from_utf8_lossy(blob.content());
         for mut line in content.lines() {

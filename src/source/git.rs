@@ -492,10 +492,10 @@ impl Repo {
         self.get_tree_entry_blob(&tree, name)
     }
 
-    pub(crate) fn get_pkgbuild_blob(&self, subtree: Option<&Path>) 
+    pub(crate) fn get_pkgbuild_blob(&self, branch: &str, subtree: Option<&Path>) 
         -> Option<git2::Blob> 
     {
-        self.get_branch_entry_blob("master", subtree, "PKGBUILD")
+        self.get_branch_entry_blob(branch, subtree, "PKGBUILD")
     }
 
     pub(crate) fn healthy(&self) -> bool {
