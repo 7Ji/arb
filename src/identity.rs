@@ -173,6 +173,7 @@ impl Identity {
         Self::sete_raw(0, 0)
     }
 
+    /// Return to root
     pub(crate) fn set_root_command(command: &mut Command) -> &mut Command {
         unsafe {
             command.pre_exec(|| Self::sete_root());
@@ -180,6 +181,8 @@ impl Identity {
         command
     }
 
+    /// Drop to the identity, as this uses setuid/setgid, you need to return
+    /// to root first
     pub(crate) fn set_drop_command<'a>(&self, command: &'a mut Command) 
         -> &'a mut Command 
     {
@@ -193,7 +196,8 @@ impl Identity {
         command
     }
 
-    pub(crate) fn set_command<'a>(&self, command: &'a mut Command) 
+    /// Return to root then drop
+    pub(crate) fn set_root_drop_command<'a>(&self, command: &'a mut Command) 
         -> &'a mut Command 
     {
         self.env.as_ref().expect("Env not parsed")
@@ -202,6 +206,8 @@ impl Identity {
         self.set_drop_command(command)
     }
 
+    /// Chroot to a folder, as this uses chroot(), you need to return to root
+    /// first
     pub(crate) fn set_chroot_command<P: AsRef<Path>>(
         command: &mut Command, root: P
     ) -> &mut Command
@@ -213,7 +219,8 @@ impl Identity {
         command
     }
 
-    pub(crate) fn set_chroot_drop_command<'a, 'b, P: AsRef<Path>>(
+    /// Return to root, chroot to a folder, then drop
+    pub(crate) fn set_root_chroot_drop_command<'a, 'b, P: AsRef<Path>>(
         &'a self, command: &'b mut Command, root: P
     ) -> &'b mut Command
     {

@@ -244,7 +244,7 @@ impl PKGBUILD {
         actual_identity: &Identity, pkgbuild_file: P
     ) -> std::io::Result<Child> 
     {
-        actual_identity.set_command(
+        actual_identity.set_root_drop_command(
             Command::new("/bin/bash")
                 .arg("-ec")
                 .arg(". \"$1\"; \
@@ -287,7 +287,7 @@ impl PKGBUILD {
     {
         // let content = std::fs::read_to_string(pkgbuild_file);
 
-        actual_identity.set_command(
+        actual_identity.set_root_drop_command(
             Command::new("/bin/bash")
                 .arg("-c")
                 .arg(". \"$1\"; type -t pkgver")
@@ -320,7 +320,7 @@ impl PKGBUILD {
         let mut arg0 = OsString::from("[EXTRACTOR/");
         arg0.push(&self.base);
         arg0.push("] /bin/bash");
-        match actual_identity.set_command(
+        match actual_identity.set_root_drop_command(
             Command::new("/bin/bash")
                 .arg0(&arg0)
                 .arg("-ec")
@@ -403,7 +403,7 @@ impl PKGBUILD {
             .arg("--ignorearch")
             .arg("--nosign")
             .env("PKGDEST", &pkgdest);
-        actual_identity.set_chroot_drop_command(&mut command, 
+        actual_identity.set_root_chroot_drop_command(&mut command, 
             root.path().canonicalize().or(Err(()))?);
         Ok(command)
     }
@@ -492,7 +492,9 @@ impl PKGBUILD {
         Err(())
     }
 
-    fn sign_pkgs(dir: &Path, key: &str) -> Result<(), ()> {
+    fn sign_pkgs(actual_identity: &Identity, dir: &Path, key: &str) 
+        -> Result<(), ()> 
+    {
         let reader = match read_dir(dir) {
             Ok(reader) => reader,
             Err(e) => {
@@ -514,11 +516,12 @@ impl PKGBUILD {
                 continue
             }
             // gpg --detach-sign --use-agent "${SIGNWITHKEY[@]}" --no-armor "$filename" 
-            let mut child = match Command::new("/usr/bin/gpg")
+            let mut child = match actual_identity.set_root_drop_command(
+                Command::new("/usr/bin/gpg")
                 .arg("--detach-sign")
                 .arg("--local-user")
                 .arg(key)
-                .arg(&entry)
+                .arg(&entry))
                 .spawn() {
                     Ok(child) => child,
                     Err(e) => {
@@ -574,7 +577,9 @@ impl PKGBUILD {
         if bad { Err(()) } else { Ok(()) }
     }
 
-    fn build_finish(&self, temp_pkgdir: &Path, sign: Option<&str>) 
+    fn build_finish(&self, 
+        actual_identity: &Identity, temp_pkgdir: &Path, sign: Option<&str>
+    ) 
         -> Result<(), ()> 
     {
         println!("Finishing building '{}'", &self.pkgid);
@@ -585,7 +590,7 @@ impl PKGBUILD {
             }
         }
         if let Some(key) = sign {
-            Self::sign_pkgs(temp_pkgdir, key)?;
+            Self::sign_pkgs(actual_identity, temp_pkgdir, key)?;
         }
         if let Err(e) = rename(&temp_pkgdir, &self.pkgdir) {
             eprintln!("Failed to rename temp pkgdir '{}' to persistent pkgdir \
@@ -733,8 +738,8 @@ impl<'a> Builders<'a> {
                 None => break,
             };
             if finished_good {
-                if builder.pkgbuild
-                    .build_finish(&builder.temp_pkgdir, sign).is_err() 
+                if builder.pkgbuild.build_finish(
+                    actual_identity, &builder.temp_pkgdir, sign).is_err() 
                 {
                     eprintln!(
                         "Failed to finish build for {}", &builder.pkgbuild.base);
@@ -993,7 +998,7 @@ impl PKGBUILDs {
             }
             buffer.push(b'\n');
         }
-        let mut child = match actual_identity.set_command(
+        let mut child = match actual_identity.set_root_drop_command(
             Command::new("/bin/bash")
                 .arg("-c")
                 .arg(
@@ -1090,7 +1095,7 @@ impl PKGBUILDs {
         Self::extract_sources_many(actual_identity, &mut pkgbuilds)?;
         let children: Vec<Child> = pkgbuilds.iter().map(
         |pkgbuild|
-            actual_identity.set_command(
+            actual_identity.set_root_drop_command(
                 Command::new("/bin/bash")
                     .arg("-ec")
                     .arg("srcdir=\"$1\"; cd \"$1\"; source ../PKGBUILD; pkgver")
