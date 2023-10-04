@@ -511,7 +511,8 @@ impl OverlayRoot {
 
     fn bind_homedirs(&self, actual_identity: &Identity) -> Result<&Self, ()> {
         let host_home = actual_identity.home()?;
-        let host_home_string = actual_identity.home_string()?;
+        let mut host_home_string = actual_identity.home_string()?;
+        host_home_string.push('/');
         let chroot_home = self.home(actual_identity)?;
         for dir in Self::HOME_DIRS {
             let host_dir = host_home.join(dir);
