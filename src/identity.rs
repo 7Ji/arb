@@ -384,6 +384,15 @@ impl Identity {
         }
     }
 
+    pub(crate) fn home_string(&self) -> Result<String, ()> {
+        if let Some(env) = &self.env {
+            Ok(env.home.to_string_lossy().into_owned())
+        } else {
+            eprint!("Failed to get home dir, this should not happen");
+            Err(())
+        }
+    }
+
     pub(crate) fn user(&self) -> Result<String, ()> {
         if let Some(env) = &self.env {
             if let Some(str) = env.user.to_str() {

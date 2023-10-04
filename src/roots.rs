@@ -345,7 +345,7 @@ pub(crate) trait CommonRoot {
     }
 
     fn home(&self, actual_identity: &Identity) -> Result<PathBuf, ()> {
-        let home = actual_identity.home()?;
+        let home: PathBuf = actual_identity.home()?;
         let home_suffix = home.strip_prefix("/").or_else(
             |e| {
                 eprintln!("Failed to strip home prefix: {}", e);
@@ -468,6 +468,7 @@ impl CommonRoot for BaseRoot {
 }
 
 impl OverlayRoot {
+    const HOME_DIRS: [&str; 3] = [".cargo", ".gnupg", "go"];
     fn remove(&self) -> Result<&Self, ()> {
         if self.merged.remove().is_err() {
             return Err(())
@@ -508,23 +509,28 @@ impl OverlayRoot {
         Ok(self)
     }
 
-    fn bind_gpg(&self, actual_identity: &Identity) -> Result<&Self, ()> {
-        let mut gpg = actual_identity.home()?;
-        gpg.push(".gnupg");
-        if ! gpg.exists() {
-            return Ok(self)
+    fn bind_homedirs(&self, actual_identity: &Identity) -> Result<&Self, ()> {
+        let host_home = actual_identity.home()?;
+        let host_home_string = actual_identity.home_string()?;
+        let chroot_home = self.home(actual_identity)?;
+        for dir in Self::HOME_DIRS {
+            let host_dir = host_home.join(dir);
+            if ! host_dir.exists() {
+                continue
+            }
+            let chroot_dir = chroot_home.join(dir);
+            create_dir(&chroot_dir).or_else(|e|{
+                eprintln!("Failed to create chroot dir: {}", e);
+                Err(())
+            })?;
+            let mut host_dir_string = host_home_string.clone();
+            host_dir_string.push_str(dir);
+            mount(Some(&host_dir_string),
+                &chroot_dir,
+                None,
+                libc::MS_BIND,
+                None)?;
         }
-        let mut gpg_chroot = self.home(actual_identity)?;
-        gpg_chroot.push(".gnupg");
-        create_dir(&gpg_chroot).or_else(|e|{
-            eprintln!("Failed to create chroot GPG dir: {}", e);
-            Err(())
-        })?;
-        mount(Some(gpg.to_str().ok_or(())?),
-            &gpg_chroot,
-            None,
-            libc::MS_BIND,
-            None)?;
         Ok(self)
     }
 
@@ -554,7 +560,7 @@ impl OverlayRoot {
                 .base_mounts()?
                 .install_pkgs(pkgs)?
                 .bind_builder(actual_identity)?
-                .bind_gpg(actual_identity)?
+                .bind_homedirs(actual_identity)?
                 .resolv()?;
             Ok(())
         })?;
