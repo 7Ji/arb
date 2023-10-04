@@ -471,23 +471,16 @@ impl Repo {
         }
     }
 
-    pub(crate) fn get_branch_commit_id(&self, branch: &str) -> Option<Oid> {
+    pub(crate) fn _get_branch_commit_id(&self, branch: &str) -> Option<Oid> {
         match self.get_branch_commit(branch) {
             Some(commit) => Some(commit.id()),
             None => None,
         }
     }
 
-    fn get_branch_tree<'a>(&'a self, branch: &str, subtree: Option<&Path>) 
-        -> Option<Tree<'a>> 
+    fn get_commit_tree<'a>(&'a self, commit: &Commit<'a>, subtree: Option<&Path>
+    )   -> Option<Tree<'a>> 
     {
-        let commit = match self.get_branch_commit(branch) {
-            Some(commit) => commit,
-            None => {
-                eprintln!("Failed to get commit pointed by branch {}", branch);
-                return None
-            },
-        };
         let tree = match commit.tree() {
             Ok(tree) => tree,
             Err(e) => {
@@ -514,6 +507,34 @@ impl Repo {
                 None
             },
         }
+    }
+
+    fn get_branch_tree<'a>(&'a self, branch: &str, subtree: Option<&Path>) 
+        -> Option<Tree<'a>> 
+    {
+        let commit = match self.get_branch_commit(branch) {
+            Some(commit) => commit,
+            None => {
+                eprintln!("Failed to get commit pointed by branch {}", branch);
+                return None
+            },
+        };
+        self.get_commit_tree(&commit, subtree)
+    }
+
+    pub(crate) fn get_branch_commit_or_subtree_id(&self, 
+        branch: &str, subtree: Option<&Path>
+    ) -> Option<Oid> 
+    {
+        let commit = match self.get_branch_commit(branch) {
+            Some(commit) => commit,
+            None => return None,
+        };
+        if let None = subtree {
+            return Some(commit.id())
+        }
+        self.get_commit_tree(&commit, subtree)
+            .and_then(|tree|Some(tree.id()))
     }
 
     fn get_tree_entry_blob<'a>(&'a self, tree: &Tree, name: &str)

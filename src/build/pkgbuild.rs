@@ -204,7 +204,9 @@ impl PKGBUILD {
                     return None
                 }
             };
-        let commit = match repo.get_branch_commit_id("master") {
+        let commit = match repo.get_branch_commit_or_subtree_id(
+            &self.branch, self.subtree.as_deref()
+        ) {
             Some(id) => id,
             None => {
                 eprintln!("Failed to get commit id for pkgbuild {}",
