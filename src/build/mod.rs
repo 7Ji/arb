@@ -1,11 +1,15 @@
+use std::collections::HashMap;
+
 use tempfile::tempdir;
 
 mod depend;
 mod pkgbuild;
 
-pub(crate) fn work<P: AsRef<std::path::Path>>(
+pub(crate) use pkgbuild::PkgbuildConfig as PkgbuildConfig;
+
+pub(crate) fn work(
     actual_identity: crate::identity::Identity,
-    pkgbuilds_yaml: P,
+    pkgbuilds_config: &HashMap<String, PkgbuildConfig>,
     proxy: Option<&str>,
     holdpkg: bool,
     holdgit: bool,
@@ -22,8 +26,8 @@ pub(crate) fn work<P: AsRef<std::path::Path>>(
         None => None,
     };
     let mut pkgbuilds = 
-        pkgbuild::PKGBUILDs::from_yaml_config_healthy(
-            &pkgbuilds_yaml, holdpkg, noclean, proxy).ok_or(())?;
+        pkgbuild::PKGBUILDs::from_config_healthy(
+            pkgbuilds_config, holdpkg, noclean, proxy)?;
     let pkgbuilds_dir =
         tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
     let _base_root = pkgbuilds.prepare_sources(&actual_identity, 

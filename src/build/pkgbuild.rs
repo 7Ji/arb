@@ -17,6 +17,7 @@ use crate::{
         }
     };
 use git2::Oid;
+use serde::Deserialize;
 use std::{
         collections::HashMap,
         ffi::OsString,
@@ -49,6 +50,21 @@ use xxhash_rust::xxh3::xxh3_64;
 use super::depend::Depends;
 use super::depend::DbHandle;
 
+
+#[derive(Debug, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum PkgbuildConfig {
+    Simple (String),
+    Complex {
+        url: String,
+        branch: Option<String>,
+        subtree: Option<String>,
+        deps: Option<Vec<String>>,
+        home_binds: Option<Vec<String>>,
+        binds: Option<HashMap<String, String>>
+    },
+}
+
 #[derive(Clone)]
 enum Pkgver {
     Plain,
@@ -58,17 +74,20 @@ enum Pkgver {
 #[derive(Clone)]
 struct PKGBUILD {
     base: String,
+    branch: String,
     build: PathBuf,
     commit: git2::Oid,
     depends: Vec<String>,
     dephash: u64,
     extract: bool,
     git: PathBuf,
+    home_binds: Vec<String>,
     _names: Vec<String>,
     pkgid: String,
     pkgdir: PathBuf,
     pkgver: Pkgver,
     sources: Vec<source::Source>,
+    subtree: Option<String>,
     url: String,
 }
 
@@ -132,24 +151,41 @@ fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
 }
 
 impl PKGBUILD {
-    fn new<S: AsRef<str>, P: AsRef<Path>>(
-        name: S, url: S, build_parent: P, git_parent: P
-    ) -> Self 
+    fn new(
+        name: &str, url: &str, build_parent: &Path, git_parent: &Path,
+        branch: Option<&str>, subtree: Option<&str>, deps: Option<&Vec<String>>,
+        home_binds: Option<&Vec<String>>
+    ) -> Self
     {
         Self {
-            base: name.as_ref().to_string(),
-            build: build_parent.as_ref().join(name.as_ref()),
+            base: name.to_string(),
+            branch: match branch {
+                Some(branch) => branch.to_owned(),
+                None => String::from("master"),
+            },
+            build: build_parent.join(name),
             commit: Oid::zero(),
-            depends: vec![],
+            depends: match deps {
+                Some(deps) => deps.clone(),
+                None => vec![],
+            },
             dephash: 0,
             extract: false,
-            git: git_parent.as_ref().join(name.as_ref()),
+            git: git_parent.join(name),
+            home_binds: match home_binds {
+                Some(home_binds) => home_binds.clone(),
+                None => vec![],
+            },
             _names: vec![],
             pkgid: String::new(),
             pkgdir: PathBuf::from("pkgs"),
             pkgver: Pkgver::Plain,
             sources: vec![],
-            url: url.as_ref().to_string(),
+            subtree: match subtree {
+                Some(subtree) => Some(subtree.to_owned()),
+                None => None,
+            },
+            url: url.to_owned(),
         }
     }
     // If healthy, return the latest commit id
@@ -793,34 +829,31 @@ impl<'a> Builders<'a> {
 pub(super) struct PKGBUILDs (Vec<PKGBUILD>);
 
 impl PKGBUILDs {
-    pub(super) fn from_yaml_config<P: AsRef<Path>>(yaml: P) -> Option<Self> {
-        let f = match std::fs::File::open(&yaml) {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("Failed to open PKGBUILDs YAML config '{}': {}",
-                    yaml.as_ref().display(), e);
-                return None
-            },
-        };
-        let config: HashMap<String, String> = 
-            match serde_yaml::from_reader(f) 
-        {
-            Ok(config) => config,
-            Err(e) => {
-                eprintln!("Failed to parse PKGBUILDs YAML config '{}' : {}",
-                    yaml.as_ref().display(), e);
-                return None;
-            },
-        };
+    pub(super) fn from_config(config: &HashMap<String, PkgbuildConfig>) 
+        -> Result<Self, ()> 
+    {
         let build_parent = PathBuf::from("build");
         let git_parent = PathBuf::from("sources/PKGBUILD");
-        let mut pkgbuilds: Vec<PKGBUILD> = config.iter().map(
-            |(name, url)| 
-            PKGBUILD::new(name, url, &build_parent, &git_parent)
-        ).collect();
+        let mut pkgbuilds: Vec<_> = config.iter().map(|
+            (name, detail)|
+        {
+            match detail {
+                PkgbuildConfig::Simple(url) => PKGBUILD::new(
+                    name, url, &build_parent, &git_parent, 
+                    None, None, None, None
+                ),
+                PkgbuildConfig::Complex { url, branch,
+                    subtree, deps, 
+                    home_binds, binds: _ 
+                } => PKGBUILD::new(
+                    name, url, &build_parent, &git_parent,
+                    branch.as_deref(), subtree.as_deref(), 
+                    deps.as_ref(), home_binds.as_ref())
+            }
+        }).collect();
         pkgbuilds.sort_unstable_by(
             |a, b| a.base.cmp(&b.base));
-        Some(Self(pkgbuilds))
+        Ok(Self(pkgbuilds))
     }
 
     fn sync(&self, hold: bool, proxy: Option<&str>) -> Result<(), ()> 
@@ -859,11 +892,12 @@ impl PKGBUILDs {
     }
 
 
-    pub(super) fn from_yaml_config_healthy<P:AsRef<Path>>(
-        yaml: P, hold: bool, noclean: bool, proxy: Option<&str>
-    ) -> Option<Self>
+    pub(super) fn from_config_healthy(
+        config: &HashMap<String, PkgbuildConfig>, 
+        hold: bool, noclean: bool, proxy: Option<&str>
+    ) -> Result<Self, ()>
     {
-        let mut pkgbuilds = Self::from_yaml_config(yaml)?;
+        let mut pkgbuilds = Self::from_config(config)?;
         let update_pkg = if hold {
             if pkgbuilds.healthy_set_commit(){
                 println!(
@@ -886,17 +920,17 @@ impl PKGBUILDs {
                         source::remove_unused("sources/PKGBUILD", &used))),
         };
         if update_pkg {
-            pkgbuilds.sync(hold, proxy).ok()?;
+            pkgbuilds.sync(hold, proxy)?;
             if ! pkgbuilds.healthy_set_commit() {
                 eprintln!("Updating broke some of our PKGBUILDs");
-                return None
+                return Err(())
             }
         }
         if let Some(cleaner) = cleaner {
             cleaner.join()
                 .expect("Failed to join PKGBUILDs cleaner thread");
         }
-        Some(pkgbuilds)
+        Ok(pkgbuilds)
     }
 
     fn dump<P: AsRef<Path>> (&self, dir: P) -> Result<(), ()> {
