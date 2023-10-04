@@ -402,8 +402,7 @@ impl PKGBUILD {
             .arg("--noextract")
             .arg("--ignorearch")
             .arg("--nosign")
-            .env("PKGDEST", &pkgdest)
-            .env("PKGEXT", ".pkg.tar");
+            .env("PKGDEST", &pkgdest);
         actual_identity.set_chroot_drop_command(&mut command, 
             root.path().canonicalize().or(Err(()))?);
         Ok(command)
