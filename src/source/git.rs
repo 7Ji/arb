@@ -30,22 +30,23 @@ const REFSPECS_HEADS_TAGS: &[&str] = &[
     "+refs/tags/*:refs/tags/*"
 ];
 
-const REFSPECS_MASTER_ONLY: &[&str] = &["+refs/heads/master:refs/heads/master"];
+const _REFSPECS_MASTER_ONLY: &[&str] = 
+    &["+refs/heads/master:refs/heads/master"];
 
-#[derive(Clone)]
-pub(crate) enum Refspecs {
-    HeadsTags,
-    MasterOnly
-}
+// #[derive(Clone)]
+// pub(crate) enum Refspecs {
+//     HeadsTags,
+//     MasterOnly
+// }
 
-impl Refspecs {
-    fn get(&self) -> &[&str] {
-        match self {
-            Refspecs::HeadsTags => REFSPECS_HEADS_TAGS,
-            Refspecs::MasterOnly => REFSPECS_MASTER_ONLY,
-        }
-    }
-}
+// impl Refspecs {
+//     fn get(&self) -> &[&str] {
+//         match self {
+//             Refspecs::HeadsTags => REFSPECS_HEADS_TAGS,
+//             Refspecs::MasterOnly => REFSPECS_MASTER_ONLY,
+//         }
+//     }
+// }
 
 pub(crate) struct Gmr {
     prefix: String,
@@ -80,13 +81,17 @@ pub(crate) struct Repo {
     url: String,
     mirror: Option<String>,
     repo: Repository,
+    branches: Vec<String>,
 }
 
 pub(crate) trait ToReposMap {
+    fn branch(&self) -> Option<String>;
     fn url(&self) -> &str;
     fn hash_url(&self) -> u64;
     fn path(&self) -> Option<&Path>;
-    fn to_repo(&self, parent: &str, gmr: Option<&Gmr>) -> Option<Repo> {
+    fn to_repo(&self, parent: &str, gmr: Option<&Gmr>, branch: Option<String>) 
+        -> Option<Repo> 
+    {
         let url = self.url();
         let repo = match self.path() {
             Some(path) => Repo::open_bare(path, url, gmr),
@@ -97,7 +102,12 @@ pub(crate) trait ToReposMap {
             },
         };
         match repo {
-            Some(repo) => Some(repo),
+            Some(mut repo) => {
+                if let Some(branch) = branch {
+                    repo.branches.push(branch)
+                }
+                Some(repo)
+            },
             None => {
                 eprintln!(
                     "Failed to open bare repo for git source '{}'",
@@ -105,17 +115,52 @@ pub(crate) trait ToReposMap {
                 None
             },
         }
-
     }
+
     fn to_repos_map(
         map: HashMap<u64, Vec<Self>>, parent: &str, gmr: Option<&Gmr>
     ) -> Option<HashMap<u64, Vec<Repo>>>
-    where Self: Sized{
+    where Self: Sized
+    {
         let mut repos_map = HashMap::new();
         for (domain, sources) in map {
-            let mut repos = vec![];
-            for source in sources {
-                match source.to_repo(parent, gmr) {
+            let mut repos: Vec<Repo> = vec![];
+            for source in sources.iter() {
+                let source_url = source.url();
+                let mut existing = None;
+                for repo in repos.iter_mut() {
+                    if repo.url == source_url {
+                        existing = Some(repo)
+                    }
+                }
+                let new_branch = source.branch();
+                if let Some(existing) = existing {
+                    let existing_branches = 
+                        &mut existing.branches;
+                    if existing_branches.len() == 0 {
+                        continue
+                    }
+                    let new_branch = match new_branch {
+                        Some(branch) => branch,
+                        None => {
+                            existing_branches.clear();
+                            continue
+                        },
+                    };
+                    let mut branch_found = false;
+                    for branch in existing_branches.iter() {
+                        if &new_branch == branch {
+                            branch_found = true;
+                            break
+                        }
+                    }
+                    if branch_found {
+                        continue
+                    }
+                    existing_branches.push(new_branch);
+                    continue
+                }
+                match source.to_repo(parent, gmr, new_branch) {
                     Some(repo) => repos.push(repo),
                     None => {
                         return None
@@ -135,6 +180,7 @@ pub(crate) trait ToReposMap {
 }
 
 impl ToReposMap for super::Source {
+    
     fn url(&self) -> &str {
         self.url.as_str()
     }
@@ -144,6 +190,10 @@ impl ToReposMap for super::Source {
     }
 
     fn path(&self) -> Option<&Path> {
+        None
+    }
+
+    fn branch(&self) -> Option<String> {
         None
     }
 }
@@ -278,6 +328,7 @@ impl Repo {
                     url: url.to_owned(),
                     mirror: optional_gmr(gmr, url),
                     repo,
+                    branches: vec![],
                 };
                 match repo.add_remote() {
                     Ok(_) => Some(repo),
@@ -302,6 +353,7 @@ impl Repo {
                 url: url.to_owned(),
                 mirror: optional_gmr(gmr, url),
                 repo,
+                branches: vec![],
             }),
             Err(e) => {
                 if e.class() == git2::ErrorClass::Os &&
@@ -365,10 +417,22 @@ impl Repo {
         Ok(())
     }
 
-    pub(crate) fn sync(&self, proxy: Option<&str>, refspecs: Refspecs)
+    pub(crate) fn sync(&self, proxy: Option<&str>)
         -> Result<(), ()>
     {
-        let refspecs = refspecs.get();
+        let mut refspecs_dynamic = vec![];
+        let mut refspecs_ref = vec![];
+        let mut refspecs = REFSPECS_HEADS_TAGS;
+        if self.branches.len() > 0 {
+            for branch in self.branches.iter() {
+                refspecs_dynamic.push(
+                    format!("+refs/heads/{}:refs/heads/{}", branch, branch));
+            }
+            for refspec in refspecs_dynamic.iter() {
+                refspecs_ref.push(refspec.as_str())
+            }
+            refspecs = refspecs_ref.as_slice()
+        }
         if let Some(mirror) = &self.mirror {
             println!("Syncing repo '{}' with gmr '{}' before actual remote",
                         &self.path.display(), &mirror);
@@ -544,7 +608,6 @@ impl Repo {
 
     fn sync_for_domain(
         repos: Vec<Self>,
-        refspecs: Refspecs,
         max_threads: usize,
         hold: bool,
         proxy: Option<&str>
@@ -573,13 +636,12 @@ impl Repo {
                 threading::wait_if_too_busy(&mut threads, max_threads, &job) {
                 bad = true;
             }
-            let refspecs = refspecs.clone();
             threads.push(thread::spawn(move ||{
                 let proxy = match has_proxy {
                     true => Some(proxy_string_thread.as_str()),
                     false => None,
                 };
-                repo.sync(proxy, refspecs)
+                repo.sync(proxy)
             }));
         }
         if let Err(_) = threading::wait_remaining(threads, &job) {
@@ -594,7 +656,6 @@ impl Repo {
 
     pub(crate) fn sync_mt(
         repos_map: HashMap<u64, Vec<Self>>,
-        refspecs: Refspecs,
         hold: bool,
         proxy: Option<&str>
     ) -> Result<(), ()>
@@ -613,14 +674,13 @@ impl Repo {
             println!("Max {} threads from domain {}", max_threads,
                         repos.last().ok_or(())?.get_domain());
             let proxy_string_thread = proxy_string.clone();
-            let refspecs = refspecs.clone();
             threads.push(thread::spawn(move || {
                 let proxy = match has_proxy {
                     true => Some(proxy_string_thread.as_str()),
                     false => None,
                 };
                 Self::sync_for_domain(
-                    repos, refspecs, max_threads, hold, proxy)
+                    repos,max_threads, hold, proxy)
             }));
         }
         threading::wait_remaining(threads, "syncing git repo groups")

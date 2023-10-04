@@ -147,7 +147,7 @@ pub(crate) fn cache_sources_mt(
                         true => Some(proxy_string_thread.as_str()),
                         false => None,
                     };
-                    git_repo.sync(proxy, super::git::Refspecs::HeadsTags)
+                    git_repo.sync(proxy)
                 });
                 git_threads.push(git_thread);
             }

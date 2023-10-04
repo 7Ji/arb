@@ -118,6 +118,10 @@ impl git::ToReposMap for PKGBUILD {
     fn path(&self) -> Option<&Path> {
         Some(&self.git.as_path())
     }
+
+    fn branch(&self) -> Option<String> {
+        Some(self.branch.clone())
+    }
 }
 
 // build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
@@ -863,6 +867,7 @@ impl PKGBUILDs {
 
     fn sync(&self, hold: bool, proxy: Option<&str>) -> Result<(), ()> 
     {
+
         let map =
             PKGBUILD::map_by_domain(&self.0);
         let repos_map =
@@ -875,7 +880,7 @@ impl PKGBUILDs {
                 return Err(())
             },
         };
-        git::Repo::sync_mt(repos_map, git::Refspecs::MasterOnly, hold, proxy)
+        git::Repo::sync_mt(repos_map, hold, proxy)
     }
 
     fn _healthy(&self) -> bool {
