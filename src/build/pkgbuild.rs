@@ -214,7 +214,11 @@ impl PKGBUILD {
                 return None
             },
         };
-        println!("PKGBUILD '{}' at commit '{}'", self.base, commit);
+        match &self.subtree {
+            Some(_) => println!("PKGBUILD '{}' at tree '{}'", 
+                        self.base, commit),
+            None => println!("PKGBUILD '{}' at commit '{}'", self.base, commit),
+        }
         let blob = repo.get_pkgbuild_blob(
             &self.branch, self.subtree.as_deref());
         match blob {
