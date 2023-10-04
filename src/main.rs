@@ -82,7 +82,6 @@ fn main() {
         Ok(identity) => identity,
         Err(_) => {
             eprintln!("Failed to get and drop to non-root actual identity");
-            Arg::parse_from(["--help"]);
             exit(-1);
         },
     };
