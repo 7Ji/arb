@@ -947,6 +947,10 @@ impl PKGBUILDs {
                 .expect("Failed to wait for child");
             pkgbuild.depends.clear();
             let mut pkg_deps = Depends(vec![]);
+            if pkgbuild.base.ends_with("-git") {
+                // Some bad PKGBUILDs would forget this, like dri2to3-git
+                pkg_deps.0.push(String::from("git"))
+            }
             for line in 
                 output.stdout.split(|byte| byte == &b'\n') 
             {
