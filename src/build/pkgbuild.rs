@@ -411,8 +411,7 @@ impl PKGBUILD {
                 .arg("--ignorearch");
             command
         };
-        let mut pkgdest = actual_identity.home()?;
-        pkgdest.push("builder");
+        let mut pkgdest = actual_identity.cwd()?;
         pkgdest.push(temp_pkgdir);
         actual_identity.set_chroot_drop_command(&mut command, 
             root.path().canonicalize().or(Err(()))?)
