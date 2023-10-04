@@ -58,7 +58,7 @@ pub(crate) enum PkgbuildConfig {
     Complex {
         url: String,
         branch: Option<String>,
-        subtree: Option<String>,
+        subtree: Option<PathBuf>,
         deps: Option<Vec<String>>,
         home_binds: Option<Vec<String>>,
         binds: Option<HashMap<String, String>>
@@ -87,7 +87,7 @@ struct PKGBUILD {
     pkgdir: PathBuf,
     pkgver: Pkgver,
     sources: Vec<source::Source>,
-    subtree: Option<String>,
+    subtree: Option<PathBuf>,
     url: String,
 }
 
@@ -153,7 +153,7 @@ fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
 impl PKGBUILD {
     fn new(
         name: &str, url: &str, build_parent: &Path, git_parent: &Path,
-        branch: Option<&str>, subtree: Option<&str>, deps: Option<&Vec<String>>,
+        branch: Option<&str>, subtree: Option<&Path>, deps: Option<&Vec<String>>,
         home_binds: Option<&Vec<String>>
     ) -> Self
     {
@@ -208,7 +208,8 @@ impl PKGBUILD {
             },
         };
         println!("PKGBUILD '{}' at commit '{}'", self.base, commit);
-        let blob = repo.get_pkgbuild_blob();
+        let blob = repo.get_pkgbuild_blob(
+            self.subtree.as_deref());
         match blob {
             Some(_) => Some(commit),
             None => {
@@ -231,7 +232,8 @@ impl PKGBUILD {
     fn dump<P: AsRef<Path>> (&self, target: P) -> Result<(), ()> {
         let repo = git::Repo::open_bare(
             &self.git, &self.url, None).ok_or(())?;
-        let blob = repo.get_pkgbuild_blob().ok_or(())?;
+        let blob = repo.get_pkgbuild_blob(
+            self.subtree.as_deref()).ok_or(())?;
         let mut file =
             std::fs::File::create(target).or(Err(()))?;
         file.write_all(blob.content()).or(Err(()))
@@ -244,7 +246,8 @@ impl PKGBUILD {
     fn _parse(&mut self) -> Result<(), ()>{
         let repo = git::Repo::open_bare(
             &self.git, &self.url, None).ok_or(())?;
-        let blob = repo.get_pkgbuild_blob().ok_or(())?;
+        let blob = repo.get_pkgbuild_blob(
+            self.subtree.as_deref()).ok_or(())?;
         let content = String::from_utf8_lossy(blob.content());
         for mut line in content.lines() {
             line = line.trim();
@@ -350,7 +353,9 @@ impl PKGBUILD {
         }
         let repo = git::Repo::open_bare(
             &self.git, &self.url, None)?;
-        repo.checkout_branch(&self.build, "master").ok()?;
+        repo.checkout(
+            &self.build, &self.branch, self.subtree.as_deref()
+        ).ok()?;
         source::extract(&self.build, &self.sources);
         let pkgbuild_dir = self.build.canonicalize().ok()?;
         let mut arg0 = OsString::from("[EXTRACTOR/");
@@ -638,7 +643,8 @@ impl PKGBUILD {
         Ok(())
     }
 
-    fn get_bind_dirs(&self) -> Vec<&'static str> {
+    fn get_home_binds(&self) -> Vec<String> {
+        let mut binds = self.home_binds.clone();
         let mut go = false;
         let mut cargo = false;
         for dep in self.depends.iter() {
@@ -653,12 +659,11 @@ impl PKGBUILD {
                 _ => ()
             }
         }
-        let mut binds = vec![];
         if go {
-            binds.push("go")
+            binds.push(String::from("go"))
         }
         if cargo {
-            binds.push(".cargo")
+            binds.push(String::from(".cargo"))
         }
         binds.sort_unstable();
         binds.dedup();
@@ -669,10 +674,10 @@ impl PKGBUILD {
         -> Result<Builder, ()> 
     {
         let temp_pkgdir = self.get_temp_pkgdir()?;
-        let bind_dirs = self.get_bind_dirs();
+        let home_binds = self.get_home_binds();
         let root = OverlayRoot::new(
             &self.base, actual_identity, 
-            &self.depends, bind_dirs)?;
+            &self.depends, home_binds)?;
         let mut command = self.get_build_command(
             actual_identity, &root, &temp_pkgdir)?;
         let child = command.spawn().or_else(|e|{
@@ -979,8 +984,7 @@ impl PKGBUILDs {
         {
             let output = child.wait_with_output()
                 .expect("Failed to wait for child");
-            pkgbuild.depends.clear();
-            let mut pkg_deps = Depends(vec![]);
+            let mut pkg_deps = Depends(pkgbuild.depends.clone());
             if pkgbuild.base.ends_with("-git") {
                 // Some bad PKGBUILDs would forget this, like dri2to3-git
                 pkg_deps.0.push(String::from("git"))

@@ -414,7 +414,9 @@ impl Repo {
         }
     }
 
-    fn get_branch_tree<'a>(&'a self, branch: &str) -> Option<Tree<'a>> {
+    fn get_branch_tree<'a>(&'a self, branch: &str, subtree: Option<&Path>) 
+        -> Option<Tree<'a>> 
+    {
         let commit = match self.get_branch_commit(branch) {
             Some(commit) => commit,
             None => {
@@ -422,11 +424,30 @@ impl Repo {
                 return None
             },
         };
-        match commit.tree() {
-            Ok(tree) => Some(tree),
+        let tree = match commit.tree() {
+            Ok(tree) => tree,
             Err(e) => {
                 eprintln!("Failed to get tree pointed by commit: {}", e);
                 return None
+            },
+        };
+        let subtree = match subtree {
+            Some(subtree) => subtree,
+            None => return Some(tree),
+        };
+        let entry = match tree.get_path(subtree) {
+            Ok(entry) => entry,
+            Err(e) => {
+                eprintln!("Failed to get sub tree: {}", e);
+                return None
+            },
+        };
+        match entry.to_object(&self.repo) {
+            Ok(tree) => tree.as_tree().and_then(
+                |tree|Some(tree.to_owned())),
+            Err(e) => {
+                eprintln!("Failed to convert entry to tree: {}", e);
+                None
             },
         }
     }
@@ -459,18 +480,22 @@ impl Repo {
         }
     }
 
-    pub(crate) fn get_branch_entry_blob<'a>(&'a self, branch: &str, name: &str)
+    pub(crate) fn get_branch_entry_blob<'a>(&'a self, 
+        branch: &str, subtree: Option<&Path>, name: &str
+    )
         -> Option<Blob<'a>>
     {
-        let tree = match self.get_branch_tree(branch) {
+        let tree = match self.get_branch_tree(branch, subtree) {
             Some(tree) => tree,
             None => return None,
         };
         self.get_tree_entry_blob(&tree, name)
     }
 
-    pub(crate) fn get_pkgbuild_blob(&self) -> Option<git2::Blob> {
-        self.get_branch_entry_blob("master", "PKGBUILD")
+    pub(crate) fn get_pkgbuild_blob(&self, subtree: Option<&Path>) 
+        -> Option<git2::Blob> 
+    {
+        self.get_branch_entry_blob("master", subtree, "PKGBUILD")
     }
 
     pub(crate) fn healthy(&self) -> bool {
@@ -492,12 +517,12 @@ impl Repo {
         };
     }
 
-    pub(crate) fn checkout_branch<P>(&self, target: P, branch: &str)
+    pub(crate) fn checkout<P>(&self, target: P, branch: &str, subtree: Option<&Path>)
         -> Result<(),()>
     where
         P: AsRef<Path>
     {
-        let tree = self.get_branch_tree(branch).ok_or(())?;
+        let tree = self.get_branch_tree(branch, subtree).ok_or(())?;
         self.repo.cleanup_state().or(Err(()))?;
         self.repo.set_workdir(
                     target.as_ref(),
