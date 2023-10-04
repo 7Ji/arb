@@ -14,7 +14,7 @@ use crate::{
         threading::{
             self,
             wait_if_too_busy,
-        },
+        }, build::pkgbuild,
     };
 use git2::Oid;
 use std::{
@@ -72,6 +72,15 @@ struct PKGBUILD {
     url: String,
 }
 
+struct Builder<'a> {
+    pkgbuild: &'a PKGBUILD,
+    temp_pkgdir: PathBuf,
+    command: Command,
+    root: OverlayRoot,
+    tries: usize,
+    child: Child
+}
+
 impl source::MapByDomain for PKGBUILD {
     fn url(&self) -> &str {
         self.url.as_str()
@@ -91,6 +100,7 @@ impl git::ToReposMap for PKGBUILD {
         Some(&self.git.as_path())
     }
 }
+
 // build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
 // we use our own implementation
 fn remove_dir_recursively<P: AsRef<Path>>(dir: P) 
@@ -490,16 +500,25 @@ impl PKGBUILD {
         Ok(())
     }
 
-    fn build(&mut self, actual_identity: &Identity, nonet: bool) 
-        -> Result<(), ()> 
+    fn builder(&self, actual_identity: &Identity, nonet: bool) 
+        -> Result<Builder, ()> 
     {
         let temp_pkgdir = self.get_temp_pkgdir()?;
         let root = OverlayRoot::new(
             &self.base, actual_identity, &self.depends)?;
         let mut command = self.get_build_command(
             actual_identity, &root, nonet, &temp_pkgdir)?;
-        self.build_try(actual_identity, &mut command, &temp_pkgdir)?;
-        self.build_finish(&temp_pkgdir)
+        let child = command.spawn().or_else(|e|{
+            eprintln!("Failed to spawn child: {}", e); Err(())
+        })?;
+        Ok(Builder {
+            pkgbuild: self,
+            temp_pkgdir,
+            command,
+            root,
+            tries: 0,
+            child,
+        })
     }
 
     fn get_deps_file<P: AsRef<Path>> (
@@ -536,6 +555,76 @@ impl PKGBUILD {
         pkg_deps.0.sort();
         pkg_deps.0.dedup();
         Ok(pkg_deps)
+    }
+
+}
+
+struct Builders<'a> (Vec<Builder<'a>>);
+
+impl<'a> Builders<'a> {
+    const BUILD_MAX_TRIES: usize = 3;
+    fn wait_noop(&mut self) -> bool {
+        let mut bad = false;
+        let mut finished = None;
+        loop {
+            for (id, builder) in 
+                self.0.iter_mut().enumerate() 
+            {
+                let status = match builder.child.try_wait() {
+                    Ok(status) => match status {
+                        Some(status) => status,
+                        None => continue,
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to wait for child: {}", e);
+                        if let Err(e) = builder.child.kill() {
+                            eprintln!("Failed to kill child: {}", e);
+                        }
+                        finished = Some(id);
+                        bad = true;
+                        break
+                    },
+                };
+                let code = match status.code() {
+                    Some(code) => code,
+                    None => {
+                        eprintln!("Failed to get status code of child");
+                        finished = Some(id);
+                        bad = true;
+                        break
+                    },
+                };
+                if code == 0 {
+                    finished = Some(id);
+                    break
+                }
+                eprintln!("Bad retrun from child: {}", code);
+                if builder.tries >= Self::BUILD_MAX_TRIES {
+                    eprintln!("Max tries met, giving up");
+                    finished = Some(id);
+                    bad = true;
+                    break
+                }
+                builder.tries += 1;
+                builder.child = match builder.command.spawn() {
+                    Ok(child) => child,
+                    Err(e) => {
+                        eprintln!("Failed to spawn child: {}", e);
+                        finished = Some(id);
+                        bad = true;
+                        break
+                    },
+                }
+            }
+            let builder = match finished {
+                Some(finished) => self.0.swap_remove(finished),
+                None => break,
+            };
+            if builder.pkgbuild.build_finish(&builder.temp_pkgdir).is_err() {
+                bad = true
+            }
+        }
+        bad
     }
 
 }
@@ -1032,25 +1121,38 @@ impl PKGBUILDs {
             return Err(())
         }
         let mut bad = false;
-        let mut threads = vec![];
+        let cpuinfo = procfs::CpuInfo::new().or_else(|e|{
+            eprintln!("Failed to get cpuinfo: {}", e);
+            Err(())
+        })?;
+        let cores = cpuinfo.num_cores();
+        let mut builders: Vec<Builder> = Vec::new();
         for pkgbuild in self.0.iter() {
             if ! pkgbuild.extract {
                 continue
             }
-            let mut pkgbuild = pkgbuild.clone();
-            if let Err(_) = wait_if_too_busy(
-                &mut threads, 5, "bustr::FromStrilding packages") 
-            {
-                bad = true;
+            loop { // Wait for CPU resource
+                let heavy_load = match procfs::LoadAverage::new() {
+                    Ok(load_avg) => load_avg.one >= cores as f32,
+                    Err(e) => {
+                        eprintln!("Failed to get load avg: {}", e);
+                        true
+                    },
+                };
+                if builders.len() < 4 && !heavy_load {
+                    break
+                }
             }
-            let actual_identity_thread = actual_identity.clone();
-            threads.push(thread::spawn(move || 
-                pkgbuild.build(&actual_identity_thread, nonet)));
-        }
-        if let Err(_) = threading::wait_remaining(
-            threads, "building packages") 
-        {
-            bad = true;
+            let builder = match 
+                pkgbuild.builder(actual_identity, nonet) 
+            {
+                Ok(builder) => builder,
+                Err(_) => {
+                    bad = true;
+                    continue
+                },
+            };
+            builders.push(builder)
         }
         let thread_cleaner =
             thread::spawn(|| remove_dir_recursively("build"));
