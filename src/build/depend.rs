@@ -76,7 +76,7 @@ impl DbHandle {
         pkg_satisfier
     }
 
-    fn is_installed<S: AsRef<str>>(&self, pkg: S) -> bool {
+    fn _is_installed<S: AsRef<str>>(&self, pkg: S) -> bool {
         match self.alpm_handle.localdb().pkg(pkg.as_ref()) {
             Ok(_) => true,
             Err(_) => false,

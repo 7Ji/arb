@@ -1,4 +1,22 @@
-use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all, copy, set_permissions, Permissions, Metadata, create_dir, remove_file}, ffi::{CString, OsStr}, os::unix::prelude::{OsStrExt, MetadataExt}, process::Command};
+use std::{
+        ffi::{
+            CString, 
+            OsStr,
+        },
+        fs::{
+            remove_dir_all, 
+            create_dir_all, 
+            copy, 
+            create_dir, 
+            remove_file
+        },
+        os::unix::prelude::OsStrExt,
+        path::{
+            PathBuf, 
+            Path,
+        }, 
+        process::Command
+    };
 
 
 use super::identity::Identity;

@@ -14,7 +14,7 @@ use crate::{
         threading::{
             self,
             wait_if_too_busy,
-        }, build::pkgbuild,
+        }
     };
 use git2::Oid;
 use std::{
@@ -31,7 +31,7 @@ use std::{
         io::Write,
         os::unix::{
             fs::symlink,
-            process::CommandExt, prelude::OsStrExt
+            process::CommandExt
         },
         path::{
             PathBuf,
@@ -64,7 +64,7 @@ struct PKGBUILD {
     dephash: u64,
     extract: bool,
     git: PathBuf,
-    names: Vec<String>,
+    _names: Vec<String>,
     pkgid: String,
     pkgdir: PathBuf,
     pkgver: Pkgver,
@@ -76,7 +76,7 @@ struct Builder<'a> {
     pkgbuild: &'a mut PKGBUILD,
     temp_pkgdir: PathBuf,
     command: Command,
-    root: OverlayRoot,
+    _root: OverlayRoot,
     tries: usize,
     child: Child
 }
@@ -144,7 +144,7 @@ impl PKGBUILD {
             dephash: 0,
             extract: false,
             git: git_parent.as_ref().join(name.as_ref()),
-            names: vec![],
+            _names: vec![],
             pkgid: String::new(),
             pkgdir: PathBuf::from("pkgs"),
             pkgver: Pkgver::Plain,
@@ -225,8 +225,8 @@ impl PKGBUILD {
                 line = line.trim_start_matches('(');
                 line = line.trim_start();
                 if line.starts_with(')') {
-                    line = line.trim_start_matches(')');
-                    line = line.trim_start();
+                    // line = line.trim_start_matches(')');
+                    // line = line.trim_start();
                 } else {
                     continue
                 }
@@ -281,7 +281,7 @@ impl PKGBUILD {
         }
     }
 
-    fn pkgver_type_reader_file<P: AsRef<Path>> (
+    fn _pkgver_type_reader_file<P: AsRef<Path>> (
         actual_identity: &Identity, pkgbuild_file: P
     ) -> std::io::Result<Child> 
     {
@@ -297,12 +297,12 @@ impl PKGBUILD {
             .spawn()
     }
 
-    fn pkgver_type_reader<P: AsRef<Path>> (
+    fn _pkgver_type_reader<P: AsRef<Path>> (
         &self, actual_identity: &Identity, dir: P)
         -> std::io::Result<Child> 
     {
         let pkgbuild_file = dir.as_ref().join(&self.base);
-        Self::pkgver_type_reader_file(actual_identity, &pkgbuild_file)
+        Self::_pkgver_type_reader_file(actual_identity, &pkgbuild_file)
     }
 
     fn extractor_source(&self, actual_identity: &Identity) -> Option<Child> 
@@ -439,7 +439,7 @@ impl PKGBUILD {
         })
     }
 
-    fn build_try(
+    fn _build_try(
         &mut self,
         actual_identity: &Identity, 
         command: &mut Command, 
@@ -550,13 +550,13 @@ impl PKGBUILD {
             pkgbuild: self,
             temp_pkgdir,
             command,
-            root,
+            _root: root,
             tries: 0,
             child,
         })
     }
 
-    fn get_deps_file<P: AsRef<Path>> (
+    fn _get_deps_file<P: AsRef<Path>> (
         actual_identity: &Identity, pkgbuild_file: P
     ) -> std::io::Result<Depends> 
     {
@@ -949,7 +949,7 @@ impl PKGBUILDs {
         {
             Ok(child) => child,
             Err(e) => {
-                eprintln!("Failed to spawn child to read pkgver types");
+                eprintln!("Failed to spawn child to read pkgver types: {}", e);
                 return None
             },
         };
@@ -1167,8 +1167,8 @@ impl PKGBUILDs {
         Ok(base_root)
     }
 
-    pub(super) fn build_any_needed<P: AsRef<Path>>(
-        &mut self, actual_identity: &Identity, pkgbuilds_dir: P, base_root: &BaseRoot, nonet: bool
+    pub(super) fn build_any_needed(
+        &mut self, actual_identity: &Identity, nonet: bool
     ) 
         -> Result<(), ()>
     {

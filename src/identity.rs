@@ -1,7 +1,19 @@
 use std::{
         ffi::OsString,
-        os::unix::{process::CommandExt, prelude::OsStringExt, fs::chroot},
-        process::{Command, exit}, str::FromStr, path::{PathBuf, Path},
+        os::unix::{
+            process::CommandExt,
+            prelude::OsStringExt,
+            fs::chroot
+        },
+        process::{
+            Command,
+            exit
+        },
+        str::FromStr,
+        path::{
+            PathBuf,
+            Path
+        },
     };
 
 #[derive(Clone)]
@@ -316,7 +328,7 @@ impl Identity {
     }
 
     /// Run a block as root in a forked child
-    pub(crate) fn as_root_with_chroot<F, P>(f: F, root: P) 
+    pub(crate) fn _as_root_with_chroot<F, P>(f: F, root: P) 
         -> Result<(), ()>
     where 
         F: FnOnce() -> Result<(), ()>,
@@ -347,7 +359,7 @@ impl Identity {
         })
     }
 
-    pub(crate) fn with_chroot<F, P>(f: F, root: P) 
+    pub(crate) fn _with_chroot<F, P>(f: F, root: P) 
         -> Result<(), ()>
     where 
         F: FnOnce() -> Result<(), ()>,
