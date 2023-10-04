@@ -146,6 +146,13 @@ impl MountedFolder {
         }
         Ok(self)
     }
+
+    /// Root is expected
+    fn remove_all() -> Result<(), ()> {
+        // Force remove method to run on roots
+        let _ = Self(PathBuf::from("roots"));
+        Ok(())
+    }
 }
 
 impl Drop for MountedFolder {
@@ -398,6 +405,7 @@ impl BaseRoot {
     /// Create a base rootfs containing the minimum packages and user setup
     /// This should not be used directly for building packages
     pub(crate) fn new(actual_identity: &Identity) -> Result<Self, ()> {
+        Identity::as_root(||MountedFolder::remove_all())?;
         println!("Creating base chroot");
         let root = Self(MountedFolder(PathBuf::from("roots/base")));
         Identity::as_root(||{
