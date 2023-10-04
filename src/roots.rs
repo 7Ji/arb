@@ -468,7 +468,6 @@ impl CommonRoot for BaseRoot {
 }
 
 impl OverlayRoot {
-    const HOME_DIRS: [&str; 2] = [".cargo", "go"];
     fn remove(&self) -> Result<&Self, ()> {
         if self.merged.remove().is_err() {
             return Err(())
@@ -509,23 +508,28 @@ impl OverlayRoot {
         Ok(self)
     }
 
-    fn bind_homedirs(&self, actual_identity: &Identity) -> Result<&Self, ()> {
+    fn bind_homedirs<I, S>(&self, actual_identity: &Identity, home_dirs: I) 
+        -> Result<&Self, ()> 
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>
+    {
         let host_home = actual_identity.home()?;
         let mut host_home_string = actual_identity.home_string()?;
         host_home_string.push('/');
         let chroot_home = self.home(actual_identity)?;
-        for dir in Self::HOME_DIRS {
-            let host_dir = host_home.join(dir);
+        for dir in home_dirs {
+            let host_dir = host_home.join(dir.as_ref());
             if ! host_dir.exists() {
                 continue
             }
-            let chroot_dir = chroot_home.join(dir);
+            let chroot_dir = chroot_home.join(dir.as_ref());
             create_dir(&chroot_dir).or_else(|e|{
                 eprintln!("Failed to create chroot dir: {}", e);
                 Err(())
             })?;
             let mut host_dir_string = host_home_string.clone();
-            host_dir_string.push_str(dir);
+            host_dir_string.push_str(dir.as_ref());
             mount(Some(&host_dir_string),
                 &chroot_dir,
                 None,
@@ -537,12 +541,14 @@ impl OverlayRoot {
 
     /// Different from base, overlay would have upper, work, and merged.
     /// Note that the pkgs here can only come from repos, not as raw pkg files.
-    pub(crate) fn new<I, S>(
-        name: &str, actual_identity: &Identity, pkgs: I
+    pub(crate) fn new<I, S, I2, S2>(
+        name: &str, actual_identity: &Identity, pkgs: I, home_dirs: I2
     ) -> Result<Self, ()> 
     where
         I: IntoIterator<Item = S>,
-        S: AsRef<OsStr> 
+        S: AsRef<OsStr>,
+        I2: IntoIterator<Item = S2>,
+        S2: AsRef<str>
     {
         println!("Creating overlay chroot '{}'", name);
         let parent = PathBuf::from(format!("roots/overlay-{}", name));
@@ -561,7 +567,7 @@ impl OverlayRoot {
                 .base_mounts()?
                 .install_pkgs(pkgs)?
                 .bind_builder(actual_identity)?
-                .bind_homedirs(actual_identity)?
+                .bind_homedirs(actual_identity, home_dirs)?
                 .resolv()?;
             Ok(())
         })?;

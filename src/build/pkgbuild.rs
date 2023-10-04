@@ -602,12 +602,41 @@ impl PKGBUILD {
         Ok(())
     }
 
+    fn get_bind_dirs(&self) -> Vec<&'static str> {
+        let mut go = false;
+        let mut cargo = false;
+        for dep in self.depends.iter() {
+            match dep.as_str() {
+                // Go-related
+                "gcc-go" => go = true,
+                "go" => go = true,
+                // Rust/Cargo-related
+                "cargo" => cargo = true,
+                "rust" => cargo = true,
+                "rustup" => cargo = true,
+                _ => ()
+            }
+        }
+        let mut binds = vec![];
+        if go {
+            binds.push("go")
+        }
+        if cargo {
+            binds.push(".cargo")
+        }
+        binds.sort_unstable();
+        binds.dedup();
+        binds
+    }
+
     fn builder(&mut self, actual_identity: &Identity, _nonet: bool) 
         -> Result<Builder, ()> 
     {
         let temp_pkgdir = self.get_temp_pkgdir()?;
+        let bind_dirs = self.get_bind_dirs();
         let root = OverlayRoot::new(
-            &self.base, actual_identity, &self.depends)?;
+            &self.base, actual_identity, 
+            &self.depends, bind_dirs)?;
         let mut command = self.get_build_command(
             actual_identity, &root, &temp_pkgdir)?;
         let child = command.spawn().or_else(|e|{
