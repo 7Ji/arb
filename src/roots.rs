@@ -412,7 +412,7 @@ impl BaseRoot {
     /// Root is expected
     fn setup(&self, actual_identity: &Identity) -> Result<&Self, ()> {
         let builder = self.builder(actual_identity)?;
-        self.install_pkgs(&["base-devel"])?
+        self.install_pkgs(&["base-devel", "git"])?
             .copy_file_same("etc/passwd")?
             .copy_file_same("etc/group")?
             .copy_file_same("etc/shadow")?
