@@ -387,17 +387,26 @@ impl BaseRoot {
 
     /// Root is expected
     fn setup(&self, actual_identity: &Identity) -> Result<&Self, ()> {
+        let builder = self.builder(actual_identity)?;
         self.install_pkgs(&["base-devel"])?
             .copy_file_same("etc/passwd")?
             .copy_file_same("etc/group")?
             .copy_file_same("etc/shadow")?
             .copy_file_same("etc/makepkg.conf")?
             .create_home(actual_identity)?;
-        create_dir(&self.builder(actual_identity)?)
-            .or_else(|e|{
-                eprintln!("Failed to create chroot builder dir: {}", e);
-                Err(())
-            })?;
+        let dirs = [
+            &builder,
+            &builder.join("build"), 
+            &builder.join("pkgs"), 
+            &builder.join("sources")
+        ];
+        for dir in dirs {
+            create_dir(dir)
+                .or_else(|e|{
+                    eprintln!("Failed to create chroot builder dir: {}", e);
+                    Err(())
+                })?;
+        }
         eprintln!("Finished base root setup");
         Ok(self)
     }
@@ -465,11 +474,14 @@ impl OverlayRoot {
     }
 
     fn bind_builder(&self, actual_identity: &Identity) -> Result<&Self, ()> {
-        mount(Some("."),
-            &self.builder(actual_identity)?,
-            None,
-            libc::MS_BIND,
-            None)?;
+        let builder = self.builder(actual_identity)?;
+        for dir in ["build", "pkgs", "sources"] {
+            mount(Some(dir),
+                &builder.join(dir),
+                None,
+                libc::MS_BIND,
+                None)?;
+        }
         Ok(self)
     }
 
