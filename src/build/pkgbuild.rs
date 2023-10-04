@@ -1035,12 +1035,10 @@ impl PKGBUILDs {
 
     fn check_deps<P: AsRef<Path>, S: AsRef<str>> (
         &mut self, actual_identity: &Identity, dir: P, root: S
-    )   -> Result<(), ()>
+    )   -> Result<Depends, ()>
     {
         let db_handle = DbHandle::new(&root)?;
-        let all_deps = 
-            self.get_deps(actual_identity, dir, &db_handle)?;
-        all_deps.cache(&root)
+        self.get_deps(actual_identity, dir, &db_handle)
     }
 
     fn get_all_sources<P: AsRef<Path>> (&mut self, dir: P)
@@ -1306,10 +1304,12 @@ impl PKGBUILDs {
         self.fill_all_pkgvers(actual_identity, &dir)?;
         // Use the fresh DBs in target root
         let base_root = BaseRoot::db_only()?;
-        self.check_deps(actual_identity, dir.as_ref(), base_root.as_str())?;
+        let all_deps = self.check_deps(
+            actual_identity, dir.as_ref(), base_root.as_str())?;
         self.fill_all_ids_dirs();
         let need_builds = self.extract_if_need_build(actual_identity)? > 0;
         if need_builds {
+            all_deps.cache(base_root.as_str())?;
             base_root.finish(actual_identity)?;
         }
         if let Some(cleaners) = cleaners {
