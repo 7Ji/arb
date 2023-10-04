@@ -163,12 +163,7 @@ impl Identity {
 
     pub(crate) fn set_root_command(command: &mut Command) -> &mut Command {
         unsafe {
-            command.pre_exec(|| {
-                eprintln!("Pre-exec closure: setting back euid/egid to root");
-                let r = Self::sete_root();
-                eprintln!("Pre-exec closure: set back euid/egid to root");
-                r
-            });
+            command.pre_exec(|| Self::sete_root());
         }
         command
     }
@@ -181,12 +176,7 @@ impl Identity {
         let uid = self.uid;
         let gid = self.gid;
         unsafe {
-            command.pre_exec(move || {
-                eprintln!("Pre-exec closure: setting uid/gid to actual");
-                let r = Self::set_raw(uid, gid);
-                eprintln!("Pre-exec closure: set uid/gid to actual");
-                r
-            });
+            command.pre_exec(move || Self::set_raw(uid, gid));
         }
         command
     }
@@ -206,12 +196,7 @@ impl Identity {
     {
         let root = root.as_ref().to_owned();
         unsafe {
-            command.pre_exec(move || {
-                eprintln!("Pre-exec closure: chrooting");
-                let r = chroot(&root);
-                eprintln!("Pre-exec closure: chrooted");
-                r
-            });
+            command.pre_exec(move || chroot(&root));
         }
         command
     }
