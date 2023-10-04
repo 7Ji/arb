@@ -337,11 +337,10 @@ pub(crate) trait CommonRoot {
     }
 
     fn builder(&self, actual_identity: &Identity) -> Result<PathBuf, ()> {
-        let home = actual_identity.home()?;
         let cwd = actual_identity.cwd()?;
-        let suffix = cwd.strip_prefix(&home).or_else(
+        let suffix = cwd.strip_prefix("/").or_else(
             |e|{
-                eprintln!("Failed to strip suffix from home: {}", e);
+                eprintln!("Failed to strip suffix from cwd: {}", e);
                 Err(())
             })?;
         Ok(self.path().join(suffix))
