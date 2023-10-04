@@ -40,6 +40,8 @@ chormium-mpp: https://aur.archlinux.org/chromium-mpp.git
 yaopenvfd: https://aur.archlinux.org/yaopenvfd.git
 ```
 
+**Note: You must run the builder with sudo as a normal user, the builder would drop back to the normal user you call sudo with. This is for the purpose of unattended chroot deployment, bind-mounting, etc, as it could quickly use setuid and setgid syscalls to return to root. Don't worry, the builder would only run those root stuffs in forked child, not in itself.**
+
 ## TODO
  - [ ] Resolve inter-dependencies if necessary, to trigger builds if some of our pacakges changed which are deps of other pacakges
    - doing this would also mean splitting builds into multiple steps (build -> install -> build)
@@ -58,7 +60,8 @@ The builder does the following to save a great chunk of build time and resource:
  7. Packages are stored under `pkg/[pkgid]`. Two folders, `pkg/updated` and `pkg/latest` are created with symlinks, `updated` containing links to packages built during the current run, and `latest` containing links to all latest packages.
     1. `updated` is useful when partial update is wanted
     2. `latest` is useful when full update is wanted
-
+ 8. Package dependencies are tracked and solved using native libalpm, and needed deps are cached on host after all PKGBUILDs parsed and a deduplicated dep list is obtained.
+ 9. Every PKGBUILD is built in its own chroot environment, which is mounted using overlay, with a common minimum base chroot with only `base-devel` installed. The dependencies are all cached on host and are only installed into the overlay chroot when the corresponding package needs building.
 ### Git source
 It might seem redundant that PKGBUILDs and git sources are maintained seperately as bare git repos, although they're both just bare git repos. But the internal logic do treat them differently, as:
   - The PKGBUILDs's bare git repos only track `refs/heads/master` (master branch), and the repos are just stored as `sources/PKGBUILD/[pkgname]`. This means they're both lightweight, taking as little space as possible, and easy for humans to lookup. As we're not storing their work directories, the latter is important when you need to dig the PKGBUILD history and other stuffs.
@@ -78,3 +81,6 @@ The argument `--nonet` could be set to catch such packages, it is achieved by tw
 
 ### Git-mirrorer
 It is possible to set the builder to fetch from a [7Ji/git-mirrorer](https://github.com/7Ji/git-mirrorer) instance hosted in local LAN before the actual remote. This can further save the bandwidth usage. And it is highly recommended that you set this up if you're building a lot. Do note that PKGBUILDs won't be fetched from git-mirrorer, as the main source is considered to be AUR, and no PKGBUILD repo should be huge enough to be a problem to update frequently from AUR.
+
+### Chroot
+The builder utilizes `chroot()` syscall to run building in dedicated chroots, each package having its own chroot mounted using overlay. There is also an addtional base chroot, which is always populated before even calculating the pkgids, the base chroot serves the addtional purpose that clean repo DBs could be looked up instead of from root, and without breaking the host dependency.
