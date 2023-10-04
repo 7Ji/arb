@@ -21,13 +21,11 @@ pub(crate) fn work(
     sign: Option<&str>
 ) -> Result<(), ()>
 {
-    let gmr = match gmr {
-        Some(gmr) => Some(crate::source::git::Gmr::init(gmr)),
-        None => None,
-    };
+    let gmr = gmr.and_then(|gmr|
+        Some(crate::source::git::Gmr::init(gmr)));
     let mut pkgbuilds = 
         pkgbuild::PKGBUILDs::from_config_healthy(
-            pkgbuilds_config, holdpkg, noclean, proxy)?;
+            pkgbuilds_config, holdpkg, noclean, proxy, gmr.as_ref())?;
     let pkgbuilds_dir =
         tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
     let _base_root = pkgbuilds.prepare_sources(&actual_identity, 

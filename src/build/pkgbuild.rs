@@ -3,7 +3,7 @@ use crate::{
         identity::Identity,
         source::{
             self,
-            git,
+            git::{self, Gmr},
             MapByDomain,
         },
         roots::{
@@ -175,7 +175,8 @@ impl PKGBUILD {
             },
             dephash: 0,
             extract: false,
-            git: git_parent.join(name),
+            git: git_parent.join(
+                format!("{:016x}",xxh3_64(url.as_bytes()))),
             home_binds: match home_binds {
                 Some(home_binds) => home_binds.clone(),
                 None => vec![],
@@ -865,14 +866,14 @@ impl PKGBUILDs {
         Ok(Self(pkgbuilds))
     }
 
-    fn sync(&self, hold: bool, proxy: Option<&str>) -> Result<(), ()> 
+    fn sync(&self, hold: bool, proxy: Option<&str>, gmr: Option<&Gmr>) 
+        -> Result<(), ()> 
     {
-
         let map =
             PKGBUILD::map_by_domain(&self.0);
         let repos_map =
             match git::ToReposMap::to_repos_map(
-                map, "sources/PKGBUILD", None) 
+                map, "sources/PKGBUILD", gmr) 
         {
             Some(repos_map) => repos_map,
             None => {
@@ -904,7 +905,7 @@ impl PKGBUILDs {
 
     pub(super) fn from_config_healthy(
         config: &HashMap<String, PkgbuildConfig>, 
-        hold: bool, noclean: bool, proxy: Option<&str>
+        hold: bool, noclean: bool, proxy: Option<&str>, gmr: Option<&Gmr>
     ) -> Result<Self, ()>
     {
         let mut pkgbuilds = Self::from_config(config)?;
@@ -930,7 +931,7 @@ impl PKGBUILDs {
                         source::remove_unused("sources/PKGBUILD", &used))),
         };
         if update_pkg {
-            pkgbuilds.sync(hold, proxy)?;
+            pkgbuilds.sync(hold, proxy, gmr)?;
             if ! pkgbuilds.healthy_set_commit() {
                 eprintln!("Updating broke some of our PKGBUILDs");
                 return Err(())
