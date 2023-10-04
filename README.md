@@ -16,10 +16,10 @@ strip target/release/arch_repo_builder -o output/path
 
 ## Usage
 ```
-Usage: arch_repo_builder [OPTIONS] [PKGBUILDS]
+Usage: arch_repo_builder [OPTIONS] [CONFIG]
 
 Arguments:
-  [PKGBUILDS]  Optional PKGBUILDs.yaml file [default: PKGBUILDs.yaml]
+  [CONFIG]  Optional config.yaml file [default: config.yaml]
 
 Options:
   -p, --proxy <PROXY>  HTTP proxy to retry for git updating and http(s) netfiles if attempt without proxy failed
@@ -30,17 +30,52 @@ Options:
   -C, --noclean        Do not clean unused sources and outdated packages
   -N, --nonet          Disallow any network connection during makepkg's build routine
   -g, --gmr <GMR>      Prefix of a 7Ji/git-mirrorer instance, e.g. git://gmr.lan, The mirror would be tried first before actual git remote
+  -s, --sign <SIGN>    The GnuPG key ID used to sign packages
   -h, --help           Print help
   -V, --version        Print version
 ```
-The `PKGBUILDs.yaml` would contain simple lines of `name: url`, e.g.:
-```
-ampart: https://aur.archlinux.org/ampart.git/
-chormium-mpp: https://aur.archlinux.org/chromium-mpp.git
-yaopenvfd: https://aur.archlinux.org/yaopenvfd.git
-```
 
 **Note: You must run the builder with sudo as a normal user, the builder would drop back to the normal user you call sudo with. This is for the purpose of unattended chroot deployment, bind-mounting, etc, as it could quickly use setuid and setgid syscalls to return to root. Don't worry, the builder would only run those root stuffs in forked child, not in itself.**
+
+## Config
+The `config.yaml` would contain a `pkgbuilds` part with simple lines of `name: url`, e.g.:
+```
+pkgbuilds:
+  ampart: https://aur.archlinux.org/ampart.git/
+  chormium-mpp: https://aur.archlinux.org/chromium-mpp.git
+  yaopenvfd: https://aur.archlinux.org/yaopenvfd.git
+```
+Addtionally, most CLI options could be set in the config if they're used very often and not considered optional anymore, e.g.:
+```
+sign: 8815547B7B80370675B3CD20BA27F219383BB875
+proxy: http://xray.lan:1081
+gmr: git://gmr.lan
+noclean: true
+pkgbuilds:
+  ...
+```
+The PKGBUILDs could also be defined with advanced options:
+```
+pkgbuilds:
+  ampart: git://git.lan/PKGBUILDs/ampart.git
+  xray:
+    url: https://aur.archlinux.org/xray.git
+    home_binds:
+      - go
+  dri2to3-git:
+    url: https://aur.archlinux.org/dri2to3-git.git
+    deps:
+      - git
+  wiringPi:
+    url: git://gmr.lan/github.com/archlinuxarm/PKGBUILDs.git
+    branch: master
+    subtree: alarm/wiringpi
+```
+The following optional attributes could be set for each PKGBUILD:
+  - `deps`: Explicit dependencies for the package, this is useful if the package maintainer missed such deps, e.g. aur/dri2to3-git. Specially, the builder would automatically append `git` to `-git` packages, so you shouldn't need it even if the maintainer missed that.
+  - `branch`: Alternative branch that PKGBUILD should be obtained from. The default is `master`
+  - `subtree`: The subtree PKGBUILD should be obtained from, and the whole build folder should be populated via checking out from.
+  - `home_binds`: Bind such folders under home into the building chroot, if they exist. The builder would automatically append `go` for packages that depend on `go`, and `.cargo` for packages that depened on `rust/cargo`.
 
 ## TODO
  - [ ] Resolve inter-dependencies if necessary, to trigger builds if some of our pacakges changed which are deps of other pacakges
