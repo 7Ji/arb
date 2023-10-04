@@ -1,18 +1,23 @@
-pub(crate) fn ftp(url: &str, path: &std::path::Path) -> Result<(), ()> {
+pub(crate) fn ftp(
+    actual_identity: &crate::identity::Identity,
+    url: &str,
+    path: &std::path::Path
+) -> Result<(), ()> 
+{
     let job = format!(
         "download FTP source from '{}' to '{}'", url, path.display());
-    let mut command = 
-        std::process::Command::new("/usr/bin/curl");
-    command
-        .arg("-qgfC")
-        .arg("-")
-        .arg("--ftp-pasv")
-        .arg("--retry")
-        .arg("3")
-        .arg("--retry-delay")
-        .arg("3")
-        .arg("-o")
-        .arg(path)
-        .arg(url);
+    let mut command = std::process::Command::new("/usr/bin/curl");
+    actual_identity.set_root_drop_command(
+        command
+            .arg("-qgfC")
+            .arg("-")
+            .arg("--ftp-pasv")
+            .arg("--retry")
+            .arg("3")
+            .arg("--retry-delay")
+            .arg("3")
+            .arg("-o")
+            .arg(path)
+            .arg(url));
     super::child::spawn_and_wait(&mut command, &job)
 }

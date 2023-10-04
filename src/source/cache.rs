@@ -48,6 +48,7 @@ fn get_domain_threads_from_map<'a>(
 pub(crate) fn cache_sources_mt(
     netfile_sources: &Vec<Source>,
     git_sources: &Vec<Source>,
+    actual_identity: &crate::identity::Identity,
     holdgit: bool,
     skipint: bool,
     proxy: Option<&str>,
@@ -108,14 +109,15 @@ pub(crate) fn cache_sources_mt(
                 let integ_files 
                     = IntegFile::vec_from_source(&netfile_source);
                 let proxy_string_thread = proxy_string.clone();
+                let actual_identity_thread = actual_identity.clone();
                 let netfile_thread = thread::spawn(
                 move ||{
                     let proxy = match has_proxy {
                         true => Some(proxy_string_thread.as_str()),
                         false => None,
                     };
-                    netfile::cache_source(
-                        &netfile_source, &integ_files, skipint, proxy)
+                    netfile::cache_source(&netfile_source, &integ_files,
+                         &actual_identity_thread, skipint, proxy)
                 });
                 netfile_threads.push(netfile_thread);
             }

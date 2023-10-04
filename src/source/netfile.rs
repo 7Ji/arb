@@ -112,6 +112,7 @@ pub(super) fn push_source(
 pub(super) fn download_source(
     source: &Source,
     integ_file: &super::cksums::IntegFile,
+    actual_identity: &crate::identity::Identity,
     skipint: bool,
     proxy: Option<&str>
 ) -> Result<(), ()> 
@@ -130,13 +131,13 @@ pub(super) fn download_source(
             source.url, path.display());
         if let Ok(_) = match &protocol {
             NetfileProtocol::File => download::file(url, path),
-            NetfileProtocol::Ftp => download::ftp(url, path),
+            NetfileProtocol::Ftp => download::ftp(actual_identity, url, path),
             NetfileProtocol::Http => 
                 download::http(url, path, None),
             NetfileProtocol::Https => 
                 download::http(url, path, None),
-            NetfileProtocol::Rsync => download::rsync(url, path),
-            NetfileProtocol::Scp => download::scp(url, path),
+            NetfileProtocol::Rsync => download::rsync(actual_identity, url, path),
+            NetfileProtocol::Scp => download::scp(actual_identity, url, path),
         } {
             if integ_file.valid(skipint) {
                 return Ok(())
@@ -182,6 +183,7 @@ pub(super) fn download_source(
 pub(super) fn cache_source(
     source: &Source,
     integ_files: &Vec<super::cksums::IntegFile>,
+    actual_identity: &crate::identity::Identity,
     skipint: bool,
     proxy: Option<&str>
 ) -> Result<(), ()> 
@@ -213,7 +215,7 @@ pub(super) fn cache_source(
             Some(good_file) =>
                 bad_file.clone_file_from(good_file),
             None => download_source(
-                source, bad_file, skipint, proxy),
+                source, bad_file, actual_identity, skipint, proxy),
         };
         match r {
             Ok(_) => good_files.push(bad_file),

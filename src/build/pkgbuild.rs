@@ -1206,7 +1206,8 @@ impl PKGBUILDs {
         let (netfile_sources, git_sources, _)
             = self.get_all_sources(&dir).ok_or(())?;
         source::cache_sources_mt(
-            &netfile_sources, &git_sources, holdgit, skipint, proxy, gmr)?;
+            &netfile_sources, &git_sources, actual_identity,
+            holdgit, skipint, proxy, gmr)?;
         if let Some(cleaner) = cleaner {
             match cleaner.join()
                 .expect("Failed to join build dir cleaner thread") {
