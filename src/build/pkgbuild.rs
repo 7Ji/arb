@@ -174,9 +174,15 @@ impl PKGBUILD {
                     Some(deps) => deps.clone(),
                     None => vec![],
                 }, 
-                makedeps: match makedeps {
-                    Some(deps) => deps.clone(),
-                    None => vec![]
+                makedeps: {
+                    let mut deps = match makedeps {
+                        Some(deps) => deps.clone(),
+                        None => vec![]
+                    };
+                    if name.ends_with("-git") {
+                        deps.push(String::from("git"))
+                    }
+                    deps
                 },
                 needs: vec![],
                 hash: 0,
