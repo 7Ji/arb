@@ -29,7 +29,7 @@ use std::{
             remove_file,
             rename,
         },
-        io::Write,
+        io::{Write, stdout},
         os::unix::{
             fs::symlink,
             process::CommandExt
@@ -471,6 +471,17 @@ impl PKGBUILD {
             .arg("--ignorearch")
             .arg("--nosign")
             .env("PKGDEST", &pkgdest);
+        unsafe {
+            command.pre_exec(||{
+                if 0 == libc::dup2(
+                    libc::STDOUT_FILENO, libc::STDERR_FILENO
+                ) {
+                    Ok(())
+                } else {
+                    Err(std::io::Error::last_os_error())
+                }
+            });
+        }
         actual_identity.set_root_chroot_drop_command(&mut command, 
             root.path().canonicalize().or(Err(()))?);
         Ok(command)
@@ -733,15 +744,17 @@ impl<'a> Builders<'a> {
         -> bool 
     {
         let mut bad = false;
-        let mut finished_good = false;
         loop {
             let mut finished = None;
             for (id, builder) in 
                 self.0.iter_mut().enumerate() 
             {
-                let status = match builder.child.try_wait() {
+                match builder.child.try_wait() {
                     Ok(status) => match status {
-                        Some(status) => status,
+                        Some(_) => {
+                            finished = Some(id);
+                            break
+                        },
                         None => continue,
                     }
                     Err(e) => { // Kill bad child
@@ -754,62 +767,50 @@ impl<'a> Builders<'a> {
                         break
                     },
                 };
-                if builder.pkgbuild.remove_build().is_err() {
-                    finished = Some(id);
-                    bad = true;
-                    break
-                }
-                let code = match status.code() {
-                    Some(code) => code,
-                    None => {
-                        eprintln!("Failed to get status code of child");
-                        finished = Some(id);
-                        bad = true;
-                        break
-                    },
-                };
-                if code == 0 {
-                    finished = Some(id);
-                    finished_good = true;
-                    break
-                }
-                eprintln!("Bad retrun from child: {}", code);
-                if builder.tries >= Self::BUILD_MAX_TRIES {
-                    eprintln!("Max tries met, giving up");
-                    finished = Some(id);
-                    bad = true;
-                    break
-                }
-                if builder.pkgbuild.extract_source(actual_identity).is_err() {
-                    eprintln!("Failed to re-extract source to rebuild");
-                    finished = Some(id);
-                    bad = true;
-                    break
-                }
-                builder.tries += 1;
-                builder.child = match builder.command.spawn() {
-                    Ok(child) => child,
-                    Err(e) => {
-                        eprintln!("Failed to spawn child: {}", e);
-                        finished = Some(id);
-                        bad = true;
-                        break
-                    },
-                };
             }
-            let builder = match finished {
+            let mut builder = match finished {
                 Some(finished) => self.0.swap_remove(finished),
-                None => break,
+                None => break, // No child waitable
             };
-            if finished_good {
-                if builder.pkgbuild.build_finish(
-                    actual_identity, &builder.temp_pkgdir, sign).is_err() 
-                {
-                    eprintln!(
-                        "Failed to finish build for {}", &builder.pkgbuild.base);
-                    bad = true
-                }
-            } else {
+            if builder.pkgbuild.remove_build().is_err() {
+                eprintln!("Failed to remove build dir");
+                bad = true;
+            }
+            match builder.child.wait_with_output() {
+                Ok(output) => {
+                    if let Err(e) = stdout()
+                        .write_all(&output.stdout) 
+                    {
+                        eprintln!("Failed to write log to output: {}", e);
+                    }
+                    match output.status.code() {
+                        Some(code) => {
+                            if code == 0 {
+                                if builder.pkgbuild.build_finish(
+                                    actual_identity,
+                                    &builder.temp_pkgdir, sign).is_err() 
+                                {
+                                    eprintln!("Failed to finish build for {}",
+                                        &builder.pkgbuild.base);
+                                    bad = true
+                                }
+                                continue
+                            }
+                            eprintln!("Bad return from builder child: {}",
+                                        code);
+                        },
+                        None => eprintln!("Failed to get return code from\
+                                builder child"),
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Failed to get child output: {}", e);
+                    bad = true;
+                },
+            };
+            if builder.tries >= Self::BUILD_MAX_TRIES {
+                eprintln!("Max retries met for building {}, giving up",
+                    &builder.pkgbuild.base);
                 if let Err(e) = remove_dir_all(
                     &builder.temp_pkgdir
                 ) {
@@ -817,7 +818,23 @@ impl<'a> Builders<'a> {
                             build: {}", e);
                     bad = true
                 }
+                continue
             }
+            if builder.pkgbuild.extract_source(actual_identity).is_err() {
+                eprintln!("Failed to re-extract source to rebuild");
+                bad = true;
+                continue
+            }
+            builder.tries += 1;
+            builder.child = match builder.command.spawn() {
+                Ok(child) => child,
+                Err(e) => {
+                    eprintln!("Failed to spawn child: {}", e);
+                    bad = true;
+                    continue
+                },
+            };
+            self.0.push(builder)
         }
         bad
     }
