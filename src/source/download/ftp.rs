@@ -19,5 +19,5 @@ pub(crate) fn ftp(
             .arg("-o")
             .arg(path)
             .arg(url));
-    super::child::spawn_and_wait(&mut command, &job)
+    super::child::output_and_check(&mut command, &job)
 }

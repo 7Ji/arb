@@ -1,39 +1,28 @@
-pub(super) fn wait_child(mut child: std::process::Child, job: &str) 
-    -> Result<(), ()> 
+pub(super) fn output_and_check(command: &mut std::process::Command, job: &str)
+    -> Result<(), ()>
 {
-    let status = match child.wait() {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Failed to wait for child to {}: {}", &job, e);
-            return Err(())
-        },
-    };
-    match status.code() {
-        Some(code) => {
-            if code == 0 {
-                return Ok(())
-            } else {
-                eprintln!("Child to {} bad return {}", &job, code);
-                return Err(())
+    match command.stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output() 
+    {
+        Ok(output) => {
+            match output.status.code() {
+                Some(code) => 
+                    if code == 0 {
+                        Ok(())
+                    } else {
+                        eprintln!("Child {} bad return {}", &job, code);
+                        Err(())
+                    },
+                None => {
+                    eprintln!("Failed to get return code of child {}", &job);
+                    Err(())
+                },
             }
         },
-        None => {
-            eprintln!("Child to {} has no return", &job);
-            return Err(())
+        Err(e) => {
+            eprintln!("Failed to spawn child to {}: {}", &job, e);
+            Err(())
         },
     }
-}
-
-pub(super) fn spawn_and_wait(command: &mut std::process::Command, job: &str)
-    -> Result<(), ()> 
-{
-    let child = match command.spawn() {
-        Ok(child) => child,
-        Err(e) => {
-            eprintln!(
-                "Failed to spawn child to {}: {}", &job, e);
-            return Err(())
-        },
-    };
-    wait_child(child, job)
 }

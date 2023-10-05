@@ -12,5 +12,5 @@ pub(crate) fn scp(
             .arg("-C")
             .arg(url)
             .arg(path));
-    super::child::spawn_and_wait(&mut command, &job)
+    super::child::output_and_check(&mut command, &job)
 }

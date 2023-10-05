@@ -7,10 +7,9 @@ use std::{
     fs::File,
     io::Write,
     path::Path,
-    process::Command,
 };
 
-pub(crate) fn http_native(url: &str, path: &Path, proxy: Option<&str>) 
+pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) 
     -> Result<(), ()> 
 {
     let mut target = match File::create(path) {
@@ -121,38 +120,4 @@ pub(crate) fn http_native(url: &str, path: &Path, proxy: Option<&str>)
         .build()
         .unwrap()
         .block_on(future)
-}
-
-fn _http_curl(
-    actual_identity: &crate::identity::Identity,
-    url: &str, 
-    path: &Path, 
-    proxy: Option<&str>
-) -> Result<(), ()> 
-{
-    let mut command = Command::new("/usr/bin/curl");
-    if let Some(proxy) = proxy {
-        command.env("http_proxy", proxy)
-               .env("https_proxy", proxy);
-    } else {
-        command
-            .env_remove("http_proxy")
-            .env_remove("https_proxy");
-    }
-    command
-        .arg("-qgb")
-        .arg("")
-        .arg("-fLC")
-        .arg("-")
-        .arg("--retry")
-        .arg("3")
-        .arg("--retry-delay")
-        .arg("3")
-        .arg("-o")
-        .arg(path)
-        .arg(url);
-    actual_identity.set_root_drop_command(&mut command);
-    let job = format!("download http(s) source from '{}' to '{}'",
-                                url, path.display());
-    super::child::spawn_and_wait(&mut command, &job)
 }
