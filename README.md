@@ -54,6 +54,15 @@ noclean: true
 pkgbuilds:
   ...
 ```
+Non-CLI options include:
+```
+basepkgs: [base-devel, distcc]
+```
+ - `basepkgs` defines a list of packages that should be installed into the base chroot.
+   - If not set then it defaults to `[base-devel]`, which is the most reasonable minimum package set.
+   - You might want to modify this if you're using other things, like `distcc`, that's not part of the `base-devel` group for every PKGBUILD.
+   - You might want to set explicit `makepkgs` for certain PKGBUILDs instead of changing this, if only they need such deps.
+
 The PKGBUILDs could also be defined with advanced options:
 ```
 pkgbuilds:
@@ -72,7 +81,9 @@ pkgbuilds:
     subtree: alarm/wiringpi
 ```
 The following optional attributes could be set for each PKGBUILD:
-  - `deps`: Explicit dependencies for the package, this is useful if the package maintainer missed such deps, e.g. aur/dri2to3-git. Specially, the builder would automatically append `git` to `-git` packages, so you shouldn't need it even if the maintainer missed that.
+  - `deps`: Explicit dependencies for the package, this is useful if the package maintainer missed such deps. Such packages will also be included when calculating the dep hash. Note this won't be reflected on the result package's metadata, if that's what you want, modify PKGBUILD itself.
+  - `makedeps`: Explicit make dependencies for the package, this is useful if the package maintainer missed such deps, e.g. aur/dri2to3-git. Specially, the builder would automatically append `git` to `-git` packages, so you shouldn't need it even if the maintainer missed that. Not included for dephash, not reflected in the result package's metadata, modify PKGBUILD itself if you want that.
+  - The above two deps are **appended** to the existing deps defined in PKGBUILD, not replacing them.
   - `branch`: Alternative branch that PKGBUILD should be obtained from. The default is `master`
   - `subtree`: The subtree PKGBUILD should be obtained from, and the whole build folder should be populated via checking out from.
   - `home_binds`: Bind such folders under home into the building chroot, if they exist. The builder would automatically append `go` for packages that depend on `go`, and `.cargo` for packages that depened on `rust/cargo`.
