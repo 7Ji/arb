@@ -29,7 +29,7 @@ use std::{
             remove_file,
             rename,
         },
-        io::{Write, stdout},
+        io::{Write, stdout, Read},
         os::unix::{
             fs::symlink,
             process::CommandExt
@@ -977,7 +977,7 @@ impl PKGBUILDs {
 
     fn filter_with_pkgver_func<P: AsRef<Path>>(
         &mut self, actual_identity: &Identity, dir: P
-    ) -> Option<Vec<&mut PKGBUILD>> 
+    ) -> Result<Vec<&mut PKGBUILD>, ()> 
     {
         let mut buffer = vec![];
         for pkgbuild in self.0.iter() {
@@ -1007,36 +1007,83 @@ impl PKGBUILDs {
             Ok(child) => child,
             Err(e) => {
                 eprintln!("Failed to spawn child to read pkgver types: {}", e);
-                return None
+                return Err(())
             },
         };
-        let mut stdin = match child.stdin.take() {
+        let mut child_in = match child.stdin.take() {
             Some(stdin) => stdin,
             None => {
                 eprintln!("Failed to open stdin");
                 child.kill().expect("Failed to kill child");
-                return None
+                return Err(())
             },
         };
-        match stdin.write_all(&buffer) {
-            Ok(_) => (),
-            Err(e) => {
-                eprintln!("Failed to write to child stdin: {}", e);
+        let mut child_out = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                eprintln!("Failed to open stdin");
                 child.kill().expect("Failed to kill child");
-                return None
+                return Err(())
+            },
+        };
+        let mut output = vec![];
+        let mut output_buffer = vec![0; libc::PIPE_BUF];
+        let mut written = 0;
+        let total = buffer.len();
+        while written < total {
+            let mut end = written + libc::PIPE_BUF;
+            if end > total {
+                end = total;
+            }
+            match child_in.write(&buffer[written..end]) {
+                Ok(written_this) => written += written_this,
+                Err(e) => {
+                    eprintln!("Failed to write buffer to child: {}", e);
+                    child.kill().expect("Failed to kill child");
+                    return Err(())
+                },
+            }
+            match child_out.read(&mut output_buffer) {
+                Ok(read_this) => 
+                    output.extend_from_slice(&output_buffer[0..read_this]),
+                Err(e) => {
+                    eprintln!("Failed to read stdout child: {}", e);
+                    child.kill().expect("Failed to kill child");
+                    return Err(())
+                },
+            }
+        }
+        if let Err(e) = child_in.flush() {
+            eprintln!("Failed to flush child stdin: {}", e);
+            return Err(())
+        }
+        drop(child_in);
+        match child_out.read_to_end(&mut output_buffer) {
+            Ok(_) => output.append(&mut output_buffer),
+            Err(e) => {
+                eprintln!("Failed to read stdout child: {}", e);
+                child.kill().expect("Failed to kill child");
+                return Err(())
             },
         }
-        drop(stdin);
-        let output = match child.wait_with_output() {
-            Ok(output) => output,
-            Err(e) => {
-                eprintln!("Failed to wait for spawned script: {}", e);
-                return None
-            },
-        };
-        let mut types: Vec<&[u8]> = 
-            output.stdout.split(|byte| *byte == b'|').collect();
-        types.pop().expect("Failed to remove last element in types");
+        if child
+            .wait()
+            .or_else(|e|{
+                eprintln!(
+                    "Failed to wait for child reading pkgver type: {}", e);
+                Err(())
+            })?
+            .code()
+            .ok_or_else(||{
+                eprintln!("Failed to get return code from child reading \
+                        pkgver type")
+            })? != 0 {
+                eprintln!("Reader bad return");
+                return Err(())
+            }
+        let types: Vec<&[u8]> = 
+            output.split(|byte| *byte == b'|').collect();
+        let types = &types[0..self.0.len()];
         assert!(types.len() == self.0.len());
         let mut pkgbuilds_with_pkgver_func = vec![];
         for (pkgbuild, pkgver_type) in 
@@ -1046,7 +1093,7 @@ impl PKGBUILDs {
                 pkgbuilds_with_pkgver_func.push(pkgbuild)
             }
         }
-        Some(pkgbuilds_with_pkgver_func)
+        Ok(pkgbuilds_with_pkgver_func)
     }
 
     fn extract_sources_many(
@@ -1078,7 +1125,7 @@ impl PKGBUILDs {
         -> Result<(), ()> 
     {
         let mut pkgbuilds = 
-            self.filter_with_pkgver_func(actual_identity, dir).ok_or(())?;
+            self.filter_with_pkgver_func(actual_identity, dir)?;
         let _ = remove_dir_recursively("build");
         Self::extract_sources_many(actual_identity, &mut pkgbuilds)?;
         let children: Vec<Child> = pkgbuilds.iter().map(
