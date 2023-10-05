@@ -1106,7 +1106,7 @@ impl PKGBUILDs {
                     return Err(())
                 },
             }
-            match child_out.read(&mut output_buffer) {
+            match child_out.read(&mut output_buffer[..]) {
                 Ok(read_this) => 
                     output.extend_from_slice(&output_buffer[0..read_this]),
                 Err(e) => {
@@ -1116,13 +1116,9 @@ impl PKGBUILDs {
                 },
             }
         }
-        if let Err(e) = child_in.flush() {
-            eprintln!("Failed to flush child stdin: {}", e);
-            return Err(())
-        }
         drop(child_in);
-        match child_out.read_to_end(&mut output_buffer) {
-            Ok(_) => output.append(&mut output_buffer),
+        match child_out.read_to_end(&mut output) {
+            Ok(_) => (),
             Err(e) => {
                 eprintln!("Failed to read stdout child: {}", e);
                 child.kill().expect("Failed to kill child");
