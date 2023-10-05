@@ -414,8 +414,7 @@ impl BaseRoot {
     fn setup(&self, actual_identity: &Identity) -> Result<&Self, ()> {
         eprintln!("Finishing base root setup");
         let builder = self.builder(actual_identity)?;
-        self.install_pkgs(&["base-devel"])?
-            .copy_file_same("etc/passwd")?
+        self.copy_file_same("etc/passwd")?
             .copy_file_same("etc/group")?
             .copy_file_same("etc/shadow")?
             .copy_file_same("etc/makepkg.conf")?
@@ -454,7 +453,12 @@ impl BaseRoot {
 
     /// Create a base rootfs containing the minimum packages and user setup
     /// This should not be used directly for building packages
-    pub(crate) fn _new(actual_identity: &Identity) -> Result<Self, ()> {
+    pub(crate) fn _new<I, S>(actual_identity: &Identity, pkgs: I) 
+        -> Result<Self, ()> 
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>
+    {
         Identity::as_root(||MountedFolder::remove_all())?;
         println!("Creating base chroot");
         let root = Self(MountedFolder(PathBuf::from("roots/base")));
@@ -464,6 +468,7 @@ impl BaseRoot {
                 .bind_self()?
                 .base_mounts()?
                 .refresh_dbs()?
+                .install_pkgs(pkgs)?
                 .setup(actual_identity)?
                 .umount_recursive()?;
             Ok(())
