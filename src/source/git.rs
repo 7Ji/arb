@@ -438,14 +438,14 @@ impl Repo {
             println!("Syncing repo '{}' with gmr '{}' before actual remote",
                         &self.path.display(), &mirror);
             if let Ok(_) = Self::sync_raw(
-                &self.repo, &mirror, None, refspecs, 3
+                &self.repo, &mirror, None, refspecs, 1
             ) {
                 return Ok(())
             }
         }
         println!("Syncing repo '{}' with '{}' ", 
             &self.path.display(), &self.url);
-        Self::sync_raw(&self.repo, &self.url, proxy, refspecs, 1)
+        Self::sync_raw(&self.repo, &self.url, proxy, refspecs, 3)
     }
 
     fn get_branch<'a>(&'a self, branch: &str) -> Option<Branch<'a>> {
