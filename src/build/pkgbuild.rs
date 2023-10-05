@@ -60,6 +60,7 @@ pub(crate) enum PkgbuildConfig {
         branch: Option<String>,
         subtree: Option<PathBuf>,
         deps: Option<Vec<String>>,
+        makedeps: Option<Vec<String>>,
         home_binds: Option<Vec<String>>,
         binds: Option<HashMap<String, String>>
     },
@@ -77,8 +78,7 @@ struct PKGBUILD {
     branch: String,
     build: PathBuf,
     commit: git2::Oid,
-    depends: Vec<String>,
-    dephash: u64,
+    depends: Depends,
     extract: bool,
     git: PathBuf,
     home_binds: Vec<String>,
@@ -158,7 +158,7 @@ impl PKGBUILD {
     fn new(
         name: &str, url: &str, build_parent: &Path, git_parent: &Path,
         branch: Option<&str>, subtree: Option<&Path>, deps: Option<&Vec<String>>,
-        home_binds: Option<&Vec<String>>
+        makedeps: Option<&Vec<String>>, home_binds: Option<&Vec<String>>
     ) -> Self
     {
         Self {
@@ -169,11 +169,18 @@ impl PKGBUILD {
             },
             build: build_parent.join(name),
             commit: Oid::zero(),
-            depends: match deps {
-                Some(deps) => deps.clone(),
-                None => vec![],
+            depends: Depends { 
+                deps: match deps {
+                    Some(deps) => deps.clone(),
+                    None => vec![],
+                }, 
+                makedeps: match makedeps {
+                    Some(deps) => deps.clone(),
+                    None => vec![]
+                },
+                needs: vec![],
+                hash: 0,
             },
-            dephash: 0,
             extract: false,
             git: git_parent.join(
                 format!("{:016x}",xxh3_64(url.as_bytes()))),
@@ -298,8 +305,11 @@ impl PKGBUILD {
             Command::new("/bin/bash")
                 .arg("-ec")
                 .arg(". \"$1\"; \
-                    for dep in \"${depends[@]}\" \"${makedepends[@]}\"; do \
-                        echo \"${dep}\"; \
+                    for dep in \"${depends[@]}\"; do \
+                        echo \"d:${dep}\"; \
+                    done; \
+                    for dep in  \"${makedepends[@]}\"; do \
+                        echo \"m:${dep}\"; \
                     done")
                 .arg("Depends reader")
                 .arg(pkgbuild_file.as_ref())
@@ -408,7 +418,7 @@ impl PKGBUILD {
 
     fn fill_id_dir(&mut self) {
         let mut pkgid = format!( "{}-{}-{:016x}", 
-            self.base, self.commit, self.dephash);
+            self.base, self.commit, self.depends.hash);
         if let Pkgver::Func { pkgver } = &self.pkgver {
             pkgid.push('-');
             pkgid.push_str(&pkgver);
@@ -658,7 +668,10 @@ impl PKGBUILD {
         let mut binds = self.home_binds.clone();
         let mut go = false;
         let mut cargo = false;
-        for dep in self.depends.iter() {
+        
+        for dep in 
+            self.depends.deps.iter().chain(self.depends.makedeps.iter()) 
+        {
             match dep.as_str() {
                 // Go-related
                 "gcc-go" => go = true,
@@ -688,7 +701,7 @@ impl PKGBUILD {
         let home_binds = self.get_home_binds();
         let root = OverlayRoot::new(
             &self.base, actual_identity, 
-            &self.depends, home_binds)?;
+            &self.depends.needs, home_binds)?;
         let mut command = self.get_build_command(
             actual_identity, &root, &temp_pkgdir)?;
         let child = command.spawn().or_else(|e|{
@@ -702,42 +715,6 @@ impl PKGBUILD {
             tries: 0,
             child,
         })
-    }
-
-    fn _get_deps_file<P: AsRef<Path>> (
-        actual_identity: &Identity, pkgbuild_file: P
-    ) -> std::io::Result<Depends> 
-    {
-        let child = match 
-            Self::dep_reader_file(actual_identity, &pkgbuild_file) {
-                Ok(child) => child,
-                Err(e) => {
-                    eprintln!(
-                        "Failed to spawn child to read deps from '{}': {}",
-                        pkgbuild_file.as_ref().display(), e);
-                    return Err(e)
-                },
-            };
-        let output = match child.wait_with_output() {
-            Ok(output) => output,
-            Err(e) => {
-                eprintln!("Failed to wait for child to read dep");
-                return Err(e)
-            },
-        };
-        let mut pkg_deps = Depends(vec![]);
-        for line in 
-            output.stdout.split(|byte| byte == &b'\n') 
-        {
-            if line.len() == 0 {
-                continue;
-            }
-            let dep = String::from_utf8_lossy(line).into_owned();
-            pkg_deps.0.push(dep);
-        }
-        pkg_deps.0.sort();
-        pkg_deps.0.dedup();
-        Ok(pkg_deps)
     }
 
 }
@@ -856,15 +833,17 @@ impl PKGBUILDs {
             match detail {
                 PkgbuildConfig::Simple(url) => PKGBUILD::new(
                     name, url, &build_parent, &git_parent, 
-                    None, None, None, None
+                    None, None, None, None, 
+                    None
                 ),
                 PkgbuildConfig::Complex { url, branch,
                     subtree, deps, 
-                    home_binds, binds: _ 
+                    makedeps,
+                    home_binds,binds: _ 
                 } => PKGBUILD::new(
                     name, url, &build_parent, &git_parent,
                     branch.as_deref(), subtree.as_deref(), 
-                    deps.as_ref(), home_binds.as_ref())
+                    deps.as_ref(), makedeps.as_ref(), home_binds.as_ref())
             }
         }).collect();
         pkgbuilds.sort_unstable_by(
@@ -968,7 +947,7 @@ impl PKGBUILDs {
 
     fn get_deps<P: AsRef<Path>> (
         &mut self, actual_identity: &Identity, dir: P, db_handle: &DbHandle
-    ) -> Result<Depends, ()>
+    ) -> Result<Vec<String>, ()>
     {
         let mut bad = false;
         let mut children = vec![];
@@ -992,37 +971,39 @@ impl PKGBUILDs {
             return Err(())
         }
         assert!(self.0.len() == children.len());
-        let mut all_deps = Depends(vec![]);
+        let mut all_deps = vec![];
         for (pkgbuild, child) in 
             zip(self.0.iter_mut(), children) 
         {
             let output = child.wait_with_output()
                 .expect("Failed to wait for child");
-            let mut pkg_deps = Depends(pkgbuild.depends.clone());
-            if pkgbuild.base.ends_with("-git") {
-                // Some bad PKGBUILDs would forget this, like dri2to3-git
-                pkg_deps.0.push(String::from("git"))
-            }
             for line in 
                 output.stdout.split(|byte| byte == &b'\n') 
             {
                 if line.len() == 0 {
                     continue;
                 }
-                pkg_deps.0.push(String::from_utf8_lossy(line).into_owned());
+                let dep = 
+                    String::from_utf8_lossy(&line[2..]).into_owned();
+                match &line[0..2] {
+                    b"d:" => pkgbuild.depends.deps.push(dep),
+                    b"m:" => pkgbuild.depends.makedeps.push(dep),
+                    _ => ()
+                }
             }
-            pkg_deps.0.sort_unstable();
-            pkg_deps.0.dedup();
-            match pkg_deps.needed_and_hash(db_handle) {
-                Ok((needed, hash)) => {
+            pkgbuild.depends.deps.sort_unstable();
+            pkgbuild.depends.makedeps.sort_unstable();
+            pkgbuild.depends.deps.dedup();
+            pkgbuild.depends.makedeps.dedup();
+            match pkgbuild.depends.needed_and_hash(db_handle) {
+                Ok(_) => {
                     println!("PKGBUILD '{}' dephash {:016x}, \
                             needed dependencies: {:?}", 
-                            &pkgbuild.base, hash, &needed);
-                    for need in needed.iter() {
-                        all_deps.0.push(need.clone())
+                            &pkgbuild.base, pkgbuild.depends.hash, 
+                            &pkgbuild.depends.needs);
+                    for need in pkgbuild.depends.needs.iter() {
+                        all_deps.push(need.clone())
                     }
-                    pkgbuild.depends = needed;
-                    pkgbuild.dephash = hash;
                 },
                 Err(_) => {
                     eprintln!("Failed to get needed deps for package '{}'",
@@ -1034,14 +1015,14 @@ impl PKGBUILDs {
         if bad {
             return Err(())
         }
-        all_deps.0.sort_unstable();
-        all_deps.0.dedup();
+        all_deps.sort_unstable();
+        all_deps.dedup();
         Ok(all_deps)
     }
 
     fn check_deps<P: AsRef<Path>, S: AsRef<str>> (
         &mut self, actual_identity: &Identity, dir: P, root: S
-    )   -> Result<Depends, ()>
+    )   -> Result<Vec<String>, ()>
     {
         let db_handle = DbHandle::new(&root)?;
         self.get_deps(actual_identity, dir, &db_handle)
@@ -1315,7 +1296,7 @@ impl PKGBUILDs {
         self.fill_all_ids_dirs();
         let need_builds = self.extract_if_need_build(actual_identity)? > 0;
         if need_builds {
-            all_deps.cache(base_root.as_str())?;
+            Depends::cache_raw(&all_deps, base_root.as_str())?;
             base_root.finish(actual_identity)?;
         }
         if let Some(cleaners) = cleaners {

@@ -6,7 +6,12 @@ use xxhash_rust::xxh3;
 use crate::identity::Identity;
 
 #[derive(Clone)]
-pub(super) struct Depends (pub(super) Vec<String>);
+pub(super) struct Depends {
+    pub(super) deps: Vec<String>,
+    pub(super) makedeps: Vec<String>,
+    pub(super) needs: Vec<String>,
+    pub(super) hash: u64,
+}
 
 pub(super) struct DbHandle {
     alpm_handle: alpm::Alpm,
@@ -85,13 +90,13 @@ impl DbHandle {
 }
 
 impl Depends {
-    pub(super) fn needed_and_hash(&self, db_handle: &DbHandle) 
-        -> Result<(Vec<String>, u64), ()> 
+    pub(super) fn needed_and_hash(&mut self, db_handle: &DbHandle) 
+        -> Result<(), ()> 
     {
         let mut hash_box = Box::new(xxh3::Xxh3::new());
         let hash = hash_box.as_mut();
-        let mut needs = vec![];
-        for dep in self.0.iter() {
+        self.needs.clear();
+        for dep in self.deps.iter() {
             let dep = match db_handle.find_satisfier(dep) {
                 Some(dep) => dep,
                 None => {
@@ -99,7 +104,7 @@ impl Depends {
                     return Err(())
                 },
             };
-            needs.push(dep.name().to_string());
+            self.needs.push(dep.name().to_string());
             if let Some(sig) = dep.base64_sig() {
                 hash.update(sig.as_bytes());
                 continue
@@ -119,17 +124,30 @@ impl Depends {
             // There're of couse other vars, but as we add more of them
             // we will add the possibility of fake-positive
         }
-        needs.sort_unstable();
-        needs.dedup();
+        for dep in self.makedeps.iter() {
+            let dep = match db_handle.find_satisfier(dep) {
+                Some(dep) => dep,
+                None => {
+                    eprintln!("Warning: dep {} not found", dep);
+                    return Err(())
+                },
+            };
+            self.needs.push(dep.name().to_string());
+        }
+        self.needs.sort_unstable();
+        self.needs.dedup();
+        self.hash = hash.finish();
         // needs.retain(|pkg|!db_handle.is_installed(pkg));
-        Ok((needs, hash.finish()))
+        Ok(())
     }
 
-    pub(super) fn cache<S: AsRef<str>>(&self, root: S) -> Result<(), ()> {
-        if self.0.len() == 0 {
+    pub(super) fn cache_raw<S: AsRef<str>>(deps: &Vec<String>, root: S) 
+        -> Result<(), ()> 
+    {
+        if deps.len() == 0 {
             return Ok(())
         }
-        println!("Caching the following dependencies on host: {:?}", self.0);
+        println!("Caching the following dependencies on host: {:?}", deps);
         let mut child = match Identity::set_root_command(
             Command::new("/usr/bin/pacman")
                 .env("LANG", "C")
@@ -138,7 +156,7 @@ impl Depends {
                 .arg(root.as_ref())
                 .arg("--noconfirm")
                 .arg("--downloadonly")
-                .args(&self.0)
+                .args(deps)
             ).spawn() 
         {
             Ok(child) => child,
@@ -152,5 +170,9 @@ impl Depends {
             return Err(())
         }
         Ok(())
+    }
+
+    pub(super) fn _cache<S: AsRef<str>>(&self, root: S) -> Result<(), ()> {
+        Self::cache_raw(&self.needs, root)
     }
 }
