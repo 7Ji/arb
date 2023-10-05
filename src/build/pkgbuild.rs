@@ -1192,7 +1192,8 @@ impl PKGBUILDs {
         let _ = remove_dir_recursively("build");
         Self::extract_sources_many(actual_identity, &mut pkgbuilds)?;
         let children: Vec<Child> = pkgbuilds.iter().map(
-        |pkgbuild|
+        |pkgbuild| {
+            println!("Executing pkgver() for '{}'...", &pkgbuild.base);
             actual_identity.set_root_drop_command(
                 Command::new("/bin/bash")
                     .arg("-ec")
@@ -1204,7 +1205,7 @@ impl PKGBUILDs {
                     .stdout(Stdio::piped()))
                 .spawn()
                 .expect("Failed to run script")
-        ).collect();
+        }).collect();
         for (child, pkgbuild) in 
             zip(children, pkgbuilds.iter_mut()) 
         {
