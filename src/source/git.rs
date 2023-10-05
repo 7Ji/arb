@@ -262,10 +262,11 @@ fn fetch_remote(
     remote: &mut Remote,
     fetch_opts: &mut FetchOptions,
     proxy: Option<&str>,
-    refspecs: &[&str]
+    refspecs: &[&str],
+    tries: u8
 ) -> Result<(), ()> 
 {
-    for _ in 0..2 {
+    for _ in 0..tries {
         match remote.fetch(
             refspecs, Some(fetch_opts), None
         ) {
@@ -284,7 +285,7 @@ fn fetch_remote(
             let mut proxy_opts = ProxyOptions::new();
             proxy_opts.url(proxy);
             fetch_opts.proxy_options(proxy_opts);
-            for _ in 0..2 {
+            for _ in 0..tries {
                 match remote.fetch(
                     refspecs, Some(fetch_opts), None) {
                     Ok(_) => return Ok(()),
@@ -298,8 +299,8 @@ fn fetch_remote(
                 remote_safe_url(&remote));
         }
         None => {
-            eprintln!("Failed to fetch from remote '{}' after 3 retries",
-                remote_safe_url(&remote));
+            eprintln!("Failed to fetch from remote '{}' after {} retries",
+                remote_safe_url(&remote), tries);
         },
     }
     return Err(());
@@ -406,13 +407,13 @@ impl Repo {
     }
 
     fn sync_raw(
-        repo: &Repository, url: &str, proxy: Option<&str>, refspecs: &[&str]
+        repo: &Repository, url: &str, proxy: Option<&str>, refspecs: &[&str], tries: u8
     ) -> Result<(), ()> 
     {
         let mut remote =
             repo.remote_anonymous(url).or(Err(()))?;
         let mut fetch_opts = fetch_opts_init();
-        fetch_remote(&mut remote, &mut fetch_opts, proxy, refspecs)?;
+        fetch_remote(&mut remote, &mut fetch_opts, proxy, refspecs, tries)?;
         Self::update_head_raw(repo, &mut remote)?;
         Ok(())
     }
@@ -437,14 +438,14 @@ impl Repo {
             println!("Syncing repo '{}' with gmr '{}' before actual remote",
                         &self.path.display(), &mirror);
             if let Ok(_) = Self::sync_raw(
-                &self.repo, &mirror, None, refspecs
+                &self.repo, &mirror, None, refspecs, 3
             ) {
                 return Ok(())
             }
         }
         println!("Syncing repo '{}' with '{}' ", 
             &self.path.display(), &self.url);
-        Self::sync_raw(&self.repo, &self.url, proxy, refspecs)
+        Self::sync_raw(&self.repo, &self.url, proxy, refspecs, 1)
     }
 
     fn get_branch<'a>(&'a self, branch: &str) -> Option<Branch<'a>> {
