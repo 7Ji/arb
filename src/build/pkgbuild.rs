@@ -1260,6 +1260,7 @@ impl PKGBUILDs {
     pub(super) fn prepare_sources<P: AsRef<Path>>(
         &mut self,
         actual_identity: &Identity, 
+        basepkgs: Option<&Vec<String>>,
         dir: P,
         holdgit: bool,
         skipint: bool,
@@ -1303,7 +1304,11 @@ impl PKGBUILDs {
         let need_builds = self.extract_if_need_build(actual_identity)? > 0;
         if need_builds {
             Depends::cache_raw(&all_deps, base_root.as_str())?;
-            base_root.finish(actual_identity)?;
+            if let Some(basepkgs) = basepkgs {
+                base_root.finish(actual_identity, basepkgs)?;
+            } else {
+                base_root.finish(actual_identity, &["base-devel"])?;
+            }
         }
         if let Some(cleaners) = cleaners {
             for cleaner in cleaners {

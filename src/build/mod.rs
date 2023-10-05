@@ -10,6 +10,7 @@ pub(crate) use pkgbuild::PkgbuildConfig as PkgbuildConfig;
 pub(crate) fn work(
     actual_identity: crate::identity::Identity,
     pkgbuilds_config: &HashMap<String, PkgbuildConfig>,
+    basepkgs: Option<&Vec<String>>,
     proxy: Option<&str>,
     holdpkg: bool,
     holdgit: bool,
@@ -28,7 +29,7 @@ pub(crate) fn work(
             pkgbuilds_config, holdpkg, noclean, proxy, gmr.as_ref())?;
     let pkgbuilds_dir =
         tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
-    match pkgbuilds.prepare_sources(&actual_identity, 
+    match pkgbuilds.prepare_sources(&actual_identity, basepkgs,
         &pkgbuilds_dir, holdgit, skipint, noclean, proxy, gmr.as_ref())? 
     {
         Some(_root) => {

@@ -72,6 +72,7 @@ struct Config {
     sign: Option<String>,
     gmr: Option<String>,
     proxy: Option<String>,
+    basepkgs: Option<Vec<String>>,
     pkgbuilds: std::collections::HashMap<String, build::PkgbuildConfig>,
 }
 
@@ -103,6 +104,7 @@ fn main() {
     if let Err(_) = build::work(
         actual_identity,
         &config.pkgbuilds,
+        config.basepkgs.as_ref(),
         arg.proxy.as_deref().or(config.proxy.as_deref()),
         arg.holdpkg || config.holdpkg,
         arg.holdgit || config.holdgit,

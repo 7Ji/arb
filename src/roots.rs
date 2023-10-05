@@ -489,11 +489,15 @@ impl BaseRoot {
     }
 
     /// Finish a DB-only base root
-    pub(crate) fn finish(&self, actual_identity: &Identity) 
+    pub(crate) fn finish<I, S>(&self, actual_identity: &Identity, pkgs: I) 
         -> Result<&Self, ()> 
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>
     {
         Identity::as_root(||{
-            self.setup(actual_identity)?
+            self.install_pkgs(pkgs)?
+                .setup(actual_identity)?
                 .umount_recursive()?;
             Ok(())
         })?;
