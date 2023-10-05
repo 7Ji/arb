@@ -1211,8 +1211,10 @@ impl PKGBUILDs {
         {
             let output = child.wait_with_output()
                 .expect("Failed to wait for child");
-            pkgbuild.pkgver = Pkgver::Func { pkgver:
-                String::from_utf8_lossy(&output.stdout).trim().to_string()};
+            let pkgver = String::from_utf8_lossy(&output.stdout)
+                .trim().to_string();
+            println!("PKGBUILD '{}' pkgver is '{}'", &pkgbuild.base, &pkgver);
+            pkgbuild.pkgver = Pkgver::Func { pkgver };
             pkgbuild.extract = true
         }
         Ok(())
