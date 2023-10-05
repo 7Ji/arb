@@ -91,7 +91,9 @@ The following optional attributes could be set for each PKGBUILD:
 Addtionally, the following aliases are supported for URLs:
   - `AUR` => `format!("https://aur.archlinux.org/{}.git", name)`
     - e.g. `ampart: AUR` would expand to `ampart: https://aur.archlinux.org/ampart.git`
-  - `GITHUB/` => `format!("https://github.com/{}.git", &url[7..])`
+  - `GITHUB/*/` => `format!("https://github.com/{}{}.git", &url[7..], name)`
+    - e.g. `yaopenvfd: GITHUB/7Ji-PKGBUILDs/` would expand to `yaopenvfd: https://github.com/7Ji-PKGBUILDs/yaopenvfd.git`
+  - `GITHUB/*` => `format!("https://github.com/{}.git", &url[7..])`
     - e.g. `chromium: GITHUB/archlinuxarm/PKGBUILDs` would expand to `chromium: https://github.com/archlinuxarm/PKGBUILDs.git`
 
 ## TODO
