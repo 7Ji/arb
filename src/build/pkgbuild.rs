@@ -347,30 +347,6 @@ impl PKGBUILD {
         }
     }
 
-    fn _pkgver_type_reader_file<P: AsRef<Path>> (
-        actual_identity: &Identity, pkgbuild_file: P
-    ) -> std::io::Result<Child> 
-    {
-        // let content = std::fs::read_to_string(pkgbuild_file);
-
-        actual_identity.set_root_drop_command(
-            Command::new("/bin/bash")
-                .arg("-c")
-                .arg(". \"$1\"; type -t pkgver")
-                .arg("Type Identifier")
-                .arg(pkgbuild_file.as_ref())
-                .stdout(Stdio::piped()))
-            .spawn()
-    }
-
-    fn _pkgver_type_reader<P: AsRef<Path>> (
-        &self, actual_identity: &Identity, dir: P)
-        -> std::io::Result<Child> 
-    {
-        let pkgbuild_file = dir.as_ref().join(&self.base);
-        Self::_pkgver_type_reader_file(actual_identity, &pkgbuild_file)
-    }
-
     fn extractor_source(&self, actual_identity: &Identity) -> Option<Child> 
     {
         const SCRIPT: &str = include_str!("../../scripts/extract_sources.bash");
@@ -504,73 +480,6 @@ impl PKGBUILD {
         })
     }
 
-    fn _build_try(
-        &mut self,
-        actual_identity: &Identity, 
-        command: &mut Command, 
-        temp_pkgdir: &Path
-    )
-        -> Result<(), ()>
-    {
-        const BUILD_MAX_TRIES: u8 = 3;
-        for i in 0..BUILD_MAX_TRIES {
-            if ! self.extract {
-                let mut child = match 
-                    self.extractor_source(actual_identity) 
-                {
-                    Some(child) => child,
-                    None => return Err(()),
-                };
-                if let Err(e) = child.wait() {
-                    eprintln!("Failed to re-extract source for '{}': {}",
-                            self.pkgid, e);
-                    return Err(())
-                }
-                self.extract = true
-            }
-            println!("Building '{}', try {}/{}", 
-                    &self.pkgid, i + 1 , BUILD_MAX_TRIES);
-            let exit_status = command
-                .spawn()
-                .or_else(|e|{
-                    eprintln!("Failed to spawn child with command {:?}: {}",
-                        command, e);
-                    Err(())
-                })?
-                .wait()
-                .or_else(|e|{
-                    eprintln!("Failed to wait child with command {:?}: {}",
-                        command, e);
-                    Err(())
-                })?;
-            if let Err(e) = remove_dir_recursively(&self.build) 
-            {
-                eprintln!("Failed to remove build dir '{}': {}",
-                            self.build.display(), e);
-                return Err(())
-            }
-            self.extract = false;
-            match exit_status.code() {
-                Some(0) => {
-                    println!("Successfully built to '{}'", 
-                        temp_pkgdir.display());
-                    return Ok(())
-                },
-                _ => {
-                    eprintln!("Failed to build to '{}'", temp_pkgdir.display());
-                    if let Err(e) = remove_dir_all(&temp_pkgdir) {
-                        eprintln!("Failed to remove temp pkgdir '{}': {}", 
-                                    temp_pkgdir.display(), e);
-                        return Err(())
-                    }
-                }
-            }
-        }
-        eprintln!("Failed to build '{}' after all tries", 
-                    temp_pkgdir.display());
-        Err(())
-    }
-
     fn sign_pkgs(actual_identity: &Identity, dir: &Path, key: &str) 
         -> Result<(), ()> 
     {
@@ -594,31 +503,23 @@ impl PKGBUILD {
             if entry.ends_with(".sig") {
                 continue
             }
-            // gpg --detach-sign --use-agent "${SIGNWITHKEY[@]}" --no-armor "$filename" 
-            let mut child = match actual_identity.set_root_drop_command(
+            let output = match actual_identity.set_root_drop_command(
                 Command::new("/usr/bin/gpg")
                 .arg("--detach-sign")
                 .arg("--local-user")
                 .arg(key)
                 .arg(&entry))
-                .spawn() {
-                    Ok(child) => child,
+                .stdin(Stdio::null())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .output() {
+                    Ok(output) => output,
                     Err(e) => {
-                        eprintln!("Failed to call gpg to sign pkg '{}': {}", 
-                            entry.display(), e);
-                        bad = true;
-                        continue;
+                        eprintln!("Failed to spawn child to sign pkg: {}", e);
+                        continue
                     },
                 };
-            let status = match child.wait() {
-                Ok(status) => status,
-                Err(e) => {
-                    eprintln!("Failed to wait for gpg: {}", e);
-                    bad = true;
-                    continue
-                },
-            };
-            if Some(0) != status.code() {
+            if Some(0) != output.status.code() {
                 eprintln!("Bad return from gpg");
                 bad = true
             }
