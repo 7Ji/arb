@@ -17,6 +17,7 @@ use crate::{
         }
     };
 use git2::Oid;
+use rand::{self, Rng};
 use serde::Deserialize;
 use std::{
         collections::HashMap,
@@ -27,7 +28,7 @@ use std::{
             remove_dir,
             remove_dir_all,
             remove_file,
-            rename,
+            rename, File,
         },
         io::{Write, stdout, Read},
         os::unix::{
@@ -97,7 +98,8 @@ struct Builder<'a> {
     command: Command,
     _root: OverlayRoot,
     tries: usize,
-    child: Child
+    child: Child,
+    log_path: PathBuf
 }
 
 impl source::MapByDomain for PKGBUILD {
@@ -622,7 +624,23 @@ impl PKGBUILD {
             &self.depends.needs, home_binds)?;
         let mut command = self.get_build_command(
             actual_identity, &root, &temp_pkgdir)?;
-        let child = command.spawn().or_else(|e|{
+        let mut log_name = String::from("log");
+        let mut log_path = self.build.join(&log_name);
+        while log_path.exists() {
+            log_name.shrink_to(3);
+            for char in rand::thread_rng().sample_iter(
+                rand::distributions::Alphanumeric).take(7) 
+            {
+                log_name.push(char::from(char))
+            }
+            log_path = self.build.join(&log_name);
+        }
+        let log_file = File::create(&log_path).or_else(|e|{
+            eprintln!("Failed to open log file: {}", e);
+            Err(())
+        })?;
+        let child = command.stdout(log_file).spawn().or_else(
+        |e|{
             eprintln!("Failed to spawn child: {}", e); Err(())
         })?;
         Ok(Builder {
@@ -632,9 +650,41 @@ impl PKGBUILD {
             _root: root,
             tries: 0,
             child,
+            log_path
         })
     }
 
+}
+
+fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<(), ()> {
+    let file_p = file.as_ref();
+    let mut file = match File::open(&file) {
+        Ok(file) => file,
+        Err(e) => {
+            eprintln!("Failed to open '{}': {}", file_p.display(), e);
+            return Err(())
+        },
+    };
+    let mut buffer = vec![0; 4096];
+    loop {
+        match file.read(&mut buffer) {
+            Ok(size) => {
+                if size == 0 {
+                    return Ok(())
+                }
+                if let Err(e) = stdout().write_all(&buffer[0..size]) 
+                {
+                    eprintln!("Failed to write log content to stdout: {}", e);
+                    return Err(())
+                }
+            },
+            Err(e) => {
+                eprintln!("Failed to read from '{}': {}", file_p.display(), e);
+                return Err(())
+            },
+        }
+
+    }
 }
 
 struct Builders<'a> (Vec<Builder<'a>>);
@@ -673,18 +723,20 @@ impl<'a> Builders<'a> {
                 Some(finished) => self.0.swap_remove(finished),
                 None => break, // No child waitable
             };
+            println!("Log of building '{}':", &builder.pkgbuild.pkgid);
+            if file_to_stdout(&builder.log_path).is_err() {
+                println!("Warning: failed to read log to stdout, \
+                    you could still manually check the log file '{}'",
+                    builder.log_path.display())
+            }
+            println!("End of Log of building '{}'", &builder.pkgbuild.pkgid);
             if builder.pkgbuild.remove_build().is_err() {
                 eprintln!("Failed to remove build dir");
                 bad = true;
             }
-            match builder.child.wait_with_output() {
-                Ok(output) => {
-                    if let Err(e) = stdout()
-                        .write_all(&output.stdout) 
-                    {
-                        eprintln!("Failed to write log to output: {}", e);
-                    }
-                    match output.status.code() {
+            match builder.child.wait() {
+                Ok(status) => {
+                    match status.code() {
                         Some(code) => {
                             if code == 0 {
                                 if builder.pkgbuild.build_finish(
@@ -726,8 +778,15 @@ impl<'a> Builders<'a> {
                 bad = true;
                 continue
             }
+            let log_file = match File::create(&builder.log_path) {
+                Ok(log_file) => log_file,
+                Err(e) => {
+                    eprintln!("Failed to create log file: {}", e);
+                    continue
+                },
+            };
             builder.tries += 1;
-            builder.child = match builder.command.spawn() {
+            builder.child = match builder.command.stdout(log_file).spawn() {
                 Ok(child) => child,
                 Err(e) => {
                     eprintln!("Failed to spawn child: {}", e);

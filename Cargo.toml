@@ -22,6 +22,7 @@ tokio = "1.32"
 libc = "0.2"
 procfs = "0.15"
 alpm = "2.2"
+rand = "0.8"
 
 [dependencies.clap]
 version = "4.3"
