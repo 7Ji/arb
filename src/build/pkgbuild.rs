@@ -466,6 +466,7 @@ impl PKGBUILD {
     }
 
     fn remove_build(&mut self) -> Result<(), ()> {
+        println!("Removing build dir for '{}'...", self.pkgid);
         match remove_dir_all(&self.build) {
             Ok(_) => return Ok(()),
             Err(e) => {
@@ -479,7 +480,9 @@ impl PKGBUILD {
         remove_dir(&self.build).or_else(|e|{
             eprintln!("Failed to remove build folder itself: {}", e);
             Err(())
-        })
+        })?;
+        println!("Removed build dir for '{}'", self.pkgid);
+        Ok(())
     }
 
     fn sign_pkgs(actual_identity: &Identity, dir: &Path, key: &str) 
@@ -1271,6 +1274,7 @@ impl PKGBUILDs {
     }
 
     fn remove_builddir() -> Result<(), std::io::Error> {
+        println!("Removing the whole build dir...");
         // Go the simple way first
         match remove_dir_all("build") {
             Ok(_) => return Ok(()),
@@ -1279,7 +1283,9 @@ impl PKGBUILDs {
         // build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
         // we use our only implementation
         remove_dir_recursively("build")?;
-        remove_dir("build")
+        remove_dir("build")?;
+        println!("Removed the whole build dir...");
+        Ok(())
     }
 
     pub(super) fn prepare_sources<P: AsRef<Path>>(
@@ -1410,7 +1416,7 @@ impl PKGBUILDs {
             std::thread::sleep(std::time::Duration::from_millis(100))
         }
         let thread_cleaner =
-            thread::spawn(|| remove_dir_recursively("build"));
+            thread::spawn(|| Self::remove_builddir());
         let rel = PathBuf::from("..");
         let latest = PathBuf::from("pkgs/latest");
         for pkgbuild in self.0.iter() {
