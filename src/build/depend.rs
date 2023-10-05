@@ -1,4 +1,4 @@
-use std::{hash::Hasher, process::{Command, Stdio}};
+use std::{hash::Hasher, process::{Command, Stdio}, path::Path, os::unix::prelude::OsStrExt};
 
 use alpm::{self, Package};
 use xxhash_rust::xxh3;
@@ -18,14 +18,16 @@ pub(super) struct DbHandle {
 }
 
 impl DbHandle {
-    pub(super) fn new<S: AsRef<str>>(root: S) -> Result<Self, ()> {
+    pub(super) fn new<P: AsRef<Path>>(root: P) -> Result<Self, ()> {
         let handle = match alpm::Alpm::new(
-            root.as_ref(), "/var/lib/pacman") 
+            root.as_ref().as_os_str().as_bytes(),
+            root.as_ref().join("var/lib/pacman")
+                .as_os_str().as_bytes()) 
         {
             Ok(handle) => handle,
             Err(e) => {
                 eprintln!("Failed to open pacman DB at root '{}': {}",
-                root.as_ref(), e);
+                root.as_ref().display(), e);
                 return Err(())
             },
         };
@@ -81,9 +83,7 @@ impl DbHandle {
 
     fn is_installed<S: AsRef<str>>(&self, pkg: S) -> bool {
         match self.alpm_handle.localdb().pkg(pkg.as_ref()) {
-            Ok(pkg) => {
-                pkg.install_date().is_some()
-            },
+            Ok(_) => true,
             Err(_) => false,
         }
     }

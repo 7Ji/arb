@@ -1007,11 +1007,11 @@ impl PKGBUILDs {
         Ok(all_deps)
     }
 
-    fn check_deps<P: AsRef<Path>, S: AsRef<str>> (
-        &mut self, actual_identity: &Identity, dir: P, root: S
+    fn check_deps<P: AsRef<Path>> (
+        &mut self, actual_identity: &Identity, dir: P, root: P
     )   -> Result<Vec<String>, ()>
     {
-        let db_handle = DbHandle::new(&root)?;
+        let db_handle = DbHandle::new(root)?;
         self.get_deps(actual_identity, dir, &db_handle)
     }
 
@@ -1330,7 +1330,7 @@ impl PKGBUILDs {
         // Use the fresh DBs in target root
         let base_root = BaseRoot::db_only()?;
         let all_deps = self.check_deps(
-            actual_identity, dir.as_ref(), base_root.as_str())?;
+            actual_identity, dir.as_ref(), base_root.path())?;
         self.fill_all_ids_dirs();
         let need_builds = self.extract_if_need_build(actual_identity)? > 0;
         if need_builds {
