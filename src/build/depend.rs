@@ -1,4 +1,4 @@
-use std::{hash::Hasher, process::Command};
+use std::{hash::Hasher, process::{Command, Stdio}};
 
 use alpm::{self, Package};
 use xxhash_rust::xxh3;
@@ -148,7 +148,7 @@ impl Depends {
             return Ok(())
         }
         println!("Caching the following dependencies on host: {:?}", deps);
-        let mut child = match Identity::set_root_command(
+        let output = match Identity::set_root_command(
             Command::new("/usr/bin/pacman")
                 .env("LANG", "C")
                 .arg("-S")
@@ -157,15 +157,18 @@ impl Depends {
                 .arg("--noconfirm")
                 .arg("--downloadonly")
                 .args(deps)
-            ).spawn() 
+                .stdin(Stdio::null())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+            ).output()
         {
-            Ok(child) => child,
+            Ok(output) => output,
             Err(e) => {
                 eprintln!("Failed to spawn child: {}", e);
                 return Err(());
             },
         };
-        if child.wait().unwrap().code().unwrap() != 0 {
+        if Some(0) != output.status.code() {
             eprintln!("Download-only command failed to execute correctly");
             return Err(())
         }

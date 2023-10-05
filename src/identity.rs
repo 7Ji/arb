@@ -237,18 +237,13 @@ impl Identity {
     ) -> Result<(), ()>
     {
         let r = Identity::set_chroot_command(command, root)
-            .spawn()
+            .output()
             .or_else(|e|{
                 eprintln!("Failed to spawn chroot command {:?}: {}", 
                     command, e);
                 Err(())
             })?
-            .wait()
-            .or_else(|e|{
-                eprintln!("Failed to wait for chroot command {:?}: {}",
-                     command, e);
-                Err(())
-            })?
+            .status
             .code()
             .ok_or_else(||{
                 eprintln!("Failed to get exit code for chroot command {:?}",
@@ -258,7 +253,7 @@ impl Identity {
         if r == 0 {
             Ok(())
         } else {
-            eprintln!("Bad return from chroot command {:?}", command);
+            eprintln!("Bad return {} from chroot command {:?}", r, command);
             Err(())
         }
     }

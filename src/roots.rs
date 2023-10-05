@@ -15,7 +15,7 @@ use std::{
             PathBuf, 
             Path,
         }, 
-        process::Command
+        process::{Command, Stdio}
     };
 
 
@@ -252,36 +252,26 @@ pub(crate) trait CommonRoot {
 
     // Todo: split out common wait child parts
     fn refresh_dbs(&self) -> Result<&Self, ()> {
-        let mut child = match Command::new("/usr/bin/pacman")
+        let r = Command::new("/usr/bin/pacman")
             .env("LANG", "C")
             .arg("-Sy")
             .arg("--root")
             .arg(self.path().canonicalize().or(Err(()))?)
-            .spawn() {
-                Ok(child) => child,
-                Err(e) => {
-                    eprintln!(
-                        "Failed to spawn child to refresh dbs: {}", e);
-                    return Err(())
-                },
-            };
-        let status = match child.wait() {
-            Ok(status) => status,
-            Err(e) => {
-                eprintln!(
-                    "Failed to wait for child refreshing dbs: {}", e);
-                return Err(())
-            },
-        };
-        let code = match status.code() {
-            Some(code) => code,
-            None => {
-                eprintln!("Failed to get return code for child refreshing dbs");
-                return Err(())     
-            },
-        };
-        if code != 0 {
-            eprintln!("Failed to execute refresh command, return: {}", code);
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .output()
+            .or_else(|e| {
+                eprintln!("Failed to spawn child to refresh DB: {}", e);
+                Err(())
+            })?
+            .status
+            .code()
+            .ok_or_else(||{
+                eprintln!("Failed to get code from child to refresh DB");
+            })?;
+        if r != 0 {
+            eprintln!("Failed to execute refresh command, return: {}", r);
             return Err(())
         }
         Ok(self)
@@ -293,7 +283,7 @@ pub(crate) trait CommonRoot {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let mut child = match Command::new("/usr/bin/pacman")
+        let r = Command::new("/usr/bin/pacman")
             .env("LANG", "C")
             .arg("-S")
             .arg("--root")
@@ -301,31 +291,22 @@ pub(crate) trait CommonRoot {
             .arg("--noconfirm")
             .arg("--needed")
             .args(pkgs)
-            .spawn() {
-                Ok(child) => child,
-                Err(e) => {
-                    eprintln!(
-                        "Failed to spawn child to install base pkgs: {}", e);
-                    return Err(())
-                },
-            };
-        let status = match child.wait() {
-            Ok(status) => status,
-            Err(e) => {
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .output()
+            .or_else(|e|{
+                eprintln!("Failed to spawn child to install pkgs: {}", e);
+                Err(())
+            })?
+            .status
+            .code()
+            .ok_or_else(||{
                 eprintln!(
-                    "Failed to wait for child installing base pkgs: {}", e);
-                return Err(())
-            },
-        };
-        let code = match status.code() {
-            Some(code) => code,
-            None => {
-                eprintln!("Failed to get return code for child install pkgs");
-                return Err(())     
-            },
-        };
-        if code != 0 {
-            eprintln!("Failed to execute install command, return: {}", code);
+                    "Failed to get return code from child to install pkgs");
+            })?;
+        if r != 0 {
+            eprintln!("Failed to execute install command, return: {}", r);
             return Err(())
         }
         Ok(self)
