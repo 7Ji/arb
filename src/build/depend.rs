@@ -50,9 +50,7 @@ impl DbHandle {
                 continue
             }
             match handle.register_syncdb(section, sig_level) {
-                Ok(_) => {
-                    println!("Registered syncdb '{}'", section);
-                },
+                Ok(_) => (),
                 Err(e) => {
                     eprintln!("Failed to register repo '{}': {}", section, e);
                     return Err(())
