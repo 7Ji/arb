@@ -495,6 +495,12 @@ impl CommonRoot for BaseRoot {
     }
 }
 
+impl Drop for BaseRoot {
+    fn drop(&mut self) {
+        let _ = MountedFolder::remove_all();
+    }
+}
+
 impl OverlayRoot {
     fn remove(&self) -> Result<&Self, ()> {
         if self.merged.remove().is_err() {
