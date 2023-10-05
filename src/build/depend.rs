@@ -79,9 +79,11 @@ impl DbHandle {
         pkg_satisfier
     }
 
-    fn _is_installed<S: AsRef<str>>(&self, pkg: S) -> bool {
+    fn is_installed<S: AsRef<str>>(&self, pkg: S) -> bool {
         match self.alpm_handle.localdb().pkg(pkg.as_ref()) {
-            Ok(_) => true,
+            Ok(pkg) => {
+                pkg.install_date().is_some()
+            },
             Err(_) => false,
         }
     }
@@ -102,7 +104,10 @@ impl Depends {
                     return Err(())
                 },
             };
-            self.needs.push(dep.name().to_string());
+            let dep_name = dep.name();
+            if ! db_handle.is_installed(dep_name) {
+                self.needs.push(dep_name.to_string())
+            }
             if let Some(sig) = dep.base64_sig() {
                 hash.update(sig.as_bytes());
                 continue
@@ -130,7 +135,10 @@ impl Depends {
                     return Err(())
                 },
             };
-            self.needs.push(dep.name().to_string());
+            let dep_name = dep.name();
+            if ! db_handle.is_installed(dep_name) {
+                self.needs.push(dep_name.to_string())
+            }
         }
         self.needs.sort_unstable();
         self.needs.dedup();
