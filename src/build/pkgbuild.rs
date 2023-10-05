@@ -473,7 +473,7 @@ impl PKGBUILD {
             .env("PKGDEST", &pkgdest);
         unsafe {
             command.pre_exec(||{
-                if 0 == libc::dup2(
+                if 0 <= libc::dup2(
                     libc::STDOUT_FILENO, libc::STDERR_FILENO
                 ) {
                     Ok(())
