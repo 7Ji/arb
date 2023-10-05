@@ -643,6 +643,7 @@ impl PKGBUILD {
         |e|{
             eprintln!("Failed to spawn child: {}", e); Err(())
         })?;
+        println!("Start building '{}", &self.pkgid);
         Ok(Builder {
             pkgbuild: self,
             temp_pkgdir,

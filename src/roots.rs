@@ -412,6 +412,7 @@ impl BaseRoot {
 
     /// Root is expected
     fn setup(&self, actual_identity: &Identity) -> Result<&Self, ()> {
+        eprintln!("Finishing base root setup");
         let builder = self.builder(actual_identity)?;
         self.install_pkgs(&["base-devel"])?
             .copy_file_same("etc/passwd")?
@@ -447,6 +448,7 @@ impl BaseRoot {
                 .refresh_dbs()?;
             Ok(())
         })?;
+        println!("Created base chroot (DB only)");
         Ok(root)
     }
 
@@ -466,6 +468,7 @@ impl BaseRoot {
                 .umount_recursive()?;
             Ok(())
         })?;
+        println!("Created base chroot");
         Ok(root)
     }
 
@@ -596,6 +599,7 @@ impl OverlayRoot {
                 .resolv()?;
             Ok(())
         })?;
+        println!("Created overlay chroot '{}'", name);
         Ok(root)
     }
 }
