@@ -88,6 +88,12 @@ The following optional attributes could be set for each PKGBUILD:
   - `subtree`: The subtree PKGBUILD should be obtained from, and the whole build folder should be populated via checking out from.
   - `home_binds`: Bind such folders under home into the building chroot, if they exist. The builder would automatically append `go` for packages that depend on `go`, and `.cargo` for packages that depened on `rust/cargo`.
 
+Addtionally, the following aliases are supported for URLs:
+  - `AUR` => `format!("https://aur.archlinux.org/{}.git", name)`
+    - e.g. `ampart: AUR` would expand to `ampart: https://aur.archlinux.org/ampart.git`
+  - `GITHUB/` => `format!("https://github.com/{}.git", &url[7..])`
+    - e.g. `chromium: GITHUB/archlinuxarm/PKGBUILDs` would expand to `chromium: https://github.com/archlinuxarm/PKGBUILDs.git`
+
 ## TODO
  - [ ] Resolve inter-dependencies if necessary, to trigger builds if some of our pacakges changed which are deps of other pacakges
    - doing this would also mean splitting builds into multiple steps (build -> install -> build)
