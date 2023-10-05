@@ -143,8 +143,12 @@ impl Depends {
         self.needs.sort_unstable();
         self.needs.dedup();
         self.hash = hash.finish();
-        // needs.retain(|pkg|!db_handle.is_installed(pkg));
         Ok(())
+    }
+
+    pub(crate) fn update_needed(&mut self, db_handle: &DbHandle) 
+    {
+        self.needs.retain(|pkg|!db_handle.is_installed(pkg));
     }
 
     pub(super) fn cache_raw<S: AsRef<str>>(deps: &Vec<String>, root: S) 

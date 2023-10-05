@@ -1340,6 +1340,12 @@ impl PKGBUILDs {
             } else {
                 base_root.finish(actual_identity, &["base-devel"])?;
             }
+            let db_handle = DbHandle::new(base_root.path())?;
+            for pkgbuild in self.0.iter_mut() {
+                if pkgbuild.extract {
+                    pkgbuild.depends.update_needed(&db_handle);
+                }
+            }
         }
         if let Some(cleaners) = cleaners {
             for cleaner in cleaners {
