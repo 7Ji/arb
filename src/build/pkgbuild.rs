@@ -163,6 +163,13 @@ impl PKGBUILD {
         makedeps: Option<&Vec<String>>, home_binds: Option<&Vec<String>>
     ) -> Self
     {
+        let url = if url == "AUR" {
+            format!("https://aur.archlinux.org/{}.git", name)
+        } else if url.starts_with("GITHUB/") {
+            format!("https://github.com/{}.git", &url[7..])
+        } else {
+            url.to_string()
+        };
         Self {
             base: name.to_string(),
             branch: match branch {
@@ -205,7 +212,7 @@ impl PKGBUILD {
                 Some(subtree) => Some(subtree.to_owned()),
                 None => None,
             },
-            url: url.to_owned(),
+            url,
         }
     }
     // If healthy, return the latest commit id
