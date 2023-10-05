@@ -283,6 +283,10 @@ pub(crate) trait CommonRoot {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
+        let pkgs: Vec<S> = pkgs.into_iter().collect();
+        if pkgs.len() == 0 {
+            return Ok(self)
+        }
         let r = Command::new("/usr/bin/pacman")
             .env("LANG", "C")
             .arg("-S")
