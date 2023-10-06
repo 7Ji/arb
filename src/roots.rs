@@ -585,7 +585,8 @@ impl OverlayRoot {
     /// Different from base, overlay would have upper, work, and merged.
     /// Note that the pkgs here can only come from repos, not as raw pkg files.
     pub(crate) fn new<I, S, I2, S2>(
-        name: &str, actual_identity: &Identity, pkgs: I, home_dirs: I2
+        name: &str, actual_identity: &Identity, pkgs: I, home_dirs: I2,
+        nonet: bool
     ) -> Result<Self, ()> 
     where
         I: IntoIterator<Item = S>,
@@ -610,8 +611,10 @@ impl OverlayRoot {
                 .base_mounts()?
                 .install_pkgs(pkgs)?
                 .bind_builder(actual_identity)?
-                .bind_homedirs(actual_identity, home_dirs)?
-                .resolv()?;
+                .bind_homedirs(actual_identity, home_dirs)?;
+            if ! nonet {
+                root.resolv()?;
+            }
             Ok(())
         })?;
         println!("Created overlay chroot '{}'", name);

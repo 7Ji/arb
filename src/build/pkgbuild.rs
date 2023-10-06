@@ -632,14 +632,14 @@ impl PKGBUILD {
         binds
     }
 
-    fn builder(&mut self, actual_identity: &Identity, _nonet: bool) 
+    fn builder(&mut self, actual_identity: &Identity, nonet: bool) 
         -> Result<Builder, ()> 
     {
         let temp_pkgdir = self.get_temp_pkgdir()?;
         let home_binds = self.get_home_binds();
         let root = OverlayRoot::new(
             &self.base, actual_identity, 
-            &self.depends.needs, home_binds)?;
+            &self.depends.needs, home_binds, nonet)?;
         let mut command = self.get_build_command(
             actual_identity, &root, &temp_pkgdir)?;
         let mut log_name = String::from("log");
