@@ -166,7 +166,11 @@ impl PKGBUILD {
         let url = if url == "AUR" {
             format!("https://aur.archlinux.org/{}.git", name)
         } else if url.starts_with("GITHUB/") {
-            format!("https://github.com/{}.git", &url[7..])
+            if url.ends_with('/') {
+                format!("https://github.com/{}{}.git", &url[7..], name)
+            } else {
+                format!("https://github.com/{}.git", &url[7..])
+            }
         } else {
             url.to_string()
         };
