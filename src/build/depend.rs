@@ -96,7 +96,7 @@ impl Depends {
         let mut hash_box = Box::new(xxh3::Xxh3::new());
         let hash = hash_box.as_mut();
         self.needs.clear();
-        for dep in self.deps.iter() {
+        for dep in self.deps.iter().chain(self.makedeps.iter()) {
             let dep = match db_handle.find_satisfier(dep) {
                 Some(dep) => dep,
                 None => {
@@ -104,10 +104,7 @@ impl Depends {
                     return Err(())
                 },
             };
-            let dep_name = dep.name();
-            if ! db_handle.is_installed(dep_name) {
-                self.needs.push(dep_name.to_string())
-            }
+            self.needs.push(dep.name().to_string());
             if let Some(sig) = dep.base64_sig() {
                 hash.update(sig.as_bytes());
                 continue
@@ -126,19 +123,6 @@ impl Depends {
             hash.write_i64(dep.build_date());
             // There're of couse other vars, but as we add more of them
             // we will add the possibility of fake-positive
-        }
-        for dep in self.makedeps.iter() {
-            let dep = match db_handle.find_satisfier(dep) {
-                Some(dep) => dep,
-                None => {
-                    eprintln!("Warning: dep {} not found", dep);
-                    return Err(())
-                },
-            };
-            let dep_name = dep.name();
-            if ! db_handle.is_installed(dep_name) {
-                self.needs.push(dep_name.to_string())
-            }
         }
         self.needs.sort_unstable();
         self.needs.dedup();
