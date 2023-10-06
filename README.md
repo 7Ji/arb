@@ -57,11 +57,17 @@ pkgbuilds:
 Non-CLI options include:
 ```
 basepkgs: [base-devel, distcc]
+dephash_strategy: none
 ```
+These are left out of CLI options as you shouldn't change them often:
  - `basepkgs` defines a list of packages that should be installed into the base chroot.
    - If not set then it defaults to `[base-devel]`, which is the most reasonable minimum package set.
    - You might want to modify this if you're using other things, like `distcc`, that's not part of the `base-devel` group for every PKGBUILD.
    - You might want to set explicit `makepkgs` for certain PKGBUILDs instead of changing this, if only they need such deps.
+ - `dephash_strategy` defines the strategy used to calculate the dephash, which, if present, will also be part of the pkgid, which then determines the package rebuilds (see below). It accepts the following values:
+   - `strict`: consider both deps and makedeps when calculating the dephash, this will result in the most rebuilds, due to possible fake-positive.
+   - `loose`: consider only deps when calculating the dephash, fake-positive is less in this case.
+   - `none`(default): consider no dep, leave the dephash as 0, and do not consider it when calculating pkgid. This will result in fake-negative, as updates of underlying packages that should trigger rebuilds cannot be found.
 
 The PKGBUILDs could also be defined with advanced options:
 ```
