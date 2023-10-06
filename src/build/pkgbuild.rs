@@ -48,9 +48,8 @@ use std::{
         iter::zip,
     };
 use xxhash_rust::xxh3::xxh3_64;
-use super::depend::Depends;
+use super::{depend::Depends, DepHashStrategy};
 use super::depend::DbHandle;
-
 
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
@@ -411,9 +410,14 @@ impl PKGBUILD {
             }
     }
 
-    fn fill_id_dir(&mut self) {
-        let mut pkgid = format!( "{}-{}-{:016x}", 
-            self.base, self.commit, self.depends.hash);
+    fn fill_id_dir(&mut self, dephash_strategy: &DepHashStrategy) {
+        let mut pkgid = if let DepHashStrategy::None = dephash_strategy 
+        {
+            format!("{}-{}", self.base, self.commit)
+        } else {
+            format!( "{}-{}-{:016x}", self.base, self.commit, 
+                self.depends.hash)
+        };
         if let Pkgver::Func { pkgver } = &self.pkgver {
             pkgid.push('-');
             pkgid.push_str(&pkgver);
@@ -944,7 +948,8 @@ impl PKGBUILDs {
     }
 
     fn get_deps<P: AsRef<Path>> (
-        &mut self, actual_identity: &Identity, dir: P, db_handle: &DbHandle
+        &mut self, actual_identity: &Identity, dir: P, db_handle: &DbHandle,
+        dephash_strategy: &DepHashStrategy
     ) -> Result<Vec<String>, ()>
     {
         let mut bad = false;
@@ -993,12 +998,19 @@ impl PKGBUILDs {
             pkgbuild.depends.makedeps.sort_unstable();
             pkgbuild.depends.deps.dedup();
             pkgbuild.depends.makedeps.dedup();
-            match pkgbuild.depends.needed_and_hash(db_handle) {
+            match pkgbuild.depends.needed_and_hash(
+                db_handle, dephash_strategy) 
+            {
                 Ok(_) => {
-                    println!("PKGBUILD '{}' dephash {:016x}, \
-                            needed dependencies: {:?}", 
-                            &pkgbuild.base, pkgbuild.depends.hash, 
-                            &pkgbuild.depends.needs);
+                    if let DepHashStrategy::None = dephash_strategy {
+                        println!("PKGBUILD '{}' needed dependencies: {:?}", 
+                                &pkgbuild.base, &pkgbuild.depends.needs);
+                    } else {
+                        println!("PKGBUILD '{}' dephash {:016x}, \
+                                needed dependencies: {:?}", 
+                                &pkgbuild.base, pkgbuild.depends.hash, 
+                                &pkgbuild.depends.needs);
+                    }
                     for need in pkgbuild.depends.needs.iter() {
                         all_deps.push(need.clone())
                     }
@@ -1019,11 +1031,12 @@ impl PKGBUILDs {
     }
 
     fn check_deps<P: AsRef<Path>> (
-        &mut self, actual_identity: &Identity, dir: P, root: P
+        &mut self, actual_identity: &Identity, dir: P, root: P, 
+        dephash_strategy: &DepHashStrategy
     )   -> Result<Vec<String>, ()>
     {
         let db_handle = DbHandle::new(root)?;
-        self.get_deps(actual_identity, dir, &db_handle)
+        self.get_deps(actual_identity, dir, &db_handle, dephash_strategy)
     }
 
     fn get_all_sources<P: AsRef<Path>> (&mut self, dir: P)
@@ -1227,9 +1240,9 @@ impl PKGBUILDs {
         Ok(())
     }
 
-    fn fill_all_ids_dirs(&mut self) {
+    fn fill_all_ids_dirs(&mut self, dephash_strategy: &DepHashStrategy) {
         for pkgbuild in self.0.iter_mut() {
-            pkgbuild.fill_id_dir()
+            pkgbuild.fill_id_dir(dephash_strategy)
         }
     }
     
@@ -1307,7 +1320,8 @@ impl PKGBUILDs {
         skipint: bool,
         noclean: bool,
         proxy: Option<&str>,
-        gmr: Option<&git::Gmr>
+        gmr: Option<&git::Gmr>,
+        dephash_strategy: &DepHashStrategy,
     ) -> Result<Option<BaseRoot>, ()> 
     {
         let cleaner = match 
@@ -1340,8 +1354,9 @@ impl PKGBUILDs {
         // Use the fresh DBs in target root
         let base_root = BaseRoot::db_only()?;
         let all_deps = self.check_deps(
-            actual_identity, dir.as_ref(), base_root.path())?;
-        self.fill_all_ids_dirs();
+            actual_identity, dir.as_ref(), base_root.path(),
+            dephash_strategy)?;
+        self.fill_all_ids_dirs(dephash_strategy);
         let need_builds = self.extract_if_need_build(actual_identity)? > 0;
         if need_builds {
             Depends::cache_raw(&all_deps, base_root.as_str())?;

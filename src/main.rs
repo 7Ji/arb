@@ -73,6 +73,8 @@ struct Config {
     gmr: Option<String>,
     proxy: Option<String>,
     basepkgs: Option<Vec<String>>,
+    #[serde(default)]
+    dephash_strategy: build::DepHashStrategy,
     pkgbuilds: std::collections::HashMap<String, build::PkgbuildConfig>,
 }
 
@@ -113,6 +115,7 @@ fn main() {
         arg.noclean || config.noclean,
         arg.nonet || config.nonet,
         arg.gmr.as_deref().or(config.gmr.as_deref()),
+        &config.dephash_strategy,
         arg.sign.as_deref().or(config.sign.as_deref())) 
     {
         std::process::exit(-1)

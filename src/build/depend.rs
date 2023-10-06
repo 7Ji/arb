@@ -1,9 +1,24 @@
 use std::{hash::Hasher, process::{Command, Stdio}, path::Path, os::unix::prelude::OsStrExt};
 
 use alpm::{self, Package};
+use serde::Deserialize;
 use xxhash_rust::xxh3;
 
 use crate::identity::Identity;
+
+#[derive(Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum DepHashStrategy {
+    Strict, // dep + makedep
+    Loose,  // dep
+    None,   // none
+}
+
+impl Default for DepHashStrategy {
+    fn default() -> Self {
+        Self::None
+    }
+}
 
 #[derive(Clone)]
 pub(super) struct Depends {
@@ -89,13 +104,51 @@ impl DbHandle {
     }
 }
 
+fn update_hash_from_pkg(hash: &mut xxh3::Xxh3, pkg: Package<'_>) {
+    if let Some(sig) = pkg.base64_sig() {
+        hash.update(sig.as_bytes());
+        return
+    }
+    if let Some(sha256) = pkg.sha256sum() {
+        hash.update(sha256.as_bytes());
+        return
+    }
+    if let Some(md5) = pkg.md5sum() {
+        hash.update(md5.as_bytes());
+        return
+    }
+    // The last resort
+    hash.update(pkg.name().as_bytes());
+    hash.update(pkg.version().as_bytes());
+    hash.write_i64(pkg.build_date());
+    // There're of couse other vars, but as we add more of them
+    // we will add the possibility of fake-positive
+}
+
 impl Depends {
-    pub(super) fn needed_and_hash(&mut self, db_handle: &DbHandle) 
-        -> Result<(), ()> 
+    fn needed_and_strict_hash(&mut self, db_handle: &DbHandle) -> Result<(), ()>
     {
         let mut hash_box = Box::new(xxh3::Xxh3::new());
         let hash = hash_box.as_mut();
-        self.needs.clear();
+        for dep in self.deps.iter().chain(self.makedeps.iter()) {
+            let dep = match db_handle.find_satisfier(dep) {
+                Some(dep) => dep,
+                None => {
+                    eprintln!("Warning: dep {} not found", dep);
+                    return Err(())
+                },
+            };
+            self.needs.push(dep.name().to_string());
+            update_hash_from_pkg(hash, dep);
+        }
+        self.hash = hash.finish();
+        Ok(())
+    }
+
+    fn needed_and_loose_hash(&mut self, db_handle: &DbHandle) -> Result<(), ()>
+    {
+        let mut hash_box = Box::new(xxh3::Xxh3::new());
+        let hash = hash_box.as_mut();
         for dep in self.deps.iter() {
             let dep = match db_handle.find_satisfier(dep) {
                 Some(dep) => dep,
@@ -105,24 +158,7 @@ impl Depends {
                 },
             };
             self.needs.push(dep.name().to_string());
-            if let Some(sig) = dep.base64_sig() {
-                hash.update(sig.as_bytes());
-                continue
-            }
-            if let Some(sha256) = dep.sha256sum() {
-                hash.update(sha256.as_bytes());
-                continue
-            }
-            if let Some(md5) = dep.md5sum() {
-                hash.update(md5.as_bytes());
-                continue
-            }
-            // The last resort
-            hash.update(dep.name().as_bytes());
-            hash.update(dep.version().as_bytes());
-            hash.write_i64(dep.build_date());
-            // There're of couse other vars, but as we add more of them
-            // we will add the possibility of fake-positive
+            update_hash_from_pkg(hash, dep);
         }
         for dep in self.makedeps.iter() {
             let dep = match db_handle.find_satisfier(dep) {
@@ -134,10 +170,39 @@ impl Depends {
             };
             self.needs.push(dep.name().to_string());
         }
-        self.needs.sort_unstable();
-        self.needs.dedup();
         self.hash = hash.finish();
         Ok(())
+    }
+
+    fn needed_and_no_hash(&mut self, db_handle: &DbHandle) -> Result<(), ()> {
+        for dep in self.deps.iter().chain(self.makedeps.iter()) {
+            let dep = match db_handle.find_satisfier(dep) {
+                Some(dep) => dep,
+                None => {
+                    eprintln!("Warning: dep {} not found", dep);
+                    return Err(())
+                },
+            };
+            self.needs.push(dep.name().to_string());
+        }
+        self.hash = 0;
+        Ok(())
+    }
+
+    pub(super) fn needed_and_hash(
+        &mut self, db_handle: &DbHandle, hash_strategy: &DepHashStrategy
+    ) 
+        -> Result<(), ()> 
+    {
+        self.needs.clear();
+        let r = match hash_strategy {
+            DepHashStrategy::Strict => self.needed_and_strict_hash(db_handle),
+            DepHashStrategy::Loose => self.needed_and_loose_hash(db_handle),
+            DepHashStrategy::None => self.needed_and_no_hash(db_handle),
+        };
+        self.needs.sort_unstable();
+        self.needs.dedup();
+        r
     }
 
     pub(crate) fn update_needed(&mut self, db_handle: &DbHandle) 

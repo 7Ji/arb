@@ -6,6 +6,7 @@ mod depend;
 mod pkgbuild;
 
 pub(crate) use pkgbuild::PkgbuildConfig as PkgbuildConfig;
+pub(crate) use depend::DepHashStrategy as DepHashStrategy;
 
 pub(crate) fn work(
     actual_identity: crate::identity::Identity,
@@ -19,6 +20,7 @@ pub(crate) fn work(
     noclean: bool,
     nonet: bool,
     gmr: Option<&str>,
+    dephash_strategy: &DepHashStrategy,
     sign: Option<&str>
 ) -> Result<(), ()>
 {
@@ -30,7 +32,8 @@ pub(crate) fn work(
     let pkgbuilds_dir =
         tempdir().expect("Failed to create temp dir to dump PKGBUILDs");
     match pkgbuilds.prepare_sources(&actual_identity, basepkgs,
-        &pkgbuilds_dir, holdgit, skipint, noclean, proxy, gmr.as_ref())? 
+        &pkgbuilds_dir, holdgit, skipint, noclean, proxy, gmr.as_ref(),
+        dephash_strategy)? 
     {
         Some(_root) => {
             if ! nobuild {
