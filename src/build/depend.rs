@@ -104,10 +104,7 @@ impl Depends {
                     return Err(())
                 },
             };
-            let dep_name = dep.name();
-            if ! db_handle.is_installed(dep_name) {
-                self.needs.push(dep_name.to_string())
-            }
+            self.needs.push(dep.name().to_string());
             if let Some(sig) = dep.base64_sig() {
                 hash.update(sig.as_bytes());
                 continue
@@ -135,10 +132,7 @@ impl Depends {
                     return Err(())
                 },
             };
-            let dep_name = dep.name();
-            if ! db_handle.is_installed(dep_name) {
-                self.needs.push(dep_name.to_string())
-            }
+            self.needs.push(dep.name().to_string());
         }
         self.needs.sort_unstable();
         self.needs.dedup();
