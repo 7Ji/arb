@@ -921,10 +921,9 @@ impl PKGBUILDs {
         }
     }
     
-    fn check_if_need_build(&mut self, actual_identity: &Identity) 
+    fn check_if_need_build(&mut self) 
         -> Result<u32, ()> 
     {
-        let mut pkgbuilds_need_build = vec![];
         let mut cleaners = vec![];
         let mut bad = false;
         let mut need_build = 0;
@@ -953,17 +952,8 @@ impl PKGBUILDs {
                 }
             } else {
                 pkgbuild.need_build = true;
-                if ! pkgbuild.extracted {
-                    pkgbuild.extracted = true;
-                    pkgbuilds_need_build.push(pkgbuild);
-                }
                 need_build += 1;
             }
-        }
-        if let Err(_) = Self::extract_sources_many(actual_identity, 
-            &mut pkgbuilds_need_build) 
-        {
-            bad = true
         }
         if let Err(_) = threading::wait_remaining(
             cleaners, "cleaning builddirs") 
@@ -1021,7 +1011,7 @@ impl PKGBUILDs {
             actual_identity, dir.as_ref(), base_root.path(),
             dephash_strategy)?;
         self.fill_all_ids_dirs(dephash_strategy);
-        let need_builds = self.check_if_need_build(actual_identity)? > 0;
+        let need_builds = self.check_if_need_build()? > 0;
         if need_builds {
             Depends::cache_raw(&all_deps, base_root.as_str())?;
             if let Some(basepkgs) = basepkgs {
@@ -1031,7 +1021,7 @@ impl PKGBUILDs {
             }
             let db_handle = DbHandle::new(base_root.path())?;
             for pkgbuild in self.0.iter_mut() {
-                if pkgbuild.extracted {
+                if pkgbuild.need_build {
                     pkgbuild.depends.update_needed(&db_handle);
                 }
             }
