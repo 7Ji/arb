@@ -35,11 +35,11 @@ pub(crate) fn work(
         skipint, noclean, proxy, gmr.as_ref(), dephash_strategy)? 
     {
         Some(_root) => {
-            if ! nobuild {
+            if nobuild {
+                Ok(())
+            } else {
                 builder::build_any_needed(
                     &pkgbuilds, &actual_identity, nonet, sign)
-            } else {
-                Ok(())
             }
         },
         None => {
