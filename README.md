@@ -84,14 +84,17 @@ pkgbuilds:
   wiringPi:
     url: git://gmr.lan/github.com/archlinuxarm/PKGBUILDs.git
     branch: master
-    subtree: alarm/wiringpi
+    subtree: alarm/
 ```
 The following optional attributes could be set for each PKGBUILD:
   - `deps`: Explicit dependencies for the package, this is useful if the package maintainer missed such deps. Such packages will also be included when calculating the dep hash. Note this won't be reflected on the result package's metadata, if that's what you want, modify PKGBUILD itself.
   - `makedeps`: Explicit make dependencies for the package, this is useful if the package maintainer missed such deps, e.g. aur/dri2to3-git. Specially, the builder would automatically append `git` to `-git` packages, so you shouldn't need it even if the maintainer missed that. Not included for dephash, not reflected in the result package's metadata, modify PKGBUILD itself if you want that.
   - The above two deps are **appended** to the existing deps defined in PKGBUILD, not replacing them.
   - `branch`: Alternative branch that PKGBUILD should be obtained from. The default is `master`
-  - `subtree`: The subtree PKGBUILD should be obtained from, and the whole build folder should be populated via checking out from.
+  - `subtree`: The subtree PKGBUILD should be obtained from, and the whole build folder should be populated via checking out from.  
+  The subtree supports the following alias rules:
+    - If there's any trailing `/`, only one of the `/` will be kept, and the name of the PKGBUILD will be appended after that `/`
+    - Any leading `/` will be stripped, the result path will therefore always be a "relative" path. This rule is especially useful if you want to use the first rule for a top-level subtree.
   - `home_binds`: Bind such folders under home into the building chroot, if they exist. The builder would automatically append `go` for packages that depend on `go`, and `.cargo` for packages that depened on `rust/cargo`.
 
 Addtionally, the following aliases are supported for URLs:
