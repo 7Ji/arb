@@ -279,14 +279,21 @@ fn prepare_pkgdir() -> Result<(), ()> {
 }
 
 
-fn check_heavy_load(cores: usize) -> bool {
-    match procfs::LoadAverage::new() {
-        Ok(load_avg) => load_avg.one >= cores as f32,
+fn check_heavy_load() -> bool {
+    match procfs::CpuPressure::new() {
+        Ok(cpu_pressure) => cpu_pressure.some.avg10 > 0.0,
         Err(e) => {
-            eprintln!("Failed to get load avg: {}", e);
+            eprintln!("Failed to get CPU pressure: {}", e);
             true
         },
     }
+    // match procfs::LoadAverage::new() {
+    //     Ok(load_avg) => load_avg.one >= cores as f32,
+    //     Err(e) => {
+    //         eprintln!("Failed to get load avg: {}", e);
+    //         true
+    //     },
+    // }
 }
 
 struct Builders<'a> {
@@ -323,15 +330,15 @@ impl<'a> Builders<'a> {
 
     fn work(&mut self)  -> Result<(), ()> 
     {
-        let cpuinfo = procfs::CpuInfo::new().or_else(|e|{
-            eprintln!("Failed to get cpuinfo: {}", e);
-            Err(())
-        })?;
-        let cores = cpuinfo.num_cores();
+        // let cpuinfo = procfs::CpuInfo::new().or_else(|e|{
+        //     eprintln!("Failed to get cpuinfo: {}", e);
+        //     Err(())
+        // })?;
+        // let cores = cpuinfo.num_cores();
         let mut bad = false;
         while self.builders.len() > 0 {
             let mut finished = None;
-            let mut heavy_load = check_heavy_load(cores);
+            let mut heavy_load = check_heavy_load();
             for (id, builder) in 
                 self.builders.iter_mut().enumerate() 
             {
@@ -349,7 +356,7 @@ impl<'a> Builders<'a> {
                 }
                 if heavy_load {
                     sleep(Duration::from_secs(1));
-                    heavy_load = check_heavy_load(cores)
+                    heavy_load = check_heavy_load()
                 }
             }
             if let Some(id) = finished {
