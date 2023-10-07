@@ -30,22 +30,26 @@ pub(crate) fn work(
     let mut pkgbuilds = 
         pkgbuild::PKGBUILDs::from_config_healthy(
             pkgbuilds_config, holdpkg, noclean, proxy, gmr.as_ref())?;
-    match pkgbuilds.prepare_sources(&actual_identity, basepkgs, holdgit, 
+    let r = match pkgbuilds.prepare_sources(
+        &actual_identity, basepkgs, holdgit, 
         skipint, noclean, proxy, gmr.as_ref(), dephash_strategy)? 
     {
         Some(_root) => {
             if ! nobuild {
                 builder::build_any_needed(
-                    &pkgbuilds, &actual_identity, nonet, sign)?
+                    &pkgbuilds, &actual_identity, nonet, sign)
+            } else {
+                Ok(())
             }
         },
         None => {
             println!("No need to build any packages");
+            Ok(())
         },
     };
     pkgbuilds.link_pkgs();
     if ! noclean {
         pkgbuilds.clean_pkgdir();
     }
-    Ok(())
+    r
 }
