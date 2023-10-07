@@ -281,7 +281,7 @@ fn prepare_pkgdir() -> Result<(), ()> {
 
 fn check_heavy_load() -> bool {
     match procfs::CpuPressure::new() {
-        Ok(cpu_pressure) => cpu_pressure.some.avg10 > 0.0,
+        Ok(cpu_pressure) => cpu_pressure.some.avg10 > 10.00,
         Err(e) => {
             eprintln!("Failed to get CPU pressure: {}", e);
             true
