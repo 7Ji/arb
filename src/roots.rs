@@ -704,21 +704,15 @@ impl BootstrappingOverlayRoot {
         })
     }
 
-    pub(super) fn wait_noop(&mut self) -> Result<Result<(), ()>, ()>{
+    pub(super) fn wait_noop(&mut self) -> Result<Option<Result<(), ()>>, ()>{
         assert!(self.status.is_none());
-        match self.child.wait_noop() {
-            Ok(r) => match r {
-                Ok(_) => {
-                    self.status = Some(Ok(()));
-                    Ok(Ok(()))
-                },
-                Err(_) => {
-                    self.status = Some(Err(()));
-                    Ok(Err(()))
-                },
-            },
-            Err(_) => Err(()),
+        let r = self.child.wait_noop();
+        if let Ok(r) = r {
+            if let Some(r) = r {
+                self.status = Some(r)
+            }
         }
+        r
     }
 
     pub(super) fn wait(self) -> Result<OverlayRoot, ()> {

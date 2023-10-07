@@ -84,15 +84,17 @@ impl ForkedChild {
         Ok(())
     }
 
-    pub(crate) fn wait_noop(&self) -> Result<Result<(), ()>, ()> {
+    pub(crate) fn wait_noop(&self) -> Result<Option<Result<(), ()>>, ()> {
         let mut status: libc::c_int = 0;
         let waited_pid = unsafe {
             libc::waitpid(self.pid, &mut status, libc::WNOHANG)
         };
-        if waited_pid <= 0 {
+        if waited_pid < 0 {
             eprintln!("Failed to wait for child: {}", 
                 std::io::Error::last_os_error());
             return Err(())
+        } else if waited_pid == 0 {
+            return Ok(None)
         }
         if waited_pid != self.pid {
             eprintln!("Waited child {} is not the child {} we forked", 
@@ -101,9 +103,9 @@ impl ForkedChild {
         }
         if status != 0 {
             eprintln!("Child process failed");
-            return Ok(Err(()))
+            return Ok(Some(Err(())))
         }
-        Ok(Ok(()))
+        Ok(Some(Ok(())))
     }
 }
 

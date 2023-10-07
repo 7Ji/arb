@@ -83,6 +83,8 @@ impl <'a> Builder<'a> {
         };
         self.status = BuilderStatus::Building { root, child };
         self.tries += 1;
+        println!("Start building '{}', try {} of {}", &self.pkgbuild.base, 
+            self.tries, Self::BUILD_MAX_TRIES);
         Ok(())
     }
 
@@ -144,31 +146,40 @@ impl <'a> Builder<'a> {
             BuilderStatus::Boostrapping { 
                 bootstrapping_root } 
             => match bootstrapping_root.wait_noop() {
-                Ok(_) => {
-                    let old_status = 
-                        std::mem::take(&mut self.status);
-                    if let BuilderStatus::Boostrapping { 
-                        bootstrapping_root } 
-                        = old_status 
-                    {
-                        match bootstrapping_root.wait() {
-                            Ok(root) => {
-                                self.status = BuilderStatus::Bootstrapped {
-                                     root };
-                                println!(
-                                    "Chroot bootstrapped for pkgbuild '{}'",
-                                    &self.pkgbuild.base)
-                            },
-                            Err(_) => {
-                                eprintln!("Failed to bootstrap chroot for \
-                                    pkgbuild '{}'", &self.pkgbuild.base);
+                Ok(r) => match r {
+                    Some(r) => match r {
+                        Ok(_) => {
+                            let old_status = 
+                                std::mem::take(&mut self.status);
+                            if let BuilderStatus::Boostrapping { 
+                                bootstrapping_root } 
+                                = old_status 
+                            {
+                                match bootstrapping_root.wait() {
+                                    Ok(root) => {
+                                        self.status = 
+                                           BuilderStatus::Bootstrapped { root };
+                                        println!("Chroot bootstrapped for \
+                                            pkgbuild '{}'", &self.pkgbuild.base)
+                                    },
+                                    Err(_) => {
+                                        eprintln!("Failed to bootstrap chroot \
+                                            for pkgbuild '{}'", 
+                                            &self.pkgbuild.base);
+                                        return Err(())
+                                    },
+                                }
+                            } else {
+                                eprintln!("Status inconsistent");
                                 return Err(())
-                            },
-                        }
-                    } else {
-                        eprintln!("Status inconsistent");
-                        return Err(())
-                    }
+                            }
+                        },
+                        Err(_) => {
+                            eprintln!("Bootstrapper failed");
+                            return Err(())
+                        },
+                    },
+                    None => (),
                 },
                 Err(_) => return Err(()),
             },
