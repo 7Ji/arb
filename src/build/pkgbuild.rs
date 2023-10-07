@@ -17,20 +17,16 @@ use crate::{
         }, filesystem::remove_dir_all_try_best, build::sign::sign_pkgs
     };
 use git2::Oid;
-use rand::{self, Rng};
 use serde::Deserialize;
 use std::{
         collections::HashMap,
         ffi::OsString,
         fs::{
             create_dir_all,
-            read_dir,
-            remove_dir,
             remove_dir_all,
-            remove_file,
-            rename, File,
+            rename
         },
-        io::{Write, stdout, Read},
+        io::{Write, Read},
         os::unix::{
             fs::symlink,
             process::CommandExt
@@ -178,11 +174,11 @@ impl PKGBUILD {
                     if subtree.ends_with('/') || subtree.starts_with('/') {
                         let mut subtree = subtree.to_owned();
                         if subtree.ends_with('/') {
-                            subtree.trim_end_matches('/');
+                            subtree.shrink_to(subtree
+                                .trim_end_matches('/').len());
                             subtree.push_str(name);
                         }
-                        subtree.trim_start_matches('/');
-                        Some(PathBuf::from(subtree))
+                        Some(PathBuf::from(subtree.trim_start_matches('/')))
                     } else {
                         Some(PathBuf::from(subtree))
                     }
@@ -296,8 +292,9 @@ impl PKGBUILD {
             &self.build, &self.branch, self.subtree.as_deref()
         )?;
         source::extract(&self.build, &self.sources);
-        let pkgbuild_dir = self.build.canonicalize().or_else(|e|{
-            eprintln!("Failed to canoicalize build dir path");
+        let pkgbuild_dir = self.build.canonicalize().or_else(
+        |e|{
+            eprintln!("Failed to canoicalize build dir path: {}", e);
             Err(())
         })?;
         let mut arg0 = OsString::from("[EXTRACTOR/");
@@ -320,7 +317,7 @@ impl PKGBUILD {
         }
     }
 
-    fn extract_source(&self, actual_identity: &Identity) -> Result<(), ()> {
+    fn _extract_source(&self, actual_identity: &Identity) -> Result<(), ()> {
         if self.extractor_source(actual_identity).or_else(|_|{
             eprintln!("Failed to spawn child to extract source");
             Err(())

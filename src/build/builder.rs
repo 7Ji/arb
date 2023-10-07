@@ -1,10 +1,8 @@
-use std::{path::{PathBuf, Path}, process::{Command, Child}, fs::{File, remove_dir_all, create_dir_all}, io::{Read, stdout, Write}, thread::JoinHandle};
+use std::{path::PathBuf, process::{Command, Child}, fs::{remove_dir_all, create_dir_all}};
 
-use crate::{roots::{OverlayRoot, BootstrappingOverlayRoot}, identity::Identity, filesystem::remove_dir_recursively};
+use crate::{roots::{OverlayRoot, BootstrappingOverlayRoot}, identity::Identity};
 
 use super::{pkgbuild::{PKGBUILD, PKGBUILDs}, dir::BuildDir};
-
-use super::sign::sign_pkgs;
 
 enum BuilderStatus {
     None,
@@ -23,7 +21,6 @@ enum BuilderStatus {
         child: Child
     },
     Built,
-    // Built OverlayRoot),
 }
 
 impl Default for BuilderStatus {
@@ -266,122 +263,16 @@ fn prepare_pkgdir() -> Result<(), ()> {
 }
 
 struct Builders<'a> {
-    // _pkgbuilds: &'a PKGBUILDs,
     builders: Vec<Builder<'a>>,
+    actual_identity: &'a Identity, 
+    nonet: bool, 
+    sign: Option<&'a str>
 }
 
 impl<'a> Builders<'a> {
-    // fn wait_noop(&mut self, actual_identity: &Identity, sign: Option<&str>) 
-    //     -> bool 
-    // {
-    //     let mut bad = false;
-    //     loop {
-    //         let mut finished = None;
-    //         for (id, builder) in 
-    //             self.0.iter_mut().enumerate() 
-    //         {
-    //             match builder.child.try_wait() {
-    //                 Ok(status) => match status {
-    //                     Some(_) => {
-    //                         finished = Some(id);
-    //                         break
-    //                     },
-    //                     None => continue,
-    //                 }
-    //                 Err(e) => { // Kill bad child
-    //                     eprintln!("Failed to wait for child: {}", e);
-    //                     if let Err(e) = builder.child.kill() {
-    //                         eprintln!("Failed to kill child: {}", e);
-    //                     }
-    //                     finished = Some(id);
-    //                     bad = true;
-    //                     break
-    //                 },
-    //             };
-    //         }
-    //         let mut builder = match finished {
-    //             Some(finished) => self.0.swap_remove(finished),
-    //             None => break, // No child waitable
-    //         };
-    //         println!("Log of building '{}':", &builder.pkgbuild.pkgid);
-    //         if file_to_stdout(&builder.log_path).is_err() {
-    //             println!("Warning: failed to read log to stdout, \
-    //                 you could still manually check the log file '{}'",
-    //                 builder.log_path.display())
-    //         }
-    //         println!("End of Log of building '{}'", &builder.pkgbuild.pkgid);
-    //         if builder.pkgbuild.remove_build().is_err() {
-    //             eprintln!("Failed to remove build dir");
-    //             bad = true;
-    //         }
-    //         match builder.child.wait() {
-    //             Ok(status) => {
-    //                 match status.code() {
-    //                     Some(code) => {
-    //                         if code == 0 {
-    //                             if builder.pkgbuild.build_finish(
-    //                                 actual_identity,
-    //                                 &builder.temp_pkgdir, sign).is_err() 
-    //                             {
-    //                                 eprintln!("Failed to finish build for {}",
-    //                                     &builder.pkgbuild.base);
-    //                                 bad = true
-    //                             }
-    //                             continue
-    //                         }
-    //                         eprintln!("Bad return from builder child: {}",
-    //                                     code);
-    //                     },
-    //                     None => eprintln!("Failed to get return code from\
-    //                             builder child"),
-    //                 }
-    //             },
-    //             Err(e) => {
-    //                 eprintln!("Failed to get child output: {}", e);
-    //                 bad = true;
-    //             },
-    //         };
-    //         if builder.tries >= Self::BUILD_MAX_TRIES {
-    //             eprintln!("Max retries met for building {}, giving up",
-    //                 &builder.pkgbuild.base);
-    //             if let Err(e) = remove_dir_all(
-    //                 &builder.temp_pkgdir
-    //             ) {
-    //                 eprintln!("Failed to remove temp pkg dir for failed \
-    //                         build: {}", e);
-    //                 bad = true
-    //             }
-    //             continue
-    //         }
-    //         if builder.pkgbuild.extract_source(actual_identity).is_err() {
-    //             eprintln!("Failed to re-extract source to rebuild");
-    //             bad = true;
-    //             continue
-    //         }
-    //         let log_file = match File::create(&builder.log_path) {
-    //             Ok(log_file) => log_file,
-    //             Err(e) => {
-    //                 eprintln!("Failed to create log file: {}", e);
-    //                 continue
-    //             },
-    //         };
-    //         builder.tries += 1;
-    //         builder.child = match builder.command.stdout(log_file).spawn() {
-    //             Ok(child) => child,
-    //             Err(e) => {
-    //                 eprintln!("Failed to spawn child: {}", e);
-    //                 bad = true;
-    //                 continue
-    //             },
-    //         };
-    //         self.0.push(builder)
-    //     }
-    //     bad
-    // }
-
     fn from_pkgbuilds(
-        pkgbuilds: &'a PKGBUILDs, actual_identity: &Identity, 
-        nonet: bool, sign: Option<&str>
+        pkgbuilds: &'a PKGBUILDs, actual_identity: &'a Identity, 
+        nonet: bool, sign: Option<&'a str>
     ) -> Result<Self, ()> 
     {
         prepare_pkgdir()?;
@@ -397,36 +288,13 @@ impl<'a> Builders<'a> {
         }
         Ok(Self {
             builders,
+            actual_identity,
+            nonet,
+            sign,
         })
     }
 
-    fn finish(&self, actual_identity: &Identity, sign: Option<&str>) {
-        // let thread_cleaner =
-        //     thread::spawn(|| Self::remove_builddir());
-        // println!("Finishing building '{}'", &self.pkgid);
-        // if self.pkgdir.exists() {
-        //     if let Err(e) = remove_dir_all(&self.pkgdir) {
-        //         eprintln!("Failed to remove existing pkgdir: {}", e);
-        //         return Err(())
-        //     }
-        // }
-        // if let Some(key) = sign {
-        //     Self::sign_pkgs(actual_identity, temp_pkgdir, key)?;
-        // }
-        // if let Err(e) = rename(&temp_pkgdir, &self.pkgdir) {
-        //     eprintln!("Failed to rename temp pkgdir '{}' to persistent pkgdir \
-        //         '{}': {}", temp_pkgdir.display(), self.pkgdir.display(), e);
-        //     return Err(())
-        // }
-        // self.link_pkgs()?;
-        // println!("Finished building '{}'", &self.pkgid);
-        // let _ = thread_cleaner.join()
-        //     .expect("Failed to join cleaner thread");
-        // Ok(())
-    }
-
-    fn work(&mut self, actual_identity: &Identity, nonet: bool, sign: Option<&str>) 
-        -> Result<(), ()> 
+    fn work(&mut self)  -> Result<(), ()> 
     {
         let cpuinfo = procfs::CpuInfo::new().or_else(|e|{
             eprintln!("Failed to get cpuinfo: {}", e);
@@ -446,7 +314,9 @@ impl<'a> Builders<'a> {
             for (id, builder) in 
                 self.builders.iter_mut().enumerate() 
             {
-                match builder.work(heavy_load, actual_identity, nonet, sign) {
+                match builder.work(heavy_load, self.actual_identity, self.nonet,
+                                    self.sign) 
+                {
                     Ok(_) => if let BuilderStatus::Built = builder.status {
                         finished = Some(id);
                         break
@@ -464,7 +334,7 @@ impl<'a> Builders<'a> {
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        Ok(())
+        if bad { Err(()) } else { Ok(()) }
     }
 }
 
@@ -473,8 +343,7 @@ pub(super) fn build_any_needed(
     nonet: bool, sign: Option<&str>
 ) -> Result<(), ()>
 {
-    let mut builders = 
-        Builders::from_pkgbuilds(pkgbuilds, actual_identity, nonet, sign)?;
-    builders.work(actual_identity, nonet, sign)?;
+    Builders::from_pkgbuilds(pkgbuilds, actual_identity, nonet, sign)?
+        .work()?;
     Ok(())
 }

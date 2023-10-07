@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use tempfile::tempdir;
-
 mod builder;
 mod depend;
 mod dir;
