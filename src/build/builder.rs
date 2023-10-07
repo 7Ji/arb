@@ -200,7 +200,7 @@ impl <'a> Builder<'a> {
                         if self.builddir.read_log().is_err() {
                             eprintln!("Failed to read log")
                         }
-                        println!("End of log for building '{}':",
+                        println!("End of log for building '{}'",
                             &self.pkgbuild.base);
                         if let Some(0) = r.code() {
                             self.pkgbuild.finish_build(actual_identity, 
