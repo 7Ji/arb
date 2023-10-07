@@ -174,9 +174,8 @@ impl PKGBUILD {
                     if subtree.ends_with('/') || subtree.starts_with('/') {
                         let mut subtree = subtree.to_owned();
                         if subtree.ends_with('/') {
-                            subtree.shrink_to(subtree
-                                .trim_end_matches('/').len());
-                            subtree.push_str(name);
+                            subtree = format!("{}/{}", 
+                                subtree.trim_end_matches('/'), name);
                         }
                         Some(PathBuf::from(subtree.trim_start_matches('/')))
                     } else {
