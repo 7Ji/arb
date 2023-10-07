@@ -2,11 +2,16 @@ use std::collections::HashMap;
 
 use tempfile::tempdir;
 
+mod builder;
 mod depend;
+mod dir;
 mod pkgbuild;
+mod sign;
 
 pub(crate) use pkgbuild::PkgbuildConfig as PkgbuildConfig;
 pub(crate) use depend::DepHashStrategy as DepHashStrategy;
+
+use pkgbuild::PKGBUILD;
 
 pub(crate) fn work(
     actual_identity: crate::identity::Identity,
@@ -37,7 +42,7 @@ pub(crate) fn work(
     {
         Some(_root) => {
             if ! nobuild {
-                pkgbuilds.build_any_needed(&actual_identity, nonet, sign)?
+                // pkgbuilds.build_any_needed(&actual_identity, nonet, sign)?
             }
         },
         None => {

@@ -1,4 +1,4 @@
-pub(super) fn output_and_check(command: &mut std::process::Command, job: &str)
+pub(crate) fn output_and_check(command: &mut std::process::Command, job: &str)
     -> Result<(), ()>
 {
     match command.stdout(std::process::Stdio::null())

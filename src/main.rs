@@ -4,6 +4,8 @@ use clap::Parser;
 use serde::Deserialize;
 
 mod build;
+mod child;
+mod filesystem;
 mod identity;
 mod roots;
 mod source;

@@ -1,4 +1,3 @@
-mod child;
 mod file;
 mod ftp;
 mod http;

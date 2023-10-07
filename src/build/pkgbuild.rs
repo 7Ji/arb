@@ -14,7 +14,7 @@ use crate::{
         threading::{
             self,
             wait_if_too_busy,
-        }
+        }, filesystem::remove_dir_all_try_best
     };
 use git2::Oid;
 use rand::{self, Rng};
@@ -58,7 +58,7 @@ pub(crate) enum PkgbuildConfig {
     Complex {
         url: String,
         branch: Option<String>,
-        subtree: Option<PathBuf>,
+        subtree: Option<String>,
         deps: Option<Vec<String>>,
         makedeps: Option<Vec<String>>,
         home_binds: Option<Vec<String>>,
@@ -73,32 +73,23 @@ enum Pkgver {
 }
 
 #[derive(Clone)]
-struct PKGBUILD {
-    base: String,
+pub(super) struct PKGBUILD {
+    pub(super) base: String,
     branch: String,
     build: PathBuf,
     commit: git2::Oid,
     depends: Depends,
-    extract: bool,
+    pub(super) extracted: bool,
     git: PathBuf,
     home_binds: Vec<String>,
     _names: Vec<String>,
+    pub(super) need_build: bool,
     pkgid: String,
     pkgdir: PathBuf,
     pkgver: Pkgver,
     sources: Vec<source::Source>,
     subtree: Option<PathBuf>,
     url: String,
-}
-
-struct Builder<'a> {
-    pkgbuild: &'a mut PKGBUILD,
-    temp_pkgdir: PathBuf,
-    command: Command,
-    _root: OverlayRoot,
-    tries: usize,
-    child: Child,
-    log_path: PathBuf
 }
 
 impl source::MapByDomain for PKGBUILD {
@@ -125,40 +116,10 @@ impl git::ToReposMap for PKGBUILD {
     }
 }
 
-// build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
-// we use our own implementation
-fn remove_dir_recursively<P: AsRef<Path>>(dir: P) 
-    -> Result<(), std::io::Error>
-{
-    for entry in read_dir(&dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if !path.is_symlink() && path.is_dir() {
-            let er = 
-                remove_dir_recursively(&path);
-            match remove_dir(&path) {
-                Ok(_) => (),
-                Err(e) => {
-                    eprintln!(
-                        "Failed to remove subdir '{}' recursively: {}", 
-                        path.display(), e);
-                    if let Err(e) = er {
-                        eprintln!("Subdir failure: {}", e)
-                    }
-                    return Err(e);
-                },
-            }
-        } else {
-            remove_file(&path)?
-        }
-    }
-    Ok(())
-}
-
 impl PKGBUILD {
     fn new(
         name: &str, url: &str, build_parent: &Path, git_parent: &Path,
-        branch: Option<&str>, subtree: Option<&Path>, deps: Option<&Vec<String>>,
+        branch: Option<&str>, subtree: Option<&str>, deps: Option<&Vec<String>>,
         makedeps: Option<&Vec<String>>, home_binds: Option<&Vec<String>>
     ) -> Self
     {
@@ -199,7 +160,7 @@ impl PKGBUILD {
                 needs: vec![],
                 hash: 0,
             },
-            extract: false,
+            extracted: false,
             git: git_parent.join(
                 format!("{:016x}",xxh3_64(url.as_bytes()))),
             home_binds: match home_binds {
@@ -207,12 +168,25 @@ impl PKGBUILD {
                 None => vec![],
             },
             _names: vec![],
+            need_build: false,
             pkgid: String::new(),
             pkgdir: PathBuf::from("pkgs"),
             pkgver: Pkgver::Plain,
             sources: vec![],
             subtree: match subtree {
-                Some(subtree) => Some(subtree.to_owned()),
+                Some(subtree) => {
+                    if subtree.ends_with('/') || subtree.starts_with('/') {
+                        let mut subtree = subtree.to_owned();
+                        if subtree.ends_with('/') {
+                            subtree.trim_end_matches('/');
+                            subtree.push_str(name);
+                        }
+                        subtree.trim_start_matches('/');
+                        Some(PathBuf::from(subtree))
+                    } else {
+                        Some(PathBuf::from(subtree))
+                    }
+                },
                 None => None,
             },
             url,
@@ -273,46 +247,6 @@ impl PKGBUILD {
         let mut file =
             std::fs::File::create(target).or(Err(()))?;
         file.write_all(blob.content()).or(Err(()))
-    }
-
-    /// Parse the PKGBUILD natively in Rust to set some value.
-    /// Currently the only option possibly native to check is pkgver
-    /// 
-    /// To-be-fixed: fake positive on aur/usbrelay
-    fn _parse(&mut self) -> Result<(), ()>{
-        let repo = git::Repo::open_bare(
-            &self.git, &self.url, None).ok_or(())?;
-        let blob = repo.get_pkgbuild_blob(&self.branch,
-            self.subtree.as_deref()).ok_or(())?;
-        let content = String::from_utf8_lossy(blob.content());
-        for mut line in content.lines() {
-            line = line.trim();
-            if line.starts_with("function") {
-                line = line.trim_start_matches("function");
-                line = line.trim_start();
-            }
-            if ! line.starts_with("pkgver") {
-                continue
-            }
-            line = line.trim_start_matches("pkgver");
-            line = line.trim_start();
-            if line.starts_with('(') {
-                line = line.trim_start_matches('(');
-                line = line.trim_start();
-                if line.starts_with(')') {
-                    // line = line.trim_start_matches(')');
-                    // line = line.trim_start();
-                } else {
-                    continue
-                }
-            } else {
-                continue
-            }
-            println!("Parse: Package '{}' has a pkgver function", self.base);
-            self.pkgver = Pkgver::Func { pkgver: String::new() };
-            return Ok(())
-        }
-        Ok(())
     }
 
     fn dep_reader_file<P: AsRef<Path>> (
@@ -427,7 +361,7 @@ impl PKGBUILD {
         println!("PKGBUILD '{}' pkgid is '{}'", self.base, self.pkgid);
     }
 
-    fn get_temp_pkgdir(&self) -> Result<PathBuf, ()> {
+    pub(super) fn get_temp_pkgdir(&self) -> Result<PathBuf, ()> {
         let mut temp_name = self.pkgid.clone();
         temp_name.push_str(".temp");
         let temp_pkgdir = self.pkgdir.with_file_name(temp_name);
@@ -441,7 +375,7 @@ impl PKGBUILD {
         }
     }
 
-    fn get_build_command(
+    pub(super) fn get_build_command(
         &self,
         actual_identity: &Identity,
         root: &OverlayRoot,
@@ -480,73 +414,6 @@ impl PKGBUILD {
         Ok(command)
     }
 
-    fn remove_build(&mut self) -> Result<(), ()> {
-        println!("Removing build dir for '{}'...", self.pkgid);
-        match remove_dir_all(&self.build) {
-            Ok(_) => return Ok(()),
-            Err(e) => {
-                eprintln!("Failed to remove build folder naively: {}", e);
-            },
-        }
-        remove_dir_recursively(&self.build).or_else(|e|{
-            eprintln!("Failed to remove build folder recursively: {}", e);
-            Err(())
-        })?;
-        remove_dir(&self.build).or_else(|e|{
-            eprintln!("Failed to remove build folder itself: {}", e);
-            Err(())
-        })?;
-        println!("Removed build dir for '{}'", self.pkgid);
-        Ok(())
-    }
-
-    fn sign_pkgs(actual_identity: &Identity, dir: &Path, key: &str) 
-        -> Result<(), ()> 
-    {
-        let reader = match read_dir(dir) {
-            Ok(reader) => reader,
-            Err(e) => {
-                eprintln!("Failed to read temp pkgdir: {}", e);
-                return Err(())
-            },
-        };
-        let mut bad = false;
-        for entry in reader {
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(e) => {
-                    eprintln!("Failed to read entry from temp pkgdir: {}", e);
-                    bad = true;
-                    continue
-                },
-            }.path();
-            if entry.ends_with(".sig") {
-                continue
-            }
-            let output = match actual_identity.set_root_drop_command(
-                Command::new("/usr/bin/gpg")
-                .arg("--detach-sign")
-                .arg("--local-user")
-                .arg(key)
-                .arg(&entry))
-                .stdin(Stdio::null())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .output() {
-                    Ok(output) => output,
-                    Err(e) => {
-                        eprintln!("Failed to spawn child to sign pkg: {}", e);
-                        continue
-                    },
-                };
-            if Some(0) != output.status.code() {
-                eprintln!("Bad return from gpg");
-                bad = true
-            }
-        }
-        if bad { Err(()) } else { Ok(()) }
-    }
-
     fn link_pkgs(&self) -> Result<(), ()> {
         let mut rel = PathBuf::from("..");
         rel.push(&self.pkgid);
@@ -577,36 +444,10 @@ impl PKGBUILD {
         if bad { Err(()) } else { Ok(()) }
     }
 
-    fn build_finish(&self, 
-        actual_identity: &Identity, temp_pkgdir: &Path, sign: Option<&str>
-    ) 
-        -> Result<(), ()> 
-    {
-        println!("Finishing building '{}'", &self.pkgid);
-        if self.pkgdir.exists() {
-            if let Err(e) = remove_dir_all(&self.pkgdir) {
-                eprintln!("Failed to remove existing pkgdir: {}", e);
-                return Err(())
-            }
-        }
-        if let Some(key) = sign {
-            Self::sign_pkgs(actual_identity, temp_pkgdir, key)?;
-        }
-        if let Err(e) = rename(&temp_pkgdir, &self.pkgdir) {
-            eprintln!("Failed to rename temp pkgdir '{}' to persistent pkgdir \
-                '{}': {}", temp_pkgdir.display(), self.pkgdir.display(), e);
-            return Err(())
-        }
-        self.link_pkgs()?;
-        println!("Finished building '{}'", &self.pkgid);
-        Ok(())
-    }
-
     fn get_home_binds(&self) -> Vec<String> {
         let mut binds = self.home_binds.clone();
         let mut go = false;
-        let mut cargo = false;
-        
+        let mut cargo = false;  
         for dep in 
             self.depends.deps.iter().chain(self.depends.makedeps.iter()) 
         {
@@ -632,196 +473,17 @@ impl PKGBUILD {
         binds
     }
 
-    fn builder(&mut self, actual_identity: &Identity, nonet: bool) 
-        -> Result<Builder, ()> 
+    pub(super) fn get_overlay_root(
+        &self, actual_identity: &Identity, nonet: bool
+    ) -> Result<OverlayRoot, ()> 
     {
-        let temp_pkgdir = self.get_temp_pkgdir()?;
-        let home_binds = self.get_home_binds();
-        let root = OverlayRoot::new(
-            &self.base, actual_identity, 
-            &self.depends.needs, home_binds, nonet)?;
-        let mut command = self.get_build_command(
-            actual_identity, &root, &temp_pkgdir)?;
-        let mut log_name = String::from("log");
-        let mut log_path = self.build.join(&log_name);
-        while log_path.exists() {
-            log_name.shrink_to(3);
-            for char in rand::thread_rng().sample_iter(
-                rand::distributions::Alphanumeric).take(7) 
-            {
-                log_name.push(char::from(char))
-            }
-            log_path = self.build.join(&log_name);
-        }
-        let log_file = File::create(&log_path).or_else(|e|{
-            eprintln!("Failed to open log file: {}", e);
-            Err(())
-        })?;
-        let child = command.stdout(log_file).spawn().or_else(
-        |e|{
-            eprintln!("Failed to spawn child: {}", e); Err(())
-        })?;
-        println!("Start building '{}", &self.pkgid);
-        Ok(Builder {
-            pkgbuild: self,
-            temp_pkgdir,
-            command,
-            _root: root,
-            tries: 0,
-            child,
-            log_path
-        })
+        OverlayRoot::new(&self.base, actual_identity, 
+            &self.depends.needs, self.get_home_binds(), nonet)
     }
-
-}
-
-fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<(), ()> {
-    let file_p = file.as_ref();
-    let mut file = match File::open(&file) {
-        Ok(file) => file,
-        Err(e) => {
-            eprintln!("Failed to open '{}': {}", file_p.display(), e);
-            return Err(())
-        },
-    };
-    let mut buffer = vec![0; 4096];
-    loop {
-        match file.read(&mut buffer) {
-            Ok(size) => {
-                if size == 0 {
-                    return Ok(())
-                }
-                if let Err(e) = stdout().write_all(&buffer[0..size]) 
-                {
-                    eprintln!("Failed to write log content to stdout: {}", e);
-                    return Err(())
-                }
-            },
-            Err(e) => {
-                eprintln!("Failed to read from '{}': {}", file_p.display(), e);
-                return Err(())
-            },
-        }
-
-    }
-}
-
-struct Builders<'a> (Vec<Builder<'a>>);
-
-impl<'a> Builders<'a> {
-    const BUILD_MAX_TRIES: usize = 3;
-    fn wait_noop(&mut self, actual_identity: &Identity, sign: Option<&str>) 
-        -> bool 
-    {
-        let mut bad = false;
-        loop {
-            let mut finished = None;
-            for (id, builder) in 
-                self.0.iter_mut().enumerate() 
-            {
-                match builder.child.try_wait() {
-                    Ok(status) => match status {
-                        Some(_) => {
-                            finished = Some(id);
-                            break
-                        },
-                        None => continue,
-                    }
-                    Err(e) => { // Kill bad child
-                        eprintln!("Failed to wait for child: {}", e);
-                        if let Err(e) = builder.child.kill() {
-                            eprintln!("Failed to kill child: {}", e);
-                        }
-                        finished = Some(id);
-                        bad = true;
-                        break
-                    },
-                };
-            }
-            let mut builder = match finished {
-                Some(finished) => self.0.swap_remove(finished),
-                None => break, // No child waitable
-            };
-            println!("Log of building '{}':", &builder.pkgbuild.pkgid);
-            if file_to_stdout(&builder.log_path).is_err() {
-                println!("Warning: failed to read log to stdout, \
-                    you could still manually check the log file '{}'",
-                    builder.log_path.display())
-            }
-            println!("End of Log of building '{}'", &builder.pkgbuild.pkgid);
-            if builder.pkgbuild.remove_build().is_err() {
-                eprintln!("Failed to remove build dir");
-                bad = true;
-            }
-            match builder.child.wait() {
-                Ok(status) => {
-                    match status.code() {
-                        Some(code) => {
-                            if code == 0 {
-                                if builder.pkgbuild.build_finish(
-                                    actual_identity,
-                                    &builder.temp_pkgdir, sign).is_err() 
-                                {
-                                    eprintln!("Failed to finish build for {}",
-                                        &builder.pkgbuild.base);
-                                    bad = true
-                                }
-                                continue
-                            }
-                            eprintln!("Bad return from builder child: {}",
-                                        code);
-                        },
-                        None => eprintln!("Failed to get return code from\
-                                builder child"),
-                    }
-                },
-                Err(e) => {
-                    eprintln!("Failed to get child output: {}", e);
-                    bad = true;
-                },
-            };
-            if builder.tries >= Self::BUILD_MAX_TRIES {
-                eprintln!("Max retries met for building {}, giving up",
-                    &builder.pkgbuild.base);
-                if let Err(e) = remove_dir_all(
-                    &builder.temp_pkgdir
-                ) {
-                    eprintln!("Failed to remove temp pkg dir for failed \
-                            build: {}", e);
-                    bad = true
-                }
-                continue
-            }
-            if builder.pkgbuild.extract_source(actual_identity).is_err() {
-                eprintln!("Failed to re-extract source to rebuild");
-                bad = true;
-                continue
-            }
-            let log_file = match File::create(&builder.log_path) {
-                Ok(log_file) => log_file,
-                Err(e) => {
-                    eprintln!("Failed to create log file: {}", e);
-                    continue
-                },
-            };
-            builder.tries += 1;
-            builder.child = match builder.command.stdout(log_file).spawn() {
-                Ok(child) => child,
-                Err(e) => {
-                    eprintln!("Failed to spawn child: {}", e);
-                    bad = true;
-                    continue
-                },
-            };
-            self.0.push(builder)
-        }
-        bad
-    }
-
 }
 
 // struct PkgsDepends (Vec<Depends>);
-pub(super) struct PKGBUILDs (Vec<PKGBUILD>);
+pub(super) struct PKGBUILDs (pub(super) Vec<PKGBUILD>);
 
 impl PKGBUILDs {
     pub(super) fn from_config(config: &HashMap<String, PkgbuildConfig>) 
@@ -871,15 +533,6 @@ impl PKGBUILDs {
         git::Repo::sync_mt(repos_map, hold, proxy)
     }
 
-    fn _healthy(&self) -> bool {
-        for pkgbuild in self.0.iter() {
-            if pkgbuild.healthy().is_none() {
-                return false
-            }
-        }
-        true
-    }
-
     fn healthy_set_commit(&mut self) -> bool {
         for pkgbuild in self.0.iter_mut() {
             if ! pkgbuild.healthy_set_commit() {
@@ -888,7 +541,6 @@ impl PKGBUILDs {
         }
         true
     }
-
 
     pub(super) fn from_config_healthy(
         config: &HashMap<String, PkgbuildConfig>, 
@@ -1207,9 +859,9 @@ impl PKGBUILDs {
     )
         -> Result<(), ()> 
     {
+        remove_dir_all_try_best("build")?;
         let mut pkgbuilds = 
             self.filter_with_pkgver_func(actual_identity, dir)?;
-        let _ = remove_dir_recursively("build");
         Self::extract_sources_many(actual_identity, &mut pkgbuilds)?;
         let children: Vec<Child> = pkgbuilds.iter().map(
         |pkgbuild| {
@@ -1235,7 +887,7 @@ impl PKGBUILDs {
                 .trim().to_string();
             println!("PKGBUILD '{}' pkgver is '{}'", &pkgbuild.base, &pkgver);
             pkgbuild.pkgver = Pkgver::Func { pkgver };
-            pkgbuild.extract = true
+            pkgbuild.extracted = true
         }
         Ok(())
     }
@@ -1246,7 +898,7 @@ impl PKGBUILDs {
         }
     }
     
-    fn extract_if_need_build(&mut self, actual_identity: &Identity) 
+    fn check_if_need_build(&mut self, actual_identity: &Identity) 
         -> Result<u32, ()> 
     {
         let mut pkgbuilds_need_build = vec![];
@@ -1261,9 +913,11 @@ impl PKGBUILDs {
                 }
             }
             if built { // Does not need build
+                pkgbuild.need_build = false;
                 println!("Skipped already built '{}'",
                     pkgbuild.pkgdir.display());
-                if pkgbuild.extract {
+                if pkgbuild.extracted {
+                    pkgbuild.extracted = false;
                     let dir = pkgbuild.build.clone();
                     if let Err(_) = wait_if_too_busy(
                         &mut cleaners, 30, 
@@ -1271,13 +925,13 @@ impl PKGBUILDs {
                         bad = true
                     }
                     cleaners.push(thread::spawn(||
-                        remove_dir_recursively(dir)
+                        remove_dir_all_try_best(dir)
                         .or(Err(()))));
-                    pkgbuild.extract = false;
                 }
             } else {
-                if ! pkgbuild.extract {
-                    pkgbuild.extract = true;
+                pkgbuild.need_build = true;
+                if ! pkgbuild.extracted {
+                    pkgbuild.extracted = true;
                     pkgbuilds_need_build.push(pkgbuild);
                 }
                 need_build += 1;
@@ -1296,21 +950,6 @@ impl PKGBUILDs {
         if bad { Err(()) } else { Ok(need_build) }
     }
 
-    fn remove_builddir() -> Result<(), std::io::Error> {
-        println!("Removing the whole build dir...");
-        // Go the simple way first
-        match remove_dir_all("build") {
-            Ok(_) => return Ok(()),
-            Err(e) => eprintln!("Failed to clean: {}", e),
-        }
-        // build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
-        // we use our only implementation
-        remove_dir_recursively("build")?;
-        remove_dir("build")?;
-        println!("Removed the whole build dir...");
-        Ok(())
-    }
-
     pub(super) fn prepare_sources<P: AsRef<Path>>(
         &mut self,
         actual_identity: &Identity, 
@@ -1327,7 +966,7 @@ impl PKGBUILDs {
         let cleaner = match 
             PathBuf::from("build").exists() 
         {
-            true => Some(thread::spawn(|| Self::remove_builddir())),
+            true => Some(thread::spawn(|| remove_dir_all_try_best("build"))),
             false => None,
         };
         self.dump(&dir)?;
@@ -1337,14 +976,12 @@ impl PKGBUILDs {
             &netfile_sources, &git_sources, actual_identity,
             holdgit, skipint, proxy, gmr)?;
         if let Some(cleaner) = cleaner {
-            match cleaner.join()
-                .expect("Failed to join build dir cleaner thread") {
-                Ok(_) => (),
-                Err(e) => {
-                    eprintln!("Failed to clean build dir: {}", e);
-                    return Err(())
-                },
-            }
+            cleaner.join()
+                .expect("Failed to join build dir cleaner thread")
+                .or_else(|_| {
+                    eprintln!("Build dir cleaner thread panicked");
+                    Err(())
+                })?;
         }
         let cleaners = match noclean {
             true => None,
@@ -1357,7 +994,7 @@ impl PKGBUILDs {
             actual_identity, dir.as_ref(), base_root.path(),
             dephash_strategy)?;
         self.fill_all_ids_dirs(dephash_strategy);
-        let need_builds = self.extract_if_need_build(actual_identity)? > 0;
+        let need_builds = self.check_if_need_build(actual_identity)? > 0;
         if need_builds {
             Depends::cache_raw(&all_deps, base_root.as_str())?;
             if let Some(basepkgs) = basepkgs {
@@ -1367,7 +1004,7 @@ impl PKGBUILDs {
             }
             let db_handle = DbHandle::new(base_root.path())?;
             for pkgbuild in self.0.iter_mut() {
-                if pkgbuild.extract {
+                if pkgbuild.extracted {
                     pkgbuild.depends.update_needed(&db_handle);
                 }
             }
@@ -1384,70 +1021,17 @@ impl PKGBUILDs {
             Ok(None)
         }
     }
+    
+    pub(super) fn clean_pkgdir(&self) {
+        let mut used: Vec<String> = self.0.iter().map(
+            |pkgbuild| pkgbuild.pkgid.clone()).collect();
+        used.push(String::from("updated"));
+        used.push(String::from("latest"));
+        used.sort_unstable();
+        source::remove_unused("pkgs", &used);
+    }
 
-    pub(super) fn build_any_needed(
-        &mut self, actual_identity: &Identity, nonet: bool, sign: Option<&str>
-    ) 
-        -> Result<(), ()>
-    {
-        let _ = remove_dir_all("pkgs/updated");
-        let _ = remove_dir_all("pkgs/latest");
-        if let Err(e) = create_dir_all("pkgs/updated") {
-            eprintln!("Failed to create pkgs/updated: {}", e);
-            return Err(())
-        }
-        if let Err(e) = create_dir_all("pkgs/latest") {
-            eprintln!("Failed to create pkgs/latest: {}", e);
-            return Err(())
-        }
-        let mut bad = false;
-        let cpuinfo = procfs::CpuInfo::new().or_else(|e|{
-            eprintln!("Failed to get cpuinfo: {}", e);
-            Err(())
-        })?;
-        let cores = cpuinfo.num_cores();
-        let mut builders = Builders(vec![]);
-        for pkgbuild in self.0.iter_mut() {
-            if ! pkgbuild.extract {
-                continue
-            }
-            loop { // Wait for CPU resource
-                if builders.wait_noop(actual_identity, sign) {
-                    bad = true
-                }
-                let heavy_load = match procfs::LoadAverage::new() {
-                    Ok(load_avg) => load_avg.one >= cores as f32,
-                    Err(e) => {
-                        eprintln!("Failed to get load avg: {}", e);
-                        true
-                    },
-                };
-                if builders.0.len() < 4 && !heavy_load {
-                    break
-                } else {
-                    std::thread::sleep(
-                        std::time::Duration::from_millis(100))
-                }
-            }
-            let builder = match 
-                pkgbuild.builder(actual_identity, nonet) 
-            {
-                Ok(builder) => builder,
-                Err(_) => {
-                    bad = true;
-                    continue
-                },
-            };
-            builders.0.push(builder)
-        }
-        while builders.0.len() > 0 {
-            if builders.wait_noop(actual_identity, sign) {
-                bad = true
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100))
-        }
-        let thread_cleaner =
-            thread::spawn(|| Self::remove_builddir());
+    pub(super) fn link_pkgs(&self) {
         let rel = PathBuf::from("..");
         let latest = PathBuf::from("pkgs/latest");
         for pkgbuild in self.0.iter() {
@@ -1475,17 +1059,5 @@ impl PKGBUILDs {
                 }
             }
         }
-        let _ = thread_cleaner.join()
-            .expect("Failed to join cleaner thread");
-        if bad { Err(()) } else { Ok(()) }
-    }
-    
-    pub(super) fn clean_pkgdir(&self) {
-        let mut used: Vec<String> = self.0.iter().map(
-            |pkgbuild| pkgbuild.pkgid.clone()).collect();
-        used.push(String::from("updated"));
-        used.push(String::from("latest"));
-        used.sort_unstable();
-        source::remove_unused("pkgs", &used);
     }
 }

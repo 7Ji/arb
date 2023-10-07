@@ -13,5 +13,5 @@ pub(crate) fn rsync(
             .arg("-z")
             .arg(url)
             .arg(path));
-    super::child::output_and_check(&mut command, &job)
+    crate::child::output_and_check(&mut command, &job)
 }
