@@ -2,7 +2,7 @@ use std::{path::PathBuf, ffi::OsStr, fs::{create_dir_all, File}};
 
 use rand::Rng;
 
-use crate::filesystem::file_to_stdout;
+use crate::filesystem::{file_to_stdout, remove_dir_all_try_best};
 
 pub(super) struct BuildDir {
     path: PathBuf,
@@ -76,4 +76,20 @@ impl Drop for BuildDir {
                 self.path.display())
         }
     }
+}
+
+pub(super) fn prepare_updated_latest_dirs() -> Result<(), ()> {
+    let mut bad = false;
+    let dir = PathBuf::from("pkgs");
+    for subdir in ["updated", "latest"] {
+        let dir = dir.join(subdir);
+        if dir.exists() && remove_dir_all_try_best(&dir).is_err(){
+            bad = true
+        }
+        if let Err(e) = create_dir_all(&dir) {
+            eprintln!("Failed to create dir '{}': {}", dir.display(), e);
+            bad = true
+        }
+    }
+    if bad { Err(()) } else { Ok(()) }
 }

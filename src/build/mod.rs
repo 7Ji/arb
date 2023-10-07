@@ -25,6 +25,7 @@ pub(crate) fn work(
     sign: Option<&str>
 ) -> Result<(), ()>
 {
+    dir::prepare_updated_latest_dirs()?;
     let gmr = gmr.and_then(|gmr|
         Some(crate::source::git::Gmr::init(gmr)));
     let mut pkgbuilds = 
