@@ -1,4 +1,4 @@
-use std::{path::Path, fs::{read_dir, remove_dir, remove_file, remove_dir_all}};
+use std::{path::Path, fs::{read_dir, remove_dir, remove_file, remove_dir_all, File}, io::{stdout, Read, Write}};
 
 
 // build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
@@ -56,4 +56,34 @@ pub(crate) fn remove_dir_all_try_best<P: AsRef<Path>>(dir: P)
     println!("Removed dir '{}' recursively", dir.as_ref().display());
     Ok(())
 
+}
+
+pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<(), ()> {
+    let file_p = file.as_ref();
+    let mut file = match File::open(&file) {
+        Ok(file) => file,
+        Err(e) => {
+            eprintln!("Failed to open '{}': {}", file_p.display(), e);
+            return Err(())
+        },
+    };
+    let mut buffer = vec![0; 4096];
+    loop {
+        match file.read(&mut buffer) {
+            Ok(size) => {
+                if size == 0 {
+                    return Ok(())
+                }
+                if let Err(e) = stdout().write_all(&buffer[0..size]) 
+                {
+                    eprintln!("Failed to write log content to stdout: {}", e);
+                    return Err(())
+                }
+            },
+            Err(e) => {
+                eprintln!("Failed to read from '{}': {}", file_p.display(), e);
+                return Err(())
+            },
+        }
+    }
 }

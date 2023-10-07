@@ -82,8 +82,8 @@ pub(crate) fn cache_sources_mt(
         };
     let mut git_repos_map = 
         match Source::to_repos_map(git_sources_map, "sources/git", gmr) {
-            Some(git_repos_map) => git_repos_map,
-            None => {
+            Ok(git_repos_map) => git_repos_map,
+            Err(_) => {
                 eprintln!("Failed to get git repos map");
                 return Err(())
             },

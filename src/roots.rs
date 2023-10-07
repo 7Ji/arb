@@ -19,6 +19,8 @@ use std::{
     };
 
 
+use crate::identity::ForkedChild;
+
 use super::identity::Identity;
 
 #[derive(Clone)]
@@ -33,6 +35,12 @@ pub(super) struct OverlayRoot {
     upper: PathBuf,
     work: PathBuf,
     merged: MountedFolder,
+}
+
+pub(super) struct BootstrappingOverlayRoot {
+    root: OverlayRoot,
+    child: ForkedChild,
+    status: Option<Result<(), ()>>,
 }
 
 fn cstring_from_path(path: &Path) -> Result<CString, ()> {
@@ -582,6 +590,43 @@ impl OverlayRoot {
         Ok(self)
     }
 
+    fn new_child<I, S, I2, S2>(
+        name: &str, actual_identity: &Identity, pkgs: I, home_dirs: I2,
+        nonet: bool
+    ) -> Result<(Self, ForkedChild), ()>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+        I2: IntoIterator<Item = S2>,
+        S2: AsRef<str>
+    {
+        println!("Creating overlay chroot '{}'", name);
+        let parent = PathBuf::from(format!("roots/overlay-{}", name));
+        let upper = parent.join("upper");
+        let work = parent.join("work");
+        let merged = MountedFolder(parent.join("merged"));
+        let root = Self {
+            parent,
+            upper,
+            work,
+            merged,
+        };
+        let child = Identity::as_root_child(||{
+            root.remove()?
+                .overlay()?
+                .base_mounts()?
+                .install_pkgs(pkgs)?
+                .bind_builder(actual_identity)?
+                .bind_homedirs(actual_identity, home_dirs)?;
+            if ! nonet {
+                root.resolv()?;
+            }
+            Ok(())
+        })?;
+        println!("Forked child to create overlay chroot '{}'", name);
+        Ok((root, child))
+    }
+
     /// Different from base, overlay would have upper, work, and merged.
     /// Note that the pkgs here can only come from repos, not as raw pkg files.
     pub(crate) fn new<I, S, I2, S2>(
@@ -635,6 +680,55 @@ impl Drop for OverlayRoot {
             self.remove().and(Ok(()))
         }).is_err() {
             eprintln!("Failed to drop overlay root '{}'", self.parent.display())
+        }
+    }
+}
+
+impl BootstrappingOverlayRoot {
+    pub(super) fn new<I, S, I2, S2>(
+        name: &str, actual_identity: &Identity, pkgs: I, home_dirs: I2,
+        nonet: bool
+    ) -> Result<Self, ()>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+        I2: IntoIterator<Item = S2>,
+        S2: AsRef<str>
+    {
+        let (root, child) = OverlayRoot::new_child(
+            name, actual_identity, pkgs, home_dirs, nonet)?;
+        Ok(Self {
+            root,
+            child,
+            status: None
+        })
+    }
+
+    pub(super) fn wait_noop(&mut self) -> Result<Result<(), ()>, ()>{
+        assert!(self.status.is_none());
+        match self.child.wait_noop() {
+            Ok(r) => match r {
+                Ok(_) => {
+                    self.status = Some(Ok(()));
+                    Ok(Ok(()))
+                },
+                Err(_) => {
+                    self.status = Some(Err(()));
+                    Ok(Err(()))
+                },
+            },
+            Err(_) => Err(()),
+        }
+    }
+
+    pub(super) fn wait(self) -> Result<OverlayRoot, ()> {
+        let status = match self.status {
+            Some(status) => status,
+            None => self.child.wait(),
+        };
+        match status {
+            Ok(_) => Ok(self.root),
+            Err(_) => Err(()),
         }
     }
 }

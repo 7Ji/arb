@@ -1,26 +1,35 @@
-use std::{path::{PathBuf, Path}, process::{Command, Child}, fs::{File, remove_dir_all, create_dir_all}, io::{Read, stdout, Write}};
+use std::{path::{PathBuf, Path}, process::{Command, Child}, fs::{File, remove_dir_all, create_dir_all}, io::{Read, stdout, Write}, thread::JoinHandle};
 
-use crate::{roots::OverlayRoot, identity::Identity, filesystem::remove_dir_recursively};
+use crate::{roots::{OverlayRoot, BootstrappingOverlayRoot}, identity::Identity, filesystem::remove_dir_recursively};
 
 use super::{pkgbuild::{PKGBUILD, PKGBUILDs}, dir::BuildDir};
+
+use super::sign::sign_pkgs;
 
 enum BuilderStatus {
     None,
     Extracting {
-        child: Child
+        child: Child,
     },
     Extracted,
     Boostrapping {
-        child: Child
+        bootstrapping_root: BootstrappingOverlayRoot,
     },
     Bootstrapped {
-        root: OverlayRoot
+        root: OverlayRoot,
     },
     Building {
         root: OverlayRoot,
         child: Child
     },
+    Built,
     // Built OverlayRoot),
+}
+
+impl Default for BuilderStatus {
+    fn default() -> Self {
+        BuilderStatus::None
+    }
 }
 
 struct Builder<'a> {
@@ -28,12 +37,12 @@ struct Builder<'a> {
     builddir: BuildDir,
     temp_pkgdir: PathBuf,
     command: Command,
-    _root: OverlayRoot,
     tries: usize,
     status: BuilderStatus,
 }
 
 impl <'a> Builder<'a> {
+    const BUILD_MAX_TRIES: usize = 3;
     fn from_pkgbuild(
         pkgbuild: &'a PKGBUILD, actual_identity: &Identity, nonet: bool
     ) 
@@ -55,42 +64,179 @@ impl <'a> Builder<'a> {
             builddir,
             temp_pkgdir,
             command,
-            _root: root,
             tries: 0,
             status,
         })
     }
-}
 
+    fn start_build(&mut self, root: OverlayRoot) -> Result<(), ()> {
+        let log_file = self.builddir.get_log_file()?;
+        let child = match self.command
+            .stdout(log_file).spawn() 
+        {
+            Ok(child) => child,
+            Err(e) => {
+                eprintln!("Failed to spawn builder for '{}': {}", 
+                    &self.pkgbuild.base, e);
+                return Err(())
+            },
+        };
+        self.status = BuilderStatus::Building { root, child };
+        self.tries += 1;
+        Ok(())
+    }
 
-fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<(), ()> {
-    let file_p = file.as_ref();
-    let mut file = match File::open(&file) {
-        Ok(file) => file,
-        Err(e) => {
-            eprintln!("Failed to open '{}': {}", file_p.display(), e);
-            return Err(())
-        },
-    };
-    let mut buffer = vec![0; 4096];
-    loop {
-        match file.read(&mut buffer) {
-            Ok(size) => {
-                if size == 0 {
-                    return Ok(())
-                }
-                if let Err(e) = stdout().write_all(&buffer[0..size]) 
-                {
-                    eprintln!("Failed to write log content to stdout: {}", e);
-                    return Err(())
+    fn work(&mut self, heavy_load: bool, actual_identity: &Identity, 
+            nonet: bool, sign: Option<&str> ) -> Result<(), ()> 
+    {
+        match &mut self.status {
+            BuilderStatus::None => if !heavy_load {
+                match self.pkgbuild.extractor_source(actual_identity) {
+                    Ok(child) => {
+                        println!("Start extracting for pkgbuild '{}'", 
+                            &self.pkgbuild.base);
+                        self.status = BuilderStatus::Extracting { child }
+                    },
+                    Err(_) => {
+                        eprintln!("Failed to get extractor for pkgbuild '{}'", 
+                            &self.pkgbuild.base);
+                        return Err(())
+                    },
                 }
             },
-            Err(e) => {
-                eprintln!("Failed to read from '{}': {}", file_p.display(), e);
+            BuilderStatus::Extracting { child } => 
+                match child.try_wait() {
+                    Ok(r) => match r {
+                        Some(r) => 
+                            if let Some(0) = r.code() {
+                                println!("Successfully extracted source for \
+                                    pkgbuild '{}'", &self.pkgbuild.base);
+                                self.status = BuilderStatus::Extracted
+                            } else {
+                                eprintln!("Failed to extract source for \
+                                    pkgbuild '{}'", &self.pkgbuild.base);
+                                return Err(())
+                            },
+                        None => (),
+                    },
+                    Err(e) => {
+                        eprintln!("Failed to wait for extractor: {}", e);
+                        return Err(())
+                    },
+                },
+            BuilderStatus::Extracted => if !heavy_load {
+                match self.pkgbuild.get_bootstrapping_overlay_root(
+                    actual_identity, nonet) 
+                {
+                    Ok(bootstrapping_root) => {
+                        println!("Start chroot bootstrapping for pkgbuild '{}'",
+                            &self.pkgbuild.base);
+                        self.status = BuilderStatus::Boostrapping { 
+                            bootstrapping_root }
+                    },
+                    Err(_) => {
+                        eprintln!("Failed to get chroot bootstrapper for \
+                            pkgbuild '{}'", &self.pkgbuild.base);
+                        return Err(())
+                    },
+                }
+            },
+            BuilderStatus::Boostrapping { 
+                bootstrapping_root } 
+            => match bootstrapping_root.wait_noop() {
+                Ok(_) => {
+                    let old_status = 
+                        std::mem::take(&mut self.status);
+                    if let BuilderStatus::Boostrapping { 
+                        bootstrapping_root } 
+                        = old_status 
+                    {
+                        match bootstrapping_root.wait() {
+                            Ok(root) => {
+                                self.status = BuilderStatus::Bootstrapped {
+                                     root };
+                                println!(
+                                    "Chroot bootstrapped for pkgbuild '{}'",
+                                    &self.pkgbuild.base)
+                            },
+                            Err(_) => {
+                                eprintln!("Failed to bootstrap chroot for \
+                                    pkgbuild '{}'", &self.pkgbuild.base);
+                                return Err(())
+                            },
+                        }
+                    } else {
+                        eprintln!("Status inconsistent");
+                        return Err(())
+                    }
+                },
+                Err(_) => return Err(()),
+            },
+            BuilderStatus::Bootstrapped { root: _ }
+            => if ! heavy_load {
+                if let BuilderStatus::Bootstrapped { root } 
+                    = std::mem::take(&mut self.status)
+                {
+                    self.start_build(root)?
+                } else {
+                    eprintln!("Status inconsistent");
+                    return Err(())
+                }
+            }
+            BuilderStatus::Building { root: _, 
+                child } => match child.try_wait() 
+            {
+                Ok(r) => match r {
+                    Some(r) => {
+                        println!("Log of building '{}':", &self.pkgbuild.base);
+                        if self.builddir.read_log().is_err() {
+                            eprintln!("Failed to read log")
+                        }
+                        println!("End of log for building '{}':",
+                            &self.pkgbuild.base);
+                        if let Some(0) = r.code() {
+                            self.pkgbuild.finish_build(actual_identity, 
+                                &self.temp_pkgdir, sign)?;
+                            println!("Successfully built '{}'", 
+                                &self.pkgbuild.base);
+                            self.status = BuilderStatus::Built
+                        } else {
+                            eprintln!("Failed to build '{}'", 
+                                &self.pkgbuild.base);
+                            if self.tries >= Self::BUILD_MAX_TRIES {
+                                eprintln!("Max retries exceeded for '{}'", 
+                                    &self.pkgbuild.base);
+                                return Err(())
+                            }
+                            if let BuilderStatus::Building { 
+                                root, child: _ } 
+                                = std::mem::take(&mut self.status)
+                            {
+                                if heavy_load {
+                                    self.status = 
+                                        BuilderStatus::Bootstrapped { root }
+                                } else {
+                                    self.start_build(root)?
+                                }
+                            } else {
+                                eprintln!("Status inconsistent");
+                                return Err(())
+                            }
+                        }
+                    },
+                    None => (),
+                },
+                Err(e) => {
+                    eprintln!("Failed to wait for builder: {}", e);
+                    return Err(())
+                },
+            },
+            BuilderStatus::Built => {
+                eprintln!("Built status should not be met by state machine");
                 return Err(())
             },
         }
-
+        Ok(())
     }
 }
 
@@ -109,12 +255,11 @@ fn prepare_pkgdir() -> Result<(), ()> {
 }
 
 struct Builders<'a> {
-    pkgbuilds: &'a PKGBUILDs,
+    // _pkgbuilds: &'a PKGBUILDs,
     builders: Vec<Builder<'a>>,
 }
 
 impl<'a> Builders<'a> {
-    const BUILD_MAX_TRIES: usize = 3;
     // fn wait_noop(&mut self, actual_identity: &Identity, sign: Option<&str>) 
     //     -> bool 
     // {
@@ -229,12 +374,6 @@ impl<'a> Builders<'a> {
     ) -> Result<Self, ()> 
     {
         prepare_pkgdir()?;
-        let mut bad = false;
-        // let cpuinfo = procfs::CpuInfo::new().or_else(|e|{
-        //     eprintln!("Failed to get cpuinfo: {}", e);
-        //     Err(())
-        // })?;
-        // let cores = cpuinfo.num_cores();
         let mut builders = vec![];
         for pkgbuild in pkgbuilds.0.iter() {
             if ! pkgbuild.need_build {
@@ -246,7 +385,6 @@ impl<'a> Builders<'a> {
             }
         }
         Ok(Self {
-            pkgbuilds,
             builders,
         })
     }
@@ -275,4 +413,58 @@ impl<'a> Builders<'a> {
         //     .expect("Failed to join cleaner thread");
         // Ok(())
     }
+
+    fn work(&mut self, actual_identity: &Identity, nonet: bool, sign: Option<&str>) 
+        -> Result<(), ()> 
+    {
+        let cpuinfo = procfs::CpuInfo::new().or_else(|e|{
+            eprintln!("Failed to get cpuinfo: {}", e);
+            Err(())
+        })?;
+        let cores = cpuinfo.num_cores();
+        let mut bad = false;
+        while self.builders.len() > 0 {
+            let mut finished = None;
+            let heavy_load = match procfs::LoadAverage::new() {
+                Ok(load_avg) => load_avg.one >= cores as f32,
+                Err(e) => {
+                    eprintln!("Failed to get load avg: {}", e);
+                    true
+                },
+            };
+            for (id, builder) in 
+                self.builders.iter_mut().enumerate() 
+            {
+                match builder.work(heavy_load, actual_identity, nonet, sign) {
+                    Ok(_) => if let BuilderStatus::Built = builder.status {
+                        finished = Some(id);
+                        break
+                    },
+                    Err(_) => {
+                        bad = true;
+                        finished = Some(id);
+                    },
+                }
+            }
+            if let Some(id) = finished {
+                let builder = self.builders.swap_remove(id);
+                println!("Finished builder for PKGBUILD '{}'", 
+                    &builder.pkgbuild.base);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn build_any_needed(
+    pkgbuilds: &PKGBUILDs,  actual_identity: &Identity, 
+    nonet: bool, sign: Option<&str>
+) -> Result<(), ()>
+{
+    let mut builders = 
+        Builders::from_pkgbuilds(pkgbuilds, actual_identity, nonet, sign)?;
+    builders.work(actual_identity, nonet, sign)?;
+    pkgbuilds.link_pkgs();
+    Ok(())
 }

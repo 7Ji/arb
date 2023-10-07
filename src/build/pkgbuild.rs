@@ -9,12 +9,12 @@ use crate::{
         roots::{
             CommonRoot,
             BaseRoot,
-            OverlayRoot,
+            OverlayRoot, BootstrappingOverlayRoot,
         },
         threading::{
             self,
             wait_if_too_busy,
-        }, filesystem::remove_dir_all_try_best
+        }, filesystem::remove_dir_all_try_best, build::sign::sign_pkgs
     };
 use git2::Oid;
 use rand::{self, Rng};
@@ -193,57 +193,46 @@ impl PKGBUILD {
         }
     }
     // If healthy, return the latest commit id
-    fn healthy(&self) -> Option<Oid> {
-        let repo =
-            match git::Repo::open_bare(&self.git, &self.url, None) {
-                Some(repo) => repo,
-                None => {
-                    eprintln!("Failed to open or init bare repo {}",
-                        self.git.display());
-                    return None
-                }
-            };
-        let commit = match repo.get_branch_commit_or_subtree_id(
+    fn healthy(&self) -> Result<Oid, ()> {
+        let repo = git::Repo::open_bare(
+            &self.git, &self.url, None).or_else(|_|
+        {
+            eprintln!("Failed to open or init bare repo {}",
+                self.git.display());
+            Err(())
+        })?;
+        let commit = repo.get_branch_commit_or_subtree_id(
             &self.branch, self.subtree.as_deref()
-        ) {
-            Some(id) => id,
-            None => {
-                eprintln!("Failed to get commit id for pkgbuild {}",
-                            self.base);
-                return None
-            },
-        };
+        )?;
         match &self.subtree {
             Some(_) => println!("PKGBUILD '{}' at tree '{}'", 
                         self.base, commit),
             None => println!("PKGBUILD '{}' at commit '{}'", self.base, commit),
         }
-        let blob = repo.get_pkgbuild_blob(
-            &self.branch, self.subtree.as_deref());
-        match blob {
-            Some(_) => Some(commit),
-            None => {
+        repo.get_pkgbuild_blob(&self.branch, 
+                self.subtree.as_deref())
+            .or_else(|_|{
                 eprintln!("Failed to get PKGBUILD blob");
-                None
-            },
-        }
+                Err(())
+            })?;
+        Ok(commit)
     }
 
     fn healthy_set_commit(&mut self) -> bool {
         match self.healthy() {
-            Some(commit) => {
+            Ok(commit) => {
                 self.commit = commit;
                 true
             },
-            None => false,
+            Err(()) => false,
         }
     }
 
     fn dump<P: AsRef<Path>> (&self, target: P) -> Result<(), ()> {
         let repo = git::Repo::open_bare(
-            &self.git, &self.url, None).ok_or(())?;
+            &self.git, &self.url, None)?;
         let blob = repo.get_pkgbuild_blob(&self.branch,
-            self.subtree.as_deref()).ok_or(())?;
+            self.subtree.as_deref())?;
         let mut file =
             std::fs::File::create(target).or(Err(()))?;
         file.write_all(blob.content()).or(Err(()))
@@ -293,20 +282,24 @@ impl PKGBUILD {
         }
     }
 
-    fn extractor_source(&self, actual_identity: &Identity) -> Option<Child> 
+    pub(super) fn extractor_source(
+        &self, actual_identity: &Identity) -> Result<Child, ()> 
     {
         const SCRIPT: &str = include_str!("../../scripts/extract_sources.bash");
         if let Err(e) = create_dir_all(&self.build) {
             eprintln!("Failed to create build dir: {}", e);
-            return None;
+            return Err(());
         }
         let repo = git::Repo::open_bare(
             &self.git, &self.url, None)?;
         repo.checkout(
             &self.build, &self.branch, self.subtree.as_deref()
-        ).ok()?;
+        )?;
         source::extract(&self.build, &self.sources);
-        let pkgbuild_dir = self.build.canonicalize().ok()?;
+        let pkgbuild_dir = self.build.canonicalize().or_else(|e|{
+            eprintln!("Failed to canoicalize build dir path");
+            Err(())
+        })?;
         let mut arg0 = OsString::from("[EXTRACTOR/");
         arg0.push(&self.base);
         arg0.push("] /bin/bash");
@@ -319,17 +312,18 @@ impl PKGBUILD {
                 .arg(&pkgbuild_dir))
             .spawn() 
         {
-            Ok(child) => Some(child),
+            Ok(child) => Ok(child),
             Err(e) => {
                 eprintln!("Faiiled to spawn extractor: {}", e);
-                None
+                Err(())
             },
         }
     }
 
     fn extract_source(&self, actual_identity: &Identity) -> Result<(), ()> {
-        if self.extractor_source(actual_identity).ok_or_else(||{
+        if self.extractor_source(actual_identity).or_else(|_|{
             eprintln!("Failed to spawn child to extract source");
+            Err(())
         })?
             .wait().or_else(|e|{
                 eprintln!("Failed to wait for extractor: {}", e);
@@ -414,7 +408,7 @@ impl PKGBUILD {
         Ok(command)
     }
 
-    fn link_pkgs(&self) -> Result<(), ()> {
+    pub(super) fn link_pkgs(&self) -> Result<(), ()> {
         let mut rel = PathBuf::from("..");
         rel.push(&self.pkgid);
         let updated = PathBuf::from("pkgs/updated");
@@ -442,6 +436,31 @@ impl PKGBUILD {
             }
         }
         if bad { Err(()) } else { Ok(()) }
+    }
+
+    pub(super) fn finish_build(&self, 
+        actual_identity: &Identity, temp_pkgdir: &Path, sign: Option<&str>
+    ) 
+        -> Result<(), ()> 
+    {
+        println!("Finishing building '{}'", &self.pkgid);
+        if self.pkgdir.exists() {
+            if let Err(e) = remove_dir_all(&self.pkgdir) {
+                eprintln!("Failed to remove existing pkgdir: {}", e);
+                return Err(())
+            }
+        }
+        if let Some(key) = sign {
+            sign_pkgs(actual_identity, temp_pkgdir, key)?;
+        }
+        if let Err(e) = rename(&temp_pkgdir, &self.pkgdir) {
+            eprintln!("Failed to rename temp pkgdir '{}' to persistent pkgdir \
+                '{}': {}", temp_pkgdir.display(), self.pkgdir.display(), e);
+            return Err(())
+        }
+        self.link_pkgs()?;
+        println!("Finished building '{}'", &self.pkgid);
+        Ok(())
     }
 
     fn get_home_binds(&self) -> Vec<String> {
@@ -478,6 +497,14 @@ impl PKGBUILD {
     ) -> Result<OverlayRoot, ()> 
     {
         OverlayRoot::new(&self.base, actual_identity, 
+            &self.depends.needs, self.get_home_binds(), nonet)
+    }
+
+    pub(super) fn get_bootstrapping_overlay_root(
+        &self, actual_identity: &Identity, nonet: bool
+    ) -> Result<BootstrappingOverlayRoot, ()> 
+    {
+        BootstrappingOverlayRoot::new(&self.base, actual_identity, 
             &self.depends.needs, self.get_home_binds(), nonet)
     }
 }
@@ -524,8 +551,8 @@ impl PKGBUILDs {
             match git::ToReposMap::to_repos_map(
                 map, "sources/PKGBUILD", gmr) 
         {
-            Some(repos_map) => repos_map,
-            None => {
+            Ok(repos_map) => repos_map,
+            Err(_) => {
                 eprintln!("Failed to convert to repos map");
                 return Err(())
             },
@@ -840,7 +867,7 @@ impl PKGBUILDs {
         let mut children = vec![];
         let mut bad = false;
         for pkgbuild in pkgbuilds.iter_mut() {
-            if let Some(child) = 
+            if let Ok(child) = 
                 pkgbuild.extractor_source(actual_identity)
             {
                 children.push(child);
@@ -950,11 +977,10 @@ impl PKGBUILDs {
         if bad { Err(()) } else { Ok(need_build) }
     }
 
-    pub(super) fn prepare_sources<P: AsRef<Path>>(
+    pub(super) fn prepare_sources(
         &mut self,
         actual_identity: &Identity, 
         basepkgs: Option<&Vec<String>>,
-        dir: P,
         holdgit: bool,
         skipint: bool,
         noclean: bool,
@@ -963,6 +989,11 @@ impl PKGBUILDs {
         dephash_strategy: &DepHashStrategy,
     ) -> Result<Option<BaseRoot>, ()> 
     {
+
+        let dir = tempfile::tempdir().or_else(|e| {
+            eprintln!("Failed to create temp dir to dump PKGBUILDs: {}", e);
+            Err(())
+        })?;
         let cleaner = match 
             PathBuf::from("build").exists() 
         {

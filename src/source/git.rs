@@ -11,7 +11,7 @@ use git2::{
         Repository,
         Progress,
         ProxyOptions,
-        Tree,
+        Tree, AutotagOption, FetchPrune, ErrorClass, ErrorCode, BranchType,
     };
 use url::Url;
 use std::{
@@ -90,7 +90,7 @@ pub(crate) trait ToReposMap {
     fn hash_url(&self) -> u64;
     fn path(&self) -> Option<&Path>;
     fn to_repo(&self, parent: &str, gmr: Option<&Gmr>, branch: Option<String>) 
-        -> Option<Repo> 
+        -> Result<Repo, ()> 
     {
         let url = self.url();
         let repo = match self.path() {
@@ -102,24 +102,24 @@ pub(crate) trait ToReposMap {
             },
         };
         match repo {
-            Some(mut repo) => {
+            Ok(mut repo) => {
                 if let Some(branch) = branch {
                     repo.branches.push(branch)
                 }
-                Some(repo)
+                Ok(repo)
             },
-            None => {
+            Err(()) => {
                 eprintln!(
                     "Failed to open bare repo for git source '{}'",
                     url);
-                None
+                Err(())
             },
         }
     }
 
     fn to_repos_map(
         map: HashMap<u64, Vec<Self>>, parent: &str, gmr: Option<&Gmr>
-    ) -> Option<HashMap<u64, Vec<Repo>>>
+    ) -> Result<HashMap<u64, Vec<Repo>>, ()>
     where Self: Sized
     {
         let mut repos_map = HashMap::new();
@@ -161,21 +161,21 @@ pub(crate) trait ToReposMap {
                     continue
                 }
                 match source.to_repo(parent, gmr, new_branch) {
-                    Some(repo) => repos.push(repo),
-                    None => {
-                        return None
+                    Ok(repo) => repos.push(repo),
+                    Err(()) => {
+                        return Err(())
                     },
                 }
             }
             match repos_map.insert(domain, repos) {
                 Some(_) => {
                     eprintln!("Duplicated key for repos map");
-                    return None
+                    return Err(())
                 },
                 None => (),
             }
         }
-        Some(repos_map)
+        Ok(repos_map)
     }
 }
 
@@ -244,8 +244,8 @@ fn fetch_opts_init<'a>() -> FetchOptions<'a> {
     cbs.transfer_progress(gcb_transfer_progress);
     let mut fetch_opts =
         FetchOptions::new();
-    fetch_opts.download_tags(git2::AutotagOption::All)
-        .prune(git2::FetchPrune::On)
+    fetch_opts.download_tags(AutotagOption::All)
+        .prune(FetchPrune::On)
         .update_fetchhead(true)
         .remote_callbacks(cbs);
     fetch_opts
@@ -320,7 +320,7 @@ impl Repo {
     }
 
     fn init_bare<P: AsRef<Path>>(path: P, url: &str, gmr: Option<&Gmr>)
-        -> Option<Self> 
+        -> Result<Self, ()> 
     {
         match Repository::init_bare(&path) {
             Ok(repo) => {
@@ -332,24 +332,24 @@ impl Repo {
                     branches: vec![],
                 };
                 match repo.add_remote() {
-                    Ok(_) => Some(repo),
-                    Err(_) => None,
+                    Ok(_) => Ok(repo),
+                    Err(_) => Err(()),
                 }
             },
             Err(e) => {
                 eprintln!("Failed to create {}: {}",
                             &path.as_ref().display(), e);
-                None
+                Err(())
             }
         }
     }
 
     pub(crate) fn open_bare<P: AsRef<Path>>(
         path: P, url: &str, gmr: Option<&Gmr>
-    ) -> Option<Self>
+    ) -> Result<Self, ()>
     {
         match Repository::open_bare(&path) {
-            Ok(repo) => Some(Self {
+            Ok(repo) => Ok(Self {
                 path: path.as_ref().to_owned(),
                 url: url.to_owned(),
                 mirror: optional_gmr(gmr, url),
@@ -357,13 +357,13 @@ impl Repo {
                 branches: vec![],
             }),
             Err(e) => {
-                if e.class() == git2::ErrorClass::Os &&
-                e.code() == git2::ErrorCode::NotFound {
+                if e.class() == ErrorClass::Os &&
+                e.code() == ErrorCode::NotFound {
                     Self::init_bare(path, url, gmr)
                 } else {
                     eprintln!("Failed to open {}: {}",
                             path.as_ref().display(), e);
-                    None
+                    Err(())
                 }
             },
         }
@@ -448,105 +448,87 @@ impl Repo {
         Self::sync_raw(&self.repo, &self.url, proxy, refspecs, 3)
     }
 
-    fn get_branch<'a>(&'a self, branch: &str) -> Option<Branch<'a>> {
-        match self.repo.find_branch(branch, git2::BranchType::Local) {
-            Ok(branch) => Some(branch),
+    fn get_branch<'a>(&'a self, branch: &str) -> Result<Branch<'a>, ()> {
+        match self.repo.find_branch(branch, BranchType::Local) {
+            Ok(branch) => Ok(branch),
             Err(e) => {
-                eprintln!("Failed to find master branch: {}", e);
-                None
+                eprintln!("Failed to find branch '{}': {}", branch, e);
+                Err(())
             }
         }
     }
 
-    fn get_branch_commit<'a>(&'a self, branch: &str) -> Option<Commit<'a>> {
-        let branch = match self.get_branch(branch) {
-            Some(branch) => branch,
-            None => return None,
-        };
-        match branch.get().peel_to_commit() {
-            Ok(commit) => Some(commit),
+    fn get_branch_commit<'a>(&'a self, branch: &str) -> Result<Commit<'a>, ()> {
+        let branch_gref = self.get_branch(branch)?;
+        match branch_gref.get().peel_to_commit() {
+            Ok(commit) => Ok(commit),
             Err(e) => {
-                eprintln!("Failed to peel master branch to commit: {}", e);
-                return None
+                eprintln!("Failed to peel branch '{}' to commit: {}", branch, e);
+                return Err(())
             },
         }
     }
 
-    pub(crate) fn _get_branch_commit_id(&self, branch: &str) -> Option<Oid> {
-        match self.get_branch_commit(branch) {
-            Some(commit) => Some(commit.id()),
-            None => None,
-        }
+    pub(crate) fn _get_branch_commit_id(&self, branch: &str) -> Result<Oid, ()> {
+        Ok(self.get_branch_commit(branch)?.id())
     }
 
     fn get_commit_tree<'a>(&'a self, commit: &Commit<'a>, subtree: Option<&Path>
-    )   -> Option<Tree<'a>> 
+    )   -> Result<Tree<'a>, ()> 
     {
-        let tree = match commit.tree() {
-            Ok(tree) => tree,
-            Err(e) => {
-                eprintln!("Failed to get tree pointed by commit: {}", e);
-                return None
-            },
-        };
+        let tree = commit.tree().or_else(|e| {
+            eprintln!("Failed to get tree pointed by commit: {}", e);
+            Err(())
+        })?;
         let subtree = match subtree {
             Some(subtree) => subtree,
-            None => return Some(tree),
+            None => return Ok(tree),
         };
         let entry = match tree.get_path(subtree) {
             Ok(entry) => entry,
             Err(e) => {
                 eprintln!("Failed to get sub tree: {}", e);
-                return None
+                return Err(())
             },
         };
-        match entry.to_object(&self.repo) {
-            Ok(tree) => tree.as_tree().and_then(
-                |tree|Some(tree.to_owned())),
-            Err(e) => {
-                eprintln!("Failed to convert entry to tree: {}", e);
-                None
-            },
-        }
+        Ok(entry.to_object(&self.repo).or_else(|e|{
+            eprintln!("Failed to convert entry to object: {}", e);
+            Err(())
+        })?
+        .as_tree()
+        .ok_or_else(||{
+            eprintln!("Failed to convert object ot ree")})?
+        .to_owned())
     }
 
     fn get_branch_tree<'a>(&'a self, branch: &str, subtree: Option<&Path>) 
-        -> Option<Tree<'a>> 
+        -> Result<Tree<'a>, ()> 
     {
-        let commit = match self.get_branch_commit(branch) {
-            Some(commit) => commit,
-            None => {
-                eprintln!("Failed to get commit pointed by branch {}", branch);
-                return None
-            },
-        };
+        let commit = self.get_branch_commit(branch)?;
         self.get_commit_tree(&commit, subtree)
     }
 
     pub(crate) fn get_branch_commit_or_subtree_id(&self, 
         branch: &str, subtree: Option<&Path>
-    ) -> Option<Oid> 
+    ) -> Result<Oid, ()> 
     {
-        let commit = match self.get_branch_commit(branch) {
-            Some(commit) => commit,
-            None => return None,
-        };
+        let commit = self.get_branch_commit(branch)?;
         if let None = subtree {
-            return Some(commit.id())
+            return Ok(commit.id())
         }
-        self.get_commit_tree(&commit, subtree)
-            .and_then(|tree|Some(tree.id()))
+        let tree = self.get_commit_tree(&commit, subtree)?;
+        Ok(tree.id())
     }
 
     fn get_tree_entry_blob<'a>(&'a self, tree: &Tree, name: &str)
-        -> Option<Blob<'a>>
+        -> Result<Blob<'a>, ()>
     {
         let entry =
             match tree.get_name(name) {
                 Some(entry) => entry,
                 None => {
                     eprintln!("Failed to find entry of {}", name);
-                    return None
+                    return Err(())
                 },
             };
         let object =
@@ -554,14 +536,14 @@ impl Repo {
                 Ok(object) => object,
                 Err(e) => {
                     eprintln!("Failed to convert tree entry to object: {}", e);
-                    return None
+                    return Err(())
                 },
             };
         match object.into_blob() {
-            Ok(blob) => Some(blob),
+            Ok(blob) => Ok(blob),
             Err(_) => {
                 eprintln!("Failed to convert into a blob");
-                return None
+                return Err(())
             },
         }
     }
@@ -569,17 +551,14 @@ impl Repo {
     pub(crate) fn get_branch_entry_blob<'a>(&'a self, 
         branch: &str, subtree: Option<&Path>, name: &str
     )
-        -> Option<Blob<'a>>
+        -> Result<Blob<'a>, ()>
     {
-        let tree = match self.get_branch_tree(branch, subtree) {
-            Some(tree) => tree,
-            None => return None,
-        };
+        let tree = self.get_branch_tree(branch, subtree)?;
         self.get_tree_entry_blob(&tree, name)
     }
 
     pub(crate) fn get_pkgbuild_blob(&self, branch: &str, subtree: Option<&Path>) 
-        -> Option<git2::Blob> 
+        -> Result<Blob, ()> 
     {
         self.get_branch_entry_blob(branch, subtree, "PKGBUILD")
     }
@@ -608,7 +587,7 @@ impl Repo {
     where
         P: AsRef<Path>
     {
-        let tree = self.get_branch_tree(branch, subtree).ok_or(())?;
+        let tree = self.get_branch_tree(branch, subtree)?;
         self.repo.cleanup_state().or(Err(()))?;
         self.repo.set_workdir(
                     target.as_ref(),

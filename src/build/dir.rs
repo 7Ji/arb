@@ -2,6 +2,8 @@ use std::{path::{PathBuf, Path}, ffi::OsStr, fs::{create_dir_all, File}};
 
 use rand::Rng;
 
+use crate::filesystem::file_to_stdout;
+
 pub(super) struct BuildDir {
     path: PathBuf,
     log_path: PathBuf,
@@ -22,7 +24,9 @@ impl BuildDir {
             })?;
         }
         let log_path = path.clone();
-        Ok(Self { path, log_path })
+        let mut build_dir = Self { path, log_path };
+        build_dir.fill_log_path()?;
+        Ok(build_dir)
     }
 
     fn fill_log_path(&mut self) -> Result<(), ()> {
@@ -52,16 +56,16 @@ impl BuildDir {
         }
     }
 
-    pub(super) fn finish(&mut self) -> Result<(), ()> {
-        self.fill_log_path()
-    }
-
     pub(super) fn get_log_file(&self) -> Result<File, ()> {
         File::create(&self.log_path).or_else(|e|{
             eprintln!("Failed to create log file at '{}': {}", 
                 self.log_path.display(), e);
             Err(())
         })
+    }
+
+    pub(super) fn read_log(&self) -> Result<(), ()> {
+        file_to_stdout(&self.log_path)
     }
 }
 

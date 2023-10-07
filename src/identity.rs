@@ -57,6 +57,55 @@ impl Environment {
             .env("PATH", &self.path)
     }
 }
+pub(crate) struct ForkedChild {
+    pid: libc::pid_t
+}
+
+impl ForkedChild {
+    pub(crate) fn wait(&self) -> Result<(), ()> {
+        let mut status: libc::c_int = 0;
+        let waited_pid = unsafe {
+            libc::waitpid(self.pid, &mut status, 0)
+        };
+        if waited_pid <= 0 {
+            eprintln!("Failed to wait for child: {}", 
+                std::io::Error::last_os_error());
+            return Err(())
+        }
+        if waited_pid != self.pid {
+            eprintln!("Waited child {} is not the child {} we forked", 
+                        waited_pid, self.pid);
+            return Err(())
+        }
+        if status != 0 {
+            eprintln!("Child process failed");
+            return Err(())
+        }
+        Ok(())
+    }
+
+    pub(crate) fn wait_noop(&self) -> Result<Result<(), ()>, ()> {
+        let mut status: libc::c_int = 0;
+        let waited_pid = unsafe {
+            libc::waitpid(self.pid, &mut status, libc::WNOHANG)
+        };
+        if waited_pid <= 0 {
+            eprintln!("Failed to wait for child: {}", 
+                std::io::Error::last_os_error());
+            return Err(())
+        }
+        if waited_pid != self.pid {
+            eprintln!("Waited child {} is not the child {} we forked", 
+                        waited_pid, self.pid);
+            return Err(())
+        }
+        if status != 0 {
+            eprintln!("Child process failed");
+            return Ok(Err(()))
+        }
+        Ok(Ok(()))
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct Identity {
@@ -269,7 +318,8 @@ impl Identity {
     //     }, root)
     // }
 
-    fn fork_and_run<F: FnOnce() -> Result<(), ()>,>(f: F)  -> Result<(), ()>
+    pub(crate) fn fork_and_run_child<F: FnOnce() -> Result<(), ()>,>(f: F)  
+        -> Result<ForkedChild, ()>
     {
         let child = unsafe {
             libc::fork()
@@ -285,26 +335,12 @@ impl Identity {
             return Err(())
         }
         // I am parent
-        let mut status: libc::c_int = 0;
-        let waited_pid = unsafe {
-            libc::waitpid(child, &mut status, 0)
-        };
-        if waited_pid <= 0 {
-            eprintln!("Failed to wait for child: {}", 
-                std::io::Error::last_os_error());
-            return Err(())
-        }
-        if waited_pid != child {
-            eprintln!("Waited child {} is not the child {} we forked", 
-                        waited_pid, child);
-            return Err(())
-        }
-        if status != 0 {
-            eprintln!("Child process failed");
-            return Err(())
-        }
-        Ok(())
-        
+        Ok(ForkedChild{ pid: child })
+    }
+
+    fn fork_and_run<F: FnOnce() -> Result<(), ()>,>(f: F)  -> Result<(), ()>
+    {
+        Self::fork_and_run_child(f)?.wait()
     }
 
     pub(crate) fn get_actual_and_drop() -> Result<Self, ()> {
@@ -353,6 +389,18 @@ impl Identity {
     pub(crate) fn as_root<F: FnOnce() -> Result<(), ()>>(f: F) -> Result<(), ()>
     {
         Self::fork_and_run(||{
+            if Self::sete_root().is_err() {
+                eprintln!("Child: Failed to seteuid back to root");
+                return Err(())
+            }
+            f()
+        })
+    }
+
+    pub(crate) fn as_root_child<F: FnOnce() -> Result<(), ()>>(f: F) 
+        -> Result<ForkedChild, ()>
+    {
+        Self::fork_and_run_child(||{
             if Self::sete_root().is_err() {
                 eprintln!("Child: Failed to seteuid back to root");
                 return Err(())
