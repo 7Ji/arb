@@ -40,7 +40,7 @@ pub(crate) fn work(
                 Ok(())
             } else {
                 builder::build_any_needed(
-                    &pkgbuilds, &actual_identity, nonet, sign)
+                    &mut pkgbuilds, &actual_identity, nonet, sign)
             }
         },
         None => {

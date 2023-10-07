@@ -5,7 +5,7 @@ use rand::Rng;
 use crate::filesystem::{file_to_stdout, remove_dir_all_try_best};
 
 pub(super) struct BuildDir {
-    path: PathBuf,
+    pub(super) path: PathBuf,
     log_path: PathBuf,
 }
 
