@@ -1012,7 +1012,7 @@ impl PKGBUILDs {
         self.fill_all_ids_dirs(dephash_strategy);
         let need_builds = self.check_if_need_build()? > 0;
         if need_builds {
-            Depends::cache_raw(&all_deps, base_root.as_str())?;
+            Depends::cache_raw(&all_deps, base_root.db_path())?;
             if let Some(basepkgs) = basepkgs {
                 base_root.finish(actual_identity, basepkgs)?;
             } else {

@@ -1,4 +1,4 @@
-use std::{hash::Hasher, process::{Command, Stdio}, path::Path, os::unix::prelude::OsStrExt};
+use std::{hash::Hasher, process::{Command, Stdio}, path::Path, os::unix::prelude::OsStrExt, ffi::OsStr};
 
 use alpm::{self, Package};
 use serde::Deserialize;
@@ -210,7 +210,7 @@ impl Depends {
         self.needs.retain(|pkg|!db_handle.is_installed(pkg));
     }
 
-    pub(super) fn cache_raw<S: AsRef<str>>(deps: &Vec<String>, root: S) 
+    pub(super) fn cache_raw<S: AsRef<OsStr>>(deps: &Vec<String>, dbpath: S) 
         -> Result<(), ()> 
     {
         if deps.len() == 0 {
@@ -221,8 +221,8 @@ impl Depends {
             Command::new("/usr/bin/pacman")
                 .env("LANG", "C")
                 .arg("-S")
-                .arg("--root")
-                .arg(root.as_ref())
+                .arg("--dbpath")
+                .arg(dbpath.as_ref())
                 .arg("--noconfirm")
                 .arg("--downloadonly")
                 .args(deps)
@@ -242,9 +242,5 @@ impl Depends {
             return Err(())
         }
         Ok(())
-    }
-
-    pub(super) fn _cache<S: AsRef<str>>(&self, root: S) -> Result<(), ()> {
-        Self::cache_raw(&self.needs, root)
     }
 }
