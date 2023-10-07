@@ -886,7 +886,6 @@ impl PKGBUILDs {
     )
         -> Result<(), ()> 
     {
-        remove_dir_all_try_best("build")?;
         let mut pkgbuilds = 
             self.filter_with_pkgver_func(actual_identity, dir)?;
         Self::extract_sources_many(actual_identity, &mut pkgbuilds)?;

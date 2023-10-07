@@ -45,6 +45,7 @@ pub(crate) fn work(
             println!("No need to build any packages");
         },
     };
+    pkgbuilds.link_pkgs();
     if ! noclean {
         pkgbuilds.clean_pkgdir();
     }

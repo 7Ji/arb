@@ -465,6 +465,5 @@ pub(super) fn build_any_needed(
     let mut builders = 
         Builders::from_pkgbuilds(pkgbuilds, actual_identity, nonet, sign)?;
     builders.work(actual_identity, nonet, sign)?;
-    pkgbuilds.link_pkgs();
     Ok(())
 }
