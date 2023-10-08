@@ -15,16 +15,17 @@ A multi-threaded builder to build packages and create a sane folder structure fo
    - Supports fetching from a upstream [7Ji/git-mirrorer](https://github.com/7Ji/git-mirrorer) instance first
  - No wasting space:
    - All sources and PKGBUILDs are stored on host with a Filesystem-As-Database allocation style, duplicated sources only take one times the space.
-   - Build folders are removed as soon as the build finished.
+   - PKGBUILDs and git sources are stored as bare git repos, they're only checked out when needed.
+   - Build folders only exist during the build.
+   - Chroots only exist during the build, and they're created using overlayfs, only their own depdencies not in the base chroot take space.
+   - Chroot depedency packages are all cached in Host's Pacman cache (not sharing the database, though)
    - Packages are removed once they're outdated (could be disabled)
-   - Sources are removed once they're outdated.
-   - Chroot depedency packages are all cached in Host's Pacman cache, sharing with the host (not sharing the database, though)
-   - Packages' dedicated chroots are created using overlayfs, only their own depdencies not in the base chroot take space
+   - Sources are removed once they're outdated (could be disabled)
  - No wasting time
-   - Context-switch is as few as possible, most of the logic run in the executable itself, makepkg and its interpreter Bash only do the building and a few only things
+   - Context-switch is as few as possible, most of the logic run in the executable itself, even source extraction, makepkg and its interpreter Bash only do the building and a few other things
    - Source caching, chroot bootstrapping, source extraction, building, all run in parallel
  - No indistinguishable packages
-   - All packages are stored with unique package key generated from what triggers the build
+   - All packages are stored with unique key generated from what triggers the build
    - All latest pacakges are linked into a single folder
    - All updated package are linked into a single folder
 
