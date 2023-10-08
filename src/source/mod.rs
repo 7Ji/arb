@@ -4,6 +4,7 @@ use std::{
     };
 use xxhash_rust::xxh3::xxh3_64;
 
+mod aur;
 mod cache;
 mod cksums;
 mod clean;

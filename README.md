@@ -109,6 +109,7 @@ Addtionally, the following aliases are supported for URLs:
  - [ ] Resolve inter-dependencies if necessary, to trigger builds if some of our pacakges changed which are deps of other pacakges
    - doing this would also mean splitting builds into multiple steps (build -> install -> build)
  - [ ] Remove all explicit panics introduced in early prototype stage
+ - [ ] Use AUR's RPC API to reduce connections to AUR
 
 ## Internal
 The builder does the following to save a great chunk of build time and resource:
