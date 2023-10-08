@@ -140,6 +140,7 @@ impl <'a> Builder<'a> {
                     *jobs += 1;
                     println!("Start building '{}', try {} of {}", 
                         &self.pkgbuild.base, self.tries, Self::BUILD_MAX_TRIES);
+                    self.builddir.hint_log()
                 },
             BuildState::Building { child } => 
                 match child.try_wait() {
@@ -394,13 +395,16 @@ impl<'a> Builders<'a> {
             if self.builders.is_empty() {
                 break
             }
-            if jobs - jobs_last > 1 {
+            if jobs > jobs_last && jobs - jobs_last > 1 {
                 sleep(Duration::from_secs(5))
             } else if check_heavy_load(jobs, cores) {
                 sleep(Duration::from_secs(15))
             } else {
                 sleep(Duration::from_millis(100))
             }
+        }
+        if jobs > 0 {
+            eprintln!("Jobs count is not 0 ({}) at the end", jobs);
         }
         if bad { Err(()) } else { Ok(()) }
     }

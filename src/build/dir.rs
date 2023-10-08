@@ -67,6 +67,14 @@ impl BuildDir {
     pub(super) fn read_log(&self) -> Result<(), ()> {
         file_to_stdout(&self.log_path)
     }
+
+    pub(super) fn hint_log(&self) {
+        println!("Hint: The build log is cached in '{}' and would be printed \
+            on console after the build is complete.", self.log_path.display());
+        println!("Hint: If you want to read the log in real-time, you can run \
+            the following command:");
+        println!(r"> tail --follow {}", self.log_path.display());
+    }
 }
 
 impl Drop for BuildDir {
