@@ -23,6 +23,7 @@ libc = "0.2"
 procfs = "0.15"
 alpm = "2.2"
 rand = "0.8"
+serde_json = "1.0.107"
 
 [dependencies.clap]
 version = "4.3"

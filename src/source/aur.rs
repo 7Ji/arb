@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 pub(crate) struct AurPackage {
-    pub(crate) last_modified: u64,
+    pub(crate) last_modified: i64,
     pub(crate) name: String
 }
 
@@ -46,7 +46,7 @@ impl AurResult {
     {
         const AUR_MAX_TRIES: usize = 3;
         let mut url = String::from(
-            "https://aur.archlinux.org/rpc/v5/info");
+            "https://aur.archlinux.org/rpc/v5/info?");
         let mut started = false;
         for pkg in pkgs {
             if started {

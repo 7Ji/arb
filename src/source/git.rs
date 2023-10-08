@@ -16,14 +16,18 @@ use git2::{
 use url::Url;
 use std::{
         collections::HashMap,
+        fs::metadata,
         io::Write,
         path::{
             Path,
             PathBuf
         },
+        os::unix::fs::MetadataExt,
         str::FromStr,
         thread,
     };
+
+use super::aur::AurResult;
 
 const REFSPECS_HEADS_TAGS: &[&str] = &[
     "+refs/heads/*:refs/heads/*",
@@ -655,6 +659,78 @@ impl Repo {
         }
     }
 
+    fn last_fetch(&self) -> i64 {
+        let path_fetch_head = self.path.join("FETCH_HEAD");
+        let metadata = match metadata(&path_fetch_head) {
+            Ok(metadata) => metadata,
+            Err(e) => {
+                eprintln!("Failed to get metadata of fetch time, \
+                    consider 0: {}", e);
+                return 0
+            },
+        };
+        metadata.mtime()
+    }
+
+    fn filter_aur(repos: &mut Vec<Self>) -> Result<(), ()> {
+        let mut pkgs: Vec<String> = Vec::new();
+        for repo in repos.iter() {
+            let url = match Url::parse(&repo.url) {
+                Ok(url) => url,
+                Err(e) => {
+                    eprintln!("Failed to parse AUR url '{}': {}", &repo.url, e);
+                    return Err(());
+                },
+            };
+            let pkg = url.path()
+                .trim_start_matches('/').trim_end_matches(".git");
+            pkgs.push(pkg.to_string());
+        }
+        if pkgs.len() != repos.len() {
+            eprintln!("Pkgs and repos len mismatch");
+            return Err(())
+        }
+        let mut aur_result = match AurResult::from_pkgs(&pkgs) {
+            Ok(aur_result) => aur_result,
+            Err(_) => {
+                eprintln!("Failed to get result from AUR RPC");
+                return Err(())
+            },
+        };
+        if aur_result.results.len() != repos.len() {
+            eprintln!("Results and repos len mismatch");
+            return Err(())
+        }
+        let mut i = 0;
+        while i < repos.len() {
+            let repo = match repos.get(i) {
+                Some(repo) => repo,
+                None => {
+                    eprintln!("Failed to get repo");
+                    return Err(())
+                },
+            };
+            let pkg = match aur_result.results.get(i) {
+                Some(pkg) => pkg,
+                None => {
+                    eprintln!("Failed to get pkg");
+                    return Err(())
+                },
+            };
+            // leave a 1-min window
+            if repo.last_fetch() > pkg.last_modified + 60 {
+                println!("Repo '{}' last fetch later than AUR last modified, \
+                    skippping it", repo.path.display());
+                repos.swap_remove(i);
+                aur_result.results.swap_remove(i);
+            } else {
+                i += 1
+            }
+        }
+        println!("Filtered AUR repos");
+        Ok(())
+    }
+
     pub(crate) fn sync_mt(
         repos_map: HashMap<u64, Vec<Self>>,
         hold: bool,
@@ -662,26 +738,31 @@ impl Repo {
     ) -> Result<(), ()>
     {
         println!("Syncing repos with {} groups", repos_map.len());
-        let (proxy_string, has_proxy) = match proxy {
-            Some(proxy) => (proxy.to_owned(), true),
-            None => (String::new(), false),
-        };
+        let proxy = proxy.and_then(
+            |proxy_str|Some(proxy_str.to_string()));
         let mut threads = vec![];
-        for (domain, repos) in repos_map {
+        for (domain, mut repos) in repos_map {
+            if repos.is_empty() {
+                continue
+            }
             let max_threads = match domain {
-                0xb463cbdec08d6265 => 1, // aur.archlinux.org,
+                0xb463cbdec08d6265 => { // aur.archlinux.org,
+                    if Self::filter_aur(&mut repos).is_err() {
+                        eprintln!("Warning: failed to filter AUR repos")
+                    }
+                    if repos.is_empty() {
+                        continue
+                    }
+                    1
+                },
                 _ => 10,
             };
             println!("Max {} threads from domain {}", max_threads,
                         repos.last().ok_or(())?.get_domain());
-            let proxy_string_thread = proxy_string.clone();
+            let proxy_thread = proxy.clone();
             threads.push(thread::spawn(move || {
-                let proxy = match has_proxy {
-                    true => Some(proxy_string_thread.as_str()),
-                    false => None,
-                };
                 Self::sync_for_domain(
-                    repos,max_threads, hold, proxy)
+                    repos, max_threads, hold, proxy_thread.as_deref())
             }));
         }
         threading::wait_remaining(threads, "syncing git repo groups")

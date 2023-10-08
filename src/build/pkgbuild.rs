@@ -597,7 +597,10 @@ impl PKGBUILDs {
                         source::remove_unused("sources/PKGBUILD", &used))),
         };
         if update_pkg {
-            pkgbuilds.sync(hold, proxy, gmr)?;
+            if pkgbuilds.sync(hold, proxy, gmr).is_err() {
+                eprintln!("Failed to sync PKGBUILDs");
+                return Err(())
+            }
             if ! pkgbuilds.healthy_set_commit() {
                 eprintln!("Updating broke some of our PKGBUILDs");
                 return Err(())
