@@ -355,15 +355,16 @@ impl<'a> Builders<'a> {
                     },
                 }
                 if heavy_load {
-                    sleep(Duration::from_secs(1));
-                    heavy_load = check_heavy_load()
+                    sleep(Duration::from_secs(1))
                 }
+                heavy_load = check_heavy_load()
             }
             if let Some(id) = finished {
                 let builder = self.builders.swap_remove(id);
                 println!("Finished builder for PKGBUILD '{}'", 
                     &builder.pkgbuild.base);
             }
+            heavy_load = check_heavy_load();
             if heavy_load {
                 sleep(Duration::from_secs(10))
             } else {
