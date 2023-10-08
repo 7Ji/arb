@@ -2,6 +2,32 @@
 
 A multi-threaded builder to build packages and create a sane folder structure for an Arch repo, written initially for https://github.com/7Ji/archrepo
 
+## Highlights
+ - No tainting host: 
+   - All packages are built in their dedicated chroots
+   - Host pacman database is not touched at all
+ - No wasting bandwidth: 
+   - All network file sources are cached with their integrity checksums as keys and are only downloaded once.
+   - All git sources are tracked on host against only branches and tags references, and are lazily updated.
+   - All PKGBUILDs track only their specific git branch
+   - All PKGBUILDs from AUR are lazily updated, any local PKGBUILD newer than what AUR API reports is not updated at all
+   - Proxy, if set, is only tried after failed connection without proxy
+   - Supports fetching from a upstream [7Ji/git-mirrorer](https://github.com/7Ji/git-mirrorer) instance first
+ - No wasting space:
+   - All sources and PKGBUILDs are stored on host with a Filesystem-As-Database allocation style, duplicated sources only take one times the space.
+   - Build folders are removed as soon as the build finished.
+   - Packages are removed once they're outdated (could be disabled)
+   - Sources are removed once they're outdated.
+   - Chroot depedency packages are all cached in Host's Pacman cache, sharing with the host (not sharing the database, though)
+   - Packages' dedicated chroots are created using overlayfs, only their own depdencies not in the base chroot take space
+ - No wasting time
+   - Context-switch is as few as possible, most of the logic run in the executable itself, makepkg and its interpreter Bash only do the building and a few only things
+   - Source caching, chroot bootstrapping, source extraction, building, all run in parallel
+ - No indistinguishable packages
+   - All packages are stored with unique package key generated from what triggers the build
+   - All latest pacakges are linked into a single folder
+   - All updated package are linked into a single folder
+
 ## Build
 Run the following command inside this folder
 ```
@@ -109,7 +135,6 @@ Addtionally, the following aliases are supported for URLs:
  - [ ] Resolve inter-dependencies if necessary, to trigger builds if some of our pacakges changed which are deps of other pacakges
    - doing this would also mean splitting builds into multiple steps (build -> install -> build)
  - [ ] Remove all explicit panics introduced in early prototype stage
- - [ ] Use AUR's RPC API to reduce connections to AUR
 
 ## Internal
 The builder does the following to save a great chunk of build time and resource:
