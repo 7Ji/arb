@@ -50,17 +50,13 @@ struct Builder<'a> {
 
 impl <'a> Builder<'a> {
     const BUILD_MAX_TRIES: usize = 3;
-    fn from_pkgbuild(
-        pkgbuild: &'a mut PKGBUILD, actual_identity: &Identity, nonet: bool
-    ) 
+    fn from_pkgbuild(pkgbuild: &'a mut PKGBUILD, actual_identity: &Identity) 
         -> Result<Self, ()> 
     {
         let builddir = BuildDir::new(&pkgbuild.base)?;
-        let root = pkgbuild.get_overlay_root(
-            actual_identity, nonet)?;
         let temp_pkgdir = pkgbuild.get_temp_pkgdir()?;
         let command = pkgbuild.get_build_command(
-            actual_identity, &root, &temp_pkgdir)?;
+            actual_identity, &temp_pkgdir)?;
         Ok(Self {
             pkgbuild,
             builddir,
@@ -315,7 +311,7 @@ impl<'a> Builders<'a> {
             if ! pkgbuild.need_build {
                 continue
             }
-            match Builder::from_pkgbuild(pkgbuild, actual_identity, nonet) {
+            match Builder::from_pkgbuild(pkgbuild, actual_identity) {
                 Ok(builder) => builders.push(builder),
                 Err(_) => return Err(()),
             }

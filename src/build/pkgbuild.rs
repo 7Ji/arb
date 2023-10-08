@@ -368,18 +368,19 @@ impl PKGBUILD {
     pub(super) fn get_build_command(
         &self,
         actual_identity: &Identity,
-        root: &OverlayRoot,
         temp_pkgdir: &Path
     ) 
         -> Result<Command, ()> 
     {
         let mut pkgdest = actual_identity.cwd()?;
         pkgdest.push(temp_pkgdir);
-        let mut cwd = root.builder(actual_identity)?;
-        cwd.push(&self.build);
+        let (root, mut builder) = 
+            OverlayRoot::get_root_and_builder_no_init(
+                &self.base, actual_identity)?;
+        builder.push(&self.build);
         let mut command = Command::new("/bin/bash");
         command
-            .current_dir(cwd)
+            .current_dir(&builder)
             .arg0(format!("[BUILDER/{}] /bin/bash", self.pkgid))
             .arg("/usr/bin/makepkg")
             .arg("--holdver")
@@ -400,7 +401,7 @@ impl PKGBUILD {
             });
         }
         actual_identity.set_root_chroot_drop_command(&mut command, 
-            root.path().canonicalize().or(Err(()))?);
+            root.canonicalize().or(Err(()))?);
         Ok(command)
     }
 
@@ -488,11 +489,11 @@ impl PKGBUILD {
         binds
     }
 
-    pub(super) fn get_overlay_root(
+    pub(super) fn _get_overlay_root(
         &self, actual_identity: &Identity, nonet: bool
     ) -> Result<OverlayRoot, ()> 
     {
-        OverlayRoot::new(&self.base, actual_identity, 
+        OverlayRoot::_new(&self.base, actual_identity, 
             &self.depends.needs, self.get_home_binds(), nonet)
     }
 

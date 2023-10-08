@@ -368,14 +368,20 @@ pub(crate) trait CommonRoot {
         Ok(self.path().join(home_suffix))
     }
 
-    fn builder(&self, actual_identity: &Identity) -> Result<PathBuf, ()> {
+    fn builder_raw(root_path: &Path, actual_identity: &Identity) 
+        -> Result<PathBuf, ()> 
+    {
         let cwd = actual_identity.cwd()?;
         let suffix = cwd.strip_prefix("/").or_else(
             |e|{
                 eprintln!("Failed to strip suffix from cwd: {}", e);
                 Err(())
             })?;
-        Ok(self.path().join(suffix))
+        Ok(root_path.join(suffix))
+    }
+
+    fn builder(&self, actual_identity: &Identity) -> Result<PathBuf, ()> {
+        Self::builder_raw(self.path(), actual_identity)
     }
 }
 
@@ -588,6 +594,19 @@ impl OverlayRoot {
         Ok(self)
     }
 
+    fn new_no_init(name: &str) -> Self {
+        let parent = PathBuf::from(format!("roots/overlay-{}", name));
+        let upper = parent.join("upper");
+        let work = parent.join("work");
+        let merged = MountedFolder(parent.join("merged"));
+        Self {
+            parent,
+            upper,
+            work,
+            merged,
+        }
+    }
+
     fn new_child<I, S, I2, S2>(
         name: &str, actual_identity: &Identity, pkgs: I, home_dirs: I2,
         nonet: bool
@@ -599,16 +618,7 @@ impl OverlayRoot {
         S2: AsRef<str>
     {
         println!("Creating overlay chroot '{}'", name);
-        let parent = PathBuf::from(format!("roots/overlay-{}", name));
-        let upper = parent.join("upper");
-        let work = parent.join("work");
-        let merged = MountedFolder(parent.join("merged"));
-        let root = Self {
-            parent,
-            upper,
-            work,
-            merged,
-        };
+        let root = Self::new_no_init(name);
         let child = Identity::as_root_child(||{
             root.remove()?
                 .overlay()?
@@ -627,7 +637,7 @@ impl OverlayRoot {
 
     /// Different from base, overlay would have upper, work, and merged.
     /// Note that the pkgs here can only come from repos, not as raw pkg files.
-    pub(crate) fn new<I, S, I2, S2>(
+    pub(crate) fn _new<I, S, I2, S2>(
         name: &str, actual_identity: &Identity, pkgs: I, home_dirs: I2,
         nonet: bool
     ) -> Result<Self, ()> 
@@ -638,16 +648,7 @@ impl OverlayRoot {
         S2: AsRef<str>
     {
         println!("Creating overlay chroot '{}'", name);
-        let parent = PathBuf::from(format!("roots/overlay-{}", name));
-        let upper = parent.join("upper");
-        let work = parent.join("work");
-        let merged = MountedFolder(parent.join("merged"));
-        let root = Self {
-            parent,
-            upper,
-            work,
-            merged,
-        };
+        let root = Self::new_no_init(name);
         Identity::as_root(||{
             root.remove()?
                 .overlay()?
@@ -662,6 +663,18 @@ impl OverlayRoot {
         })?;
         println!("Created overlay chroot '{}'", name);
         Ok(root)
+    }
+
+    pub(crate) fn get_root_and_builder_no_init(
+        name: &str, actual_identity: &Identity
+    ) 
+        -> Result<(PathBuf, PathBuf), ()>
+    {
+        let root = PathBuf::from(
+            format!("roots/overlay-{}/merged", name));
+        let builder = Self::builder_raw(
+            &root, actual_identity)?;
+        Ok((root, builder))
     }
 }
 
