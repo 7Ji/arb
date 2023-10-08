@@ -630,7 +630,7 @@ impl PKGBUILDs {
     fn get_deps<P: AsRef<Path>> (
         &mut self, actual_identity: &IdentityActual, dir: P, db_handle: &DbHandle,
         dephash_strategy: &DepHashStrategy
-    ) -> Result<Vec<String>, ()>
+    ) -> Result<(), ()>
     {
         let mut bad = false;
         let mut children = vec![];
@@ -654,7 +654,7 @@ impl PKGBUILDs {
             return Err(())
         }
         assert!(self.0.len() == children.len());
-        let mut all_deps = vec![];
+        // let mut all_deps = vec![];
         for (pkgbuild, child) in 
             zip(self.0.iter_mut(), children) 
         {
@@ -691,9 +691,9 @@ impl PKGBUILDs {
                                 &pkgbuild.base, pkgbuild.depends.hash, 
                                 &pkgbuild.depends.needs);
                     }
-                    for need in pkgbuild.depends.needs.iter() {
-                        all_deps.push(need.clone())
-                    }
+                    // for need in pkgbuild.depends.needs.iter() {
+                    //     all_deps.push(need.clone())
+                    // }
                 },
                 Err(_) => {
                     eprintln!("Failed to get needed deps for package '{}'",
@@ -702,18 +702,17 @@ impl PKGBUILDs {
                 },
             }
         }
-        if bad {
-            return Err(())
-        }
-        all_deps.sort_unstable();
-        all_deps.dedup();
-        Ok(all_deps)
+        if bad { Err(()) } else { Ok(()) }
+        // all_deps.sort_unstable();
+        // all_deps.dedup();
+        // Ok(all_deps)
+        
     }
 
     fn check_deps<P: AsRef<Path>> (
         &mut self, actual_identity: &IdentityActual, dir: P, root: P, 
         dephash_strategy: &DepHashStrategy
-    )   -> Result<Vec<String>, ()>
+    )   -> Result<(), ()>
     {
         let db_handle = DbHandle::new(root)?;
         self.get_deps(actual_identity, dir, &db_handle, dephash_strategy)
