@@ -965,7 +965,7 @@ impl PKGBUILDs {
     pub(super) fn prepare_sources(
         &mut self,
         actual_identity: &Identity, 
-        basepkgs: Option<&Vec<String>>,
+        basepkgs: &Vec<String>,
         holdgit: bool,
         skipint: bool,
         noclean: bool,
@@ -1006,18 +1006,21 @@ impl PKGBUILDs {
         self.fill_all_pkgvers(actual_identity, &dir)?;
         // Use the fresh DBs in target root
         let base_root = BaseRoot::db_only()?;
-        let all_deps = self.check_deps(
+        let mut all_deps = self.check_deps(
             actual_identity, dir.as_ref(), base_root.path(),
             dephash_strategy)?;
         self.fill_all_ids_dirs(dephash_strategy);
         let need_builds = self.check_if_need_build()? > 0;
         if need_builds {
-            Depends::cache_raw(&all_deps, base_root.db_path())?;
-            if let Some(basepkgs) = basepkgs {
-                base_root.finish(actual_identity, basepkgs)?;
-            } else {
-                base_root.finish(actual_identity, &["base-devel"])?;
+            if ! basepkgs.is_empty() {
+                for pkg in basepkgs.iter() {
+                    all_deps.push(pkg.clone())
+                }
+                all_deps.sort_unstable();
+                all_deps.dedup();
             }
+            Depends::cache_raw(&all_deps, base_root.db_path())?;
+            base_root.finish(actual_identity, basepkgs)?;
             let db_handle = DbHandle::new(base_root.path())?;
             for pkgbuild in self.0.iter_mut() {
                 if pkgbuild.need_build {

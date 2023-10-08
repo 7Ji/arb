@@ -74,10 +74,15 @@ struct Config {
     sign: Option<String>,
     gmr: Option<String>,
     proxy: Option<String>,
-    basepkgs: Option<Vec<String>>,
+    #[serde(default = "default_basepkgs")]
+    basepkgs: Vec<String>,
     #[serde(default)]
     dephash_strategy: build::DepHashStrategy,
     pkgbuilds: std::collections::HashMap<String, build::PkgbuildConfig>,
+}
+
+fn default_basepkgs() -> Vec<String> {
+    vec![String::from("base-devel")]
 }
 
 fn main() {
@@ -108,7 +113,7 @@ fn main() {
     if let Err(_) = build::work(
         actual_identity,
         &config.pkgbuilds,
-        config.basepkgs.as_ref(),
+        &config.basepkgs,
         arg.proxy.as_deref().or(config.proxy.as_deref()),
         arg.holdpkg || config.holdpkg,
         arg.holdgit || config.holdgit,

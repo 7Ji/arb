@@ -12,7 +12,7 @@ pub(crate) use depend::DepHashStrategy as DepHashStrategy;
 pub(crate) fn work(
     actual_identity: crate::identity::Identity,
     pkgbuilds_config: &HashMap<String, PkgbuildConfig>,
-    basepkgs: Option<&Vec<String>>,
+    basepkgs: &Vec<String>,
     proxy: Option<&str>,
     holdpkg: bool,
     holdgit: bool,

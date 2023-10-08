@@ -217,8 +217,9 @@ impl Depends {
             return Ok(())
         }
         println!("Caching the following dependencies on host: {:?}", deps);
-        let output = match Identity::set_root_command(
-            Command::new("/usr/bin/pacman")
+        let mut command = Command::new("/usr/bin/pacman");
+        Identity::set_root_command(
+            &mut command
                 .env("LANG", "C")
                 .arg("-S")
                 .arg("--dbpath")
@@ -229,7 +230,8 @@ impl Depends {
                 .stdin(Stdio::null())
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
-            ).output()
+            );
+        let output = match command.output()
         {
             Ok(output) => output,
             Err(e) => {
@@ -237,10 +239,40 @@ impl Depends {
                 return Err(());
             },
         };
-        if Some(0) != output.status.code() {
-            eprintln!("Download-only command failed to execute correctly");
-            return Err(())
+        match output.status.code() {
+            Some(code) => match code {
+                0 => Ok(()),
+                1 => {
+                    eprintln!(
+                        "Download-only command failed to execute correctly, \
+                        bad return 1, maybe due to broken packages? Retrying");
+                    let output = match command.output()
+                    {
+                        Ok(output) => output,
+                        Err(e) => {
+                            eprintln!("Failed to spawn child: {}", e);
+                            return Err(());
+                        },
+                    };
+                    if let Some(0) = output.status.code() {
+                        Ok(())
+                    } else {
+                        eprintln!("Download-only command failed to execute \
+                                    correctly");
+                        Err(())
+                    }
+                },
+                _ => {
+                    eprintln!(
+                        "Download-only command failed to execute correctly, \
+                        bad return {}", code);
+                    Err(())
+                }
+            },
+            None => {
+                eprintln!("Download-only command failed to execute correctly");
+                Err(())
+            },
         }
-        Ok(())
     }
 }
