@@ -338,11 +338,10 @@ impl<'a> Builders<'a> {
         let mut bad = false;
         while self.builders.len() > 0 {
             let mut finished = None;
-            let mut heavy_load = false;
             for (id, builder) in 
                 self.builders.iter_mut().enumerate() 
             {
-                heavy_load = check_heavy_load();
+                let heavy_load = check_heavy_load();
                 match builder.step(heavy_load, self.actual_identity, self.nonet,
                                     self.sign) 
                 {
@@ -364,8 +363,7 @@ impl<'a> Builders<'a> {
                 println!("Finished builder for PKGBUILD '{}'", 
                     &builder.pkgbuild.base);
             }
-            heavy_load = check_heavy_load();
-            if heavy_load {
+            if check_heavy_load() {
                 sleep(Duration::from_secs(10))
             } else {
                 sleep(Duration::from_millis(100))
