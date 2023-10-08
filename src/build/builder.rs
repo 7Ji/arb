@@ -293,20 +293,30 @@ fn check_heavy_load(jobs: usize, cores: usize) -> bool {
     if jobs > cores {
         return true
     }
-    match procfs::CpuPressure::new() {
-        Ok(cpu_pressure) => cpu_pressure.some.avg10 > 10.00,
+    if match procfs::CpuPressure::new() {
+        Ok(cpu_pressure) => {
+            let some = cpu_pressure.some;
+            some.avg10 > 10.00 || some.avg60 > 10.00 || some.avg300 > 10.00
+        },
         Err(e) => {
             eprintln!("Failed to get CPU pressure: {}", e);
             true
         },
+    } {
+        return true
     }
-    // match procfs::LoadAverage::new() {
-    //     Ok(load_avg) => load_avg.one >= cores as f32,
-    //     Err(e) => {
-    //         eprintln!("Failed to get load avg: {}", e);
-    //         true
-    //     },
-    // }
+    match procfs::LoadAverage::new() {
+        Ok(load_avg) => {
+            let max_load = (cores + 2) as f32;
+            load_avg.one >= max_load || 
+            load_avg.five >= max_load || 
+            load_avg.fifteen >= max_load
+        },
+        Err(e) => {
+            eprintln!("Failed to get load avg: {}", e);
+            true
+        },
+    }
 }
 
 struct Builders<'a> {
