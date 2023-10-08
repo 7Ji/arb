@@ -365,7 +365,7 @@ impl<'a> Builders<'a> {
         let mut bad = false;
         let mut jobs = 0;
         loop {
-            let jobs_last = jobs;
+            // let jobs_last = jobs;
             let mut finished = None;
             for (id, builder) in 
                 self.builders.iter_mut().enumerate() 
@@ -395,13 +395,14 @@ impl<'a> Builders<'a> {
             if self.builders.is_empty() {
                 break
             }
-            if jobs > jobs_last && jobs - jobs_last > 1 {
-                sleep(Duration::from_secs(5))
-            } else if check_heavy_load(jobs, cores) {
-                sleep(Duration::from_secs(15))
-            } else {
-                sleep(Duration::from_millis(100))
-            }
+            sleep(Duration::from_millis(100))
+            // if jobs > jobs_last && jobs - jobs_last > 1 {
+            //     sleep(Duration::from_secs(5))
+            // } else if check_heavy_load(jobs, cores) {
+            //     sleep(Duration::from_secs(15))
+            // } else {
+                
+            // }
         }
         if jobs > 0 {
             eprintln!("Jobs count is not 0 ({}) at the end", jobs);
