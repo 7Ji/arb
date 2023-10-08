@@ -1,5 +1,5 @@
 use std::{
-    fs::File,
+    fs::{File, remove_file, rename},
     path::{
         PathBuf,
         Path
@@ -18,6 +18,7 @@ use super::crypto::{
 use super::md5::Md5sum;
 use super::Sum;
 
+#[derive(Clone)]
 pub(crate) enum Integ {
     CK (Cksum),
     MD5 (Md5sum),
@@ -30,8 +31,8 @@ pub(crate) enum Integ {
 }
 
 pub(crate) struct IntegFile {
-    path: PathBuf,
-    integ: Integ
+    pub(crate) path: PathBuf,
+    pub(crate) integ: Integ
 }
 
 impl IntegFile {
@@ -122,6 +123,35 @@ impl IntegFile {
         }
     }
 
+    pub(crate) fn absorb(&self, source: Self) -> Result<(), Self> {
+        if self.path.exists() {
+            if let Err(e) = remove_file(&self.path) {
+                eprintln!("Failed to remove existing '{}': {}", 
+                    self.path.display(), e);
+                return Err(source)
+            }
+        }
+        match rename(&source.path, &self.path) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                eprintln!("Failed to move '{}' to '{}': {}", 
+                    source.path.display(), self.path.display(), e);
+            },
+        }
+        // Failed to move, then do light copy (hard link) or read+write copy
+        if self.clone_file_from(&source).is_err() {
+            eprintln!("Failed to clone '{}' from '{}'", 
+                self.path.display(), source.path.display(),);
+            return Err(source)
+        }
+        if let Err(e) = remove_file(&source.path) {
+            eprintln!("Failed to remove source file '{}': {}", 
+                source.path.display(), e);
+            return Err(source)
+        }
+        Ok(())
+    }
+
     pub(crate) fn vec_from_source(source: &super::super::Source) -> Vec<Self> {
         let mut integ_files = vec![];
         if let Some(sum) = &source.ck {
@@ -158,5 +188,16 @@ impl IntegFile {
         }
         integ_files
 
+    }
+
+    pub(crate) fn temp(&self) -> Result<Self, ()> {
+        let mut name = self.path.file_name().ok_or_else(||{
+            eprintln!("Path has no ending name")
+        })?.to_owned();
+        name.push(".temp");
+        Ok(Self {
+            path: self.path.with_file_name(name),
+            integ: self.integ.clone(),
+        })
     }
 }

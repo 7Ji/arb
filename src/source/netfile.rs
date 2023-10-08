@@ -117,6 +117,7 @@ pub(super) fn download_source(
     proxy: Option<&str>
 ) -> Result<(), ()> 
 {
+    const MAX_TRIES: usize = 3;
     let protocol = 
         if let Protocol::Netfile{protocol} = &source.protocol {
             protocol
@@ -125,58 +126,43 @@ pub(super) fn download_source(
             return Err(())
         };
     let url = source.url.as_str();
-    let path = integ_file.get_path();
-    for _ in 0..2 {
-        println!("Downloading '{}' to '{}'",
-            source.url, path.display());
-        if let Ok(_) = match &protocol {
-            NetfileProtocol::File => download::file(url, path),
-            NetfileProtocol::Ftp => download::ftp(actual_identity, url, path),
+    let mut integ_file_temp = integ_file.temp()?;
+    let mut proxy_actual = None;
+    let max_tries = match proxy {
+        Some(_) => MAX_TRIES * 2,
+        None => MAX_TRIES,
+    };
+    for i in 0..max_tries {
+        if i == MAX_TRIES {
+            println!("Failed to download for {} times, using proxy", MAX_TRIES);
+            proxy_actual = proxy
+        }
+        println!("Downloading '{}' to '{}', try {} of {}",
+            source.url, integ_file_temp.path.display(), i + 1, MAX_TRIES);
+        if match &protocol {
+            NetfileProtocol::File => 
+                download::file(url, &integ_file_temp.path),
+            NetfileProtocol::Ftp => 
+                download::ftp(actual_identity, url, &integ_file_temp.path),
             NetfileProtocol::Http => 
-                download::http(url, path, None),
+                download::http(url, &integ_file_temp.path, proxy_actual),
             NetfileProtocol::Https => 
-                download::http(url, path, None),
-            NetfileProtocol::Rsync => download::rsync(actual_identity, url, path),
-            NetfileProtocol::Scp => download::scp(actual_identity, url, path),
-        } {
-            if integ_file.valid(skipint) {
-                return Ok(())
+                download::http(url, &integ_file_temp.path, proxy_actual),
+            NetfileProtocol::Rsync => 
+                download::rsync(actual_identity, url, &integ_file_temp.path),
+            NetfileProtocol::Scp => 
+                download::scp(actual_identity, url, &integ_file_temp.path),
+        }.is_ok() && 
+            integ_file_temp.valid(skipint) 
+        {
+            match integ_file.absorb(integ_file_temp) {
+                Ok(_) => return Ok(()),
+                Err(integ_file_not_absorbed) => 
+                    integ_file_temp = integ_file_not_absorbed,
             }
         }
     }
-    if let None = proxy {
-        eprintln!(
-            "Failed to download netfile source '{}' and no proxy to retry", 
-            source.url);
-        return Err(())
-    }
-    if match &protocol {
-        NetfileProtocol::File => false,
-        NetfileProtocol::Ftp => false,
-        NetfileProtocol::Http => true,
-        NetfileProtocol::Https => true,
-        NetfileProtocol::Rsync => false,
-        NetfileProtocol::Scp => false,
-    } {
-        println!("Failed to download '{}' to '{}' after 3 tries, use proxy",
-                source.url, path.display());
-    } else {
-        eprintln!(
-            "Failed to download netfile source '{}', proto not support proxy", 
-            source.url);
-        return Err(())
-    }
-    for _  in 0..2 {
-        println!("Downloading '{}' to '{}'",
-                source.url, path.display());
-        if let Ok(_) = download::http(url, path, proxy) {
-            if integ_file.valid(skipint) {
-                return Ok(())
-            }
-        }
-    }
-    eprintln!("Failed to download netfile source '{} even with proxy",
-                source.url);
+    eprintln!("Failed to download netfile source '{}'", source.url);
     return Err(())
 }
 
