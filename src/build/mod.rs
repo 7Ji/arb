@@ -48,6 +48,7 @@ pub(crate) fn work(
             Ok(())
         },
     };
+    let _ = std::fs::remove_dir("build");
     pkgbuilds.link_pkgs();
     if ! noclean {
         pkgbuilds.clean_pkgdir();
