@@ -138,7 +138,7 @@ pub(super) fn download_source(
             proxy_actual = proxy
         }
         println!("Downloading '{}' to '{}', try {} of {}",
-            source.url, integ_file_temp.path.display(), i + 1, MAX_TRIES);
+            source.url, integ_file_temp.path.display(), i + 1, max_tries);
         if match &protocol {
             NetfileProtocol::File => 
                 download::file(url, &integ_file_temp.path),
