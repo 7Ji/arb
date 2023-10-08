@@ -10,7 +10,7 @@ pub(crate) use pkgbuild::PkgbuildConfig as PkgbuildConfig;
 pub(crate) use depend::DepHashStrategy as DepHashStrategy;
 
 pub(crate) fn work(
-    actual_identity: crate::identity::Identity,
+    actual_identity: crate::identity::IdentityActual,
     pkgbuilds_config: &HashMap<String, PkgbuildConfig>,
     basepkgs: &Vec<String>,
     proxy: Option<&str>,

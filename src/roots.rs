@@ -18,10 +18,7 @@ use std::{
         process::{Command, Stdio}
     };
 
-
-use crate::identity::ForkedChild;
-
-use super::identity::Identity;
+use crate::identity::{Identity, IdentityActual, ForkedChild};
 
 #[derive(Clone)]
 struct MountedFolder (PathBuf);
@@ -183,7 +180,7 @@ impl MountedFolder {
 
 impl Drop for MountedFolder {
     fn drop(&mut self) {
-        if Identity::as_root(||{
+        if IdentityActual::as_root(||{
             self.remove().and(Ok(()))
         }).is_err() {
             eprintln!("Failed to drop mounted folder '{}'", self.0.display());
@@ -358,9 +355,9 @@ pub(crate) trait CommonRoot {
         Self::copy_file(source, target).and(Ok(self))
     }
 
-    fn home(&self, actual_identity: &Identity) -> Result<PathBuf, ()> {
-        let home: PathBuf = actual_identity.home()?;
-        let home_suffix = home.strip_prefix("/").or_else(
+    fn home(&self, actual_identity: &IdentityActual) -> Result<PathBuf, ()> {
+        let home_suffix = actual_identity.home_path()
+        .strip_prefix("/").or_else(
             |e| {
                 eprintln!("Failed to strip home prefix: {}", e);
                 Err(())
@@ -368,11 +365,10 @@ pub(crate) trait CommonRoot {
         Ok(self.path().join(home_suffix))
     }
 
-    fn builder_raw(root_path: &Path, actual_identity: &Identity) 
+    fn builder_raw(root_path: &Path, actual_identity: &IdentityActual) 
         -> Result<PathBuf, ()> 
     {
-        let cwd = actual_identity.cwd()?;
-        let suffix = cwd.strip_prefix("/").or_else(
+        let suffix = actual_identity.cwd().strip_prefix("/").or_else(
             |e|{
                 eprintln!("Failed to strip suffix from cwd: {}", e);
                 Err(())
@@ -380,7 +376,7 @@ pub(crate) trait CommonRoot {
         Ok(root_path.join(suffix))
     }
 
-    fn builder(&self, actual_identity: &Identity) -> Result<PathBuf, ()> {
+    fn builder(&self, actual_identity: &IdentityActual) -> Result<PathBuf, ()> {
         Self::builder_raw(self.path(), actual_identity)
     }
 }
@@ -417,17 +413,19 @@ impl BaseRoot {
     }
 
     /// Root is expected
-    fn create_home(&self, actual_identity: &Identity) -> Result<&Self, ()> {
+    fn create_home(&self, actual_identity: &IdentityActual) 
+        -> Result<&Self, ()> 
+    {
         // std::thread::sleep(std::time::Duration::from_secs(100));
-        Identity::run_chroot_command(
+        IdentityActual::run_chroot_command(
             Command::new("/usr/bin/mkhomedir_helper")
-                .arg(actual_identity.user()?),
+                .arg(actual_identity.user()),
             self.path())?;
         Ok(self)
     }
 
     /// Root is expected
-    fn setup(&self, actual_identity: &Identity) -> Result<&Self, ()> {
+    fn setup(&self, actual_identity: &IdentityActual) -> Result<&Self, ()> {
         eprintln!("Finishing base root setup");
         let builder = self.builder(actual_identity)?;
         self.copy_file_same("etc/passwd")?
@@ -452,10 +450,10 @@ impl BaseRoot {
     }
 
     pub(crate) fn db_only() -> Result<Self, ()> {
-        Identity::as_root(||MountedFolder::remove_all())?;
+        IdentityActual::as_root(||MountedFolder::remove_all())?;
         println!("Creating base chroot (DB only)");
         let root = Self(MountedFolder(PathBuf::from("roots/base")));
-        Identity::as_root(||{
+        IdentityActual::as_root(||{
             root.remove()?
                 .base_layout()?
                 .bind_self()?
@@ -469,16 +467,16 @@ impl BaseRoot {
 
     /// Create a base rootfs containing the minimum packages and user setup
     /// This should not be used directly for building packages
-    pub(crate) fn _new<I, S>(actual_identity: &Identity, pkgs: I) 
+    pub(crate) fn _new<I, S>(actual_identity: &IdentityActual, pkgs: I) 
         -> Result<Self, ()> 
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>
     {
-        Identity::as_root(||MountedFolder::remove_all())?;
+        IdentityActual::as_root(||MountedFolder::remove_all())?;
         println!("Creating base chroot");
         let root = Self(MountedFolder(PathBuf::from("roots/base")));
-        Identity::as_root(||{
+        IdentityActual::as_root(||{
             root.remove()?
                 .base_layout()?
                 .bind_self()?
@@ -494,18 +492,20 @@ impl BaseRoot {
     }
 
     /// Finish a DB-only base root
-    pub(crate) fn finish<I, S>(&self, actual_identity: &Identity, pkgs: I) 
+    pub(crate) fn finish<I, S>(&self, actual_identity: &IdentityActual, pkgs: I) 
         -> Result<&Self, ()> 
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>
     {
-        Identity::as_root(||{
+        println!("Finishing base chroot");
+        IdentityActual::as_root(||{
             self.install_pkgs(pkgs)?
                 .setup(actual_identity)?
                 .umount_recursive()?;
             Ok(())
         })?;
+        println!("Finish base chroot");
         Ok(self)
     }
 }
@@ -551,7 +551,7 @@ impl OverlayRoot {
         Ok(self)
     }
 
-    fn bind_builder(&self, actual_identity: &Identity) -> Result<&Self, ()> {
+    fn bind_builder(&self, actual_identity: &IdentityActual) -> Result<&Self, ()> {
         let builder = self.builder(actual_identity)?;
         for dir in Self::BUILDER_DIRS {
             mount(Some(dir),
@@ -563,18 +563,18 @@ impl OverlayRoot {
         Ok(self)
     }
 
-    fn bind_homedirs<I, S>(&self, actual_identity: &Identity, home_dirs: I) 
+    fn bind_homedirs<I, S>(&self, actual_identity: &IdentityActual, home_dirs: I) 
         -> Result<&Self, ()> 
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>
     {
-        let host_home = actual_identity.home()?;
-        let mut host_home_string = actual_identity.home_string()?;
+        let host_home_path = actual_identity.home_path();
+        let mut host_home_string = actual_identity.home_str().to_string();
         host_home_string.push('/');
         let chroot_home = self.home(actual_identity)?;
         for dir in home_dirs {
-            let host_dir = host_home.join(dir.as_ref());
+            let host_dir = host_home_path.join(dir.as_ref());
             if ! host_dir.exists() {
                 continue
             }
@@ -608,7 +608,7 @@ impl OverlayRoot {
     }
 
     fn new_child<I, S, I2, S2>(
-        name: &str, actual_identity: &Identity, pkgs: I, home_dirs: I2,
+        name: &str, actual_identity: &IdentityActual, pkgs: I, home_dirs: I2,
         nonet: bool
     ) -> Result<(Self, ForkedChild), ()>
     where
@@ -619,7 +619,7 @@ impl OverlayRoot {
     {
         println!("Creating overlay chroot '{}'", name);
         let root = Self::new_no_init(name);
-        let child = Identity::as_root_child(||{
+        let child = IdentityActual::as_root_child(||{
             root.remove()?
                 .overlay()?
                 .base_mounts()?
@@ -638,7 +638,7 @@ impl OverlayRoot {
     /// Different from base, overlay would have upper, work, and merged.
     /// Note that the pkgs here can only come from repos, not as raw pkg files.
     pub(crate) fn _new<I, S, I2, S2>(
-        name: &str, actual_identity: &Identity, pkgs: I, home_dirs: I2,
+        name: &str, actual_identity: &IdentityActual, pkgs: I, home_dirs: I2,
         nonet: bool
     ) -> Result<Self, ()> 
     where
@@ -649,7 +649,7 @@ impl OverlayRoot {
     {
         println!("Creating overlay chroot '{}'", name);
         let root = Self::new_no_init(name);
-        Identity::as_root(||{
+        IdentityActual::as_root(||{
             root.remove()?
                 .overlay()?
                 .base_mounts()?
@@ -665,16 +665,10 @@ impl OverlayRoot {
         Ok(root)
     }
 
-    pub(crate) fn get_root_and_builder_no_init(
-        name: &str, actual_identity: &Identity
-    ) 
-        -> Result<(PathBuf, PathBuf), ()>
+    pub(crate) fn get_root_no_init(name: &str) 
+        -> PathBuf
     {
-        let root = PathBuf::from(
-            format!("roots/overlay-{}/merged", name));
-        let builder = Self::builder_raw(
-            &root, actual_identity)?;
-        Ok((root, builder))
+        PathBuf::from(format!("roots/overlay-{}/merged", name))
     }
 }
 
@@ -687,7 +681,7 @@ impl CommonRoot for OverlayRoot {
 
 impl Drop for OverlayRoot {
     fn drop(&mut self) {
-        if Identity::as_root(||{
+        if IdentityActual::as_root(||{
             self.remove().and(Ok(()))
         }).is_err() {
             eprintln!("Failed to drop overlay root '{}'", self.parent.display())
@@ -697,7 +691,7 @@ impl Drop for OverlayRoot {
 
 impl BootstrappingOverlayRoot {
     pub(super) fn new<I, S, I2, S2>(
-        name: &str, actual_identity: &Identity, pkgs: I, home_dirs: I2,
+        name: &str, actual_identity: &IdentityActual, pkgs: I, home_dirs: I2,
         nonet: bool
     ) -> Result<Self, ()>
     where

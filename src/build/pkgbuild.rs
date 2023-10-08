@@ -1,6 +1,6 @@
 // TODO: Split this into multiple modules
 use crate::{
-        identity::Identity,
+        identity::IdentityActual,
         source::{
             self,
             git::{self, Gmr},
@@ -234,7 +234,7 @@ impl PKGBUILD {
     }
 
     fn dep_reader_file<P: AsRef<Path>> (
-        actual_identity: &Identity, pkgbuild_file: P
+        actual_identity: &IdentityActual, pkgbuild_file: P
     ) -> std::io::Result<Child> 
     {
         actual_identity.set_root_drop_command(
@@ -253,7 +253,7 @@ impl PKGBUILD {
             .spawn()
     }
 
-    fn dep_reader<P: AsRef<Path>>(&self, actual_identity: &Identity, dir: P) 
+    fn dep_reader<P: AsRef<Path>>(&self, actual_identity: &IdentityActual, dir: P) 
         -> std::io::Result<Child>
     {
         let pkgbuild_file = dir.as_ref().join(&self.base);
@@ -278,7 +278,7 @@ impl PKGBUILD {
     }
 
     pub(super) fn extractor_source(
-        &self, actual_identity: &Identity) -> Result<Child, ()> 
+        &self, actual_identity: &IdentityActual) -> Result<Child, ()> 
     {
         const SCRIPT: &str = include_str!("../../scripts/extract_sources.bash");
         if let Err(e) = create_dir_all(&self.build) {
@@ -316,7 +316,7 @@ impl PKGBUILD {
         }
     }
 
-    fn _extract_source(&self, actual_identity: &Identity) -> Result<(), ()> {
+    fn _extract_source(&self, actual_identity: &IdentityActual) -> Result<(), ()> {
         if self.extractor_source(actual_identity).or_else(|_|{
             eprintln!("Failed to spawn child to extract source");
             Err(())
@@ -367,17 +367,19 @@ impl PKGBUILD {
 
     pub(super) fn get_build_command(
         &self,
-        actual_identity: &Identity,
+        actual_identity: &IdentityActual,
         temp_pkgdir: &Path
     ) 
         -> Result<Command, ()> 
     {
-        let mut pkgdest = actual_identity.cwd()?;
-        pkgdest.push(temp_pkgdir);
-        let (root, mut builder) = 
-            OverlayRoot::get_root_and_builder_no_init(
-                &self.base, actual_identity)?;
+        let cwd = actual_identity.cwd();
+        let cwd_no_root = actual_identity.cwd_no_root();
+        let pkgdest = cwd.join(temp_pkgdir);
+        let root = OverlayRoot::get_root_no_init(&self.base);
+        let mut builder = cwd.join(&root);
+        builder.push(cwd_no_root);
         builder.push(&self.build);
+        let chroot = cwd.join(&root);
         let mut command = Command::new("/bin/bash");
         command
             .current_dir(&builder)
@@ -400,8 +402,7 @@ impl PKGBUILD {
                 }
             });
         }
-        actual_identity.set_root_chroot_drop_command(&mut command, 
-            root.canonicalize().or(Err(()))?);
+        actual_identity.set_root_chroot_drop_command(&mut command, chroot);
         Ok(command)
     }
 
@@ -436,7 +437,7 @@ impl PKGBUILD {
     }
 
     pub(super) fn finish_build(&self, 
-        actual_identity: &Identity, temp_pkgdir: &Path, sign: Option<&str>
+        actual_identity: &IdentityActual, temp_pkgdir: &Path, sign: Option<&str>
     ) 
         -> Result<(), ()> 
     {
@@ -490,7 +491,7 @@ impl PKGBUILD {
     }
 
     pub(super) fn _get_overlay_root(
-        &self, actual_identity: &Identity, nonet: bool
+        &self, actual_identity: &IdentityActual, nonet: bool
     ) -> Result<OverlayRoot, ()> 
     {
         OverlayRoot::_new(&self.base, actual_identity, 
@@ -498,7 +499,7 @@ impl PKGBUILD {
     }
 
     pub(super) fn get_bootstrapping_overlay_root(
-        &self, actual_identity: &Identity, nonet: bool
+        &self, actual_identity: &IdentityActual, nonet: bool
     ) -> Result<BootstrappingOverlayRoot, ()> 
     {
         BootstrappingOverlayRoot::new(&self.base, actual_identity, 
@@ -624,7 +625,7 @@ impl PKGBUILDs {
     }
 
     fn get_deps<P: AsRef<Path>> (
-        &mut self, actual_identity: &Identity, dir: P, db_handle: &DbHandle,
+        &mut self, actual_identity: &IdentityActual, dir: P, db_handle: &DbHandle,
         dephash_strategy: &DepHashStrategy
     ) -> Result<Vec<String>, ()>
     {
@@ -707,7 +708,7 @@ impl PKGBUILDs {
     }
 
     fn check_deps<P: AsRef<Path>> (
-        &mut self, actual_identity: &Identity, dir: P, root: P, 
+        &mut self, actual_identity: &IdentityActual, dir: P, root: P, 
         dephash_strategy: &DepHashStrategy
     )   -> Result<Vec<String>, ()>
     {
@@ -739,7 +740,7 @@ impl PKGBUILDs {
     }
 
     fn filter_with_pkgver_func<P: AsRef<Path>>(
-        &mut self, actual_identity: &Identity, dir: P
+        &mut self, actual_identity: &IdentityActual, dir: P
     ) -> Result<Vec<&mut PKGBUILD>, ()> 
     {
         let mut buffer = vec![];
@@ -856,7 +857,7 @@ impl PKGBUILDs {
     }
 
     fn extract_sources_many(
-        actual_identity: &Identity, 
+        actual_identity: &IdentityActual, 
         pkgbuilds: &mut [&mut PKGBUILD]
     ) 
         -> Result<(), ()> 
@@ -879,7 +880,7 @@ impl PKGBUILDs {
     }
 
     fn fill_all_pkgvers<P: AsRef<Path>>(
-        &mut self, actual_identity: &Identity, dir: P
+        &mut self, actual_identity: &IdentityActual, dir: P
     )
         -> Result<(), ()> 
     {
@@ -965,7 +966,7 @@ impl PKGBUILDs {
 
     pub(super) fn prepare_sources(
         &mut self,
-        actual_identity: &Identity, 
+        actual_identity: &IdentityActual, 
         basepkgs: &Vec<String>,
         holdgit: bool,
         skipint: bool,

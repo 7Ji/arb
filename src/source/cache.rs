@@ -48,7 +48,7 @@ fn get_domain_threads_from_map<'a>(
 pub(crate) fn cache_sources_mt(
     netfile_sources: &Vec<Source>,
     git_sources: &Vec<Source>,
-    actual_identity: &crate::identity::Identity,
+    actual_identity: &crate::identity::IdentityActual,
     holdgit: bool,
     skipint: bool,
     proxy: Option<&str>,

@@ -1,8 +1,8 @@
 use std::{path::Path, fs::read_dir, process::{Command, Stdio}};
 
-use crate::identity::Identity;
+use crate::identity::IdentityActual;
 
-pub(super) fn sign_pkgs(actual_identity: &Identity, dir: &Path, key: &str) 
+pub(super) fn sign_pkgs(actual_identity: &IdentityActual, dir: &Path, key: &str) 
     -> Result<(), ()> 
 {
     let reader = match read_dir(dir) {

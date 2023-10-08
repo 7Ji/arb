@@ -85,16 +85,18 @@ fn default_basepkgs() -> Vec<String> {
     vec![String::from("base-devel")]
 }
 
-fn main() {
-    let actual_identity = match 
-        identity::Identity::get_actual_and_drop() 
-    {
-        Ok(identity) => identity,
-        Err(_) => {
-            eprintln!("Failed to get and drop to non-root actual identity");
-            exit(-1);
-        },
-    };
+fn main() -> Result<(), ()> {
+    let actual_identity = identity::IdentityActual::new()?;
+    actual_identity.drop()?;
+    // let actual_identity = match 
+    //     identity::IdentityActual::new()? 
+    // {
+    //     Ok(identity) => identity,
+    //     Err(_) => {
+    //         eprintln!("Failed to get actual identity");
+    //         exit(-1);
+    //     },
+    // };
     let arg = Arg::parse();
     let file = match std::fs::File::open(&arg.config) {
         Ok(file) => file,
@@ -127,4 +129,5 @@ fn main() {
     {
         std::process::exit(-1)
     }
+    Ok(())
 }

@@ -1,6 +1,6 @@
 use std::{path::PathBuf, process::{Command, Child}, fs::{remove_dir_all, create_dir_all}, thread::sleep, time::Duration};
 
-use crate::{roots::{OverlayRoot, BootstrappingOverlayRoot}, identity::Identity, filesystem::remove_dir_all_try_best};
+use crate::{roots::{OverlayRoot, BootstrappingOverlayRoot}, identity::IdentityActual, filesystem::remove_dir_all_try_best};
 
 use super::{pkgbuild::{PKGBUILD, PKGBUILDs}, dir::BuildDir};
 
@@ -50,7 +50,7 @@ struct Builder<'a> {
 
 impl <'a> Builder<'a> {
     const BUILD_MAX_TRIES: usize = 3;
-    fn from_pkgbuild(pkgbuild: &'a mut PKGBUILD, actual_identity: &Identity) 
+    fn from_pkgbuild(pkgbuild: &'a mut PKGBUILD, actual_identity: &IdentityActual) 
         -> Result<Self, ()> 
     {
         let builddir = BuildDir::new(&pkgbuild.base)?;
@@ -68,7 +68,7 @@ impl <'a> Builder<'a> {
         })
     }
 
-    fn start_extract(&mut self, actual_identity: &Identity) -> Result<(), ()> {
+    fn start_extract(&mut self, actual_identity: &IdentityActual) -> Result<(), ()> {
         match self.pkgbuild.extractor_source(actual_identity) {
             Ok(child) => {
                 println!("Start extracting for pkgbuild '{}'", 
@@ -84,7 +84,7 @@ impl <'a> Builder<'a> {
         }
     }
 
-    fn step_build(&mut self,  heavy_load: bool, actual_identity: &Identity, 
+    fn step_build(&mut self,  heavy_load: bool, actual_identity: &IdentityActual, 
         sign: Option<&str> ) -> Result<(), ()> 
     {
         match &mut self.build_state {
@@ -190,7 +190,7 @@ impl <'a> Builder<'a> {
         Ok(())
     }
 
-    fn step(&mut self, heavy_load: bool, actual_identity: &Identity, 
+    fn step(&mut self, heavy_load: bool, actual_identity: &IdentityActual, 
             nonet: bool, sign: Option<&str> ) -> Result<(), ()> 
     {
         match &mut self.root_state {
@@ -294,14 +294,14 @@ fn check_heavy_load() -> bool {
 
 struct Builders<'a> {
     builders: Vec<Builder<'a>>,
-    actual_identity: &'a Identity, 
+    actual_identity: &'a IdentityActual, 
     nonet: bool, 
     sign: Option<&'a str>
 }
 
 impl<'a> Builders<'a> {
     fn from_pkgbuilds(
-        pkgbuilds: &'a mut PKGBUILDs, actual_identity: &'a Identity, 
+        pkgbuilds: &'a mut PKGBUILDs, actual_identity: &'a IdentityActual, 
         nonet: bool, sign: Option<&'a str>
     ) -> Result<Self, ()> 
     {
@@ -313,7 +313,10 @@ impl<'a> Builders<'a> {
             }
             match Builder::from_pkgbuild(pkgbuild, actual_identity) {
                 Ok(builder) => builders.push(builder),
-                Err(_) => return Err(()),
+                Err(_) => {
+                    eprintln!("Failed to create builder for pkgbuild");
+                    return Err(())
+                },
             }
         }
         Ok(Self {
@@ -370,7 +373,7 @@ impl<'a> Builders<'a> {
 }
 
 pub(super) fn build_any_needed(
-    pkgbuilds: &mut PKGBUILDs,  actual_identity: &Identity, 
+    pkgbuilds: &mut PKGBUILDs,  actual_identity: &IdentityActual, 
     nonet: bool, sign: Option<&str>
 ) -> Result<(), ()>
 {

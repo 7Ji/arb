@@ -112,7 +112,7 @@ pub(super) fn push_source(
 pub(super) fn download_source(
     source: &Source,
     integ_file: &super::cksums::IntegFile,
-    actual_identity: &crate::identity::Identity,
+    actual_identity: &crate::identity::IdentityActual,
     skipint: bool,
     proxy: Option<&str>
 ) -> Result<(), ()> 
@@ -169,7 +169,7 @@ pub(super) fn download_source(
 pub(super) fn cache_source(
     source: &Source,
     integ_files: &Vec<super::cksums::IntegFile>,
-    actual_identity: &crate::identity::Identity,
+    actual_identity: &crate::identity::IdentityActual,
     skipint: bool,
     proxy: Option<&str>
 ) -> Result<(), ()> 

@@ -4,7 +4,7 @@ use alpm::{self, Package};
 use serde::Deserialize;
 use xxhash_rust::xxh3;
 
-use crate::identity::Identity;
+use crate::identity::{Identity, IdentityActual};
 
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -218,7 +218,7 @@ impl Depends {
         }
         println!("Caching the following dependencies on host: {:?}", deps);
         let mut command = Command::new("/usr/bin/pacman");
-        Identity::set_root_command(
+        IdentityActual::set_root_command(
             &mut command
                 .env("LANG", "C")
                 .arg("-S")

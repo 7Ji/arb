@@ -1,5 +1,5 @@
 pub(crate) fn rsync(
-    actual_identity: &crate::identity::Identity,
+    actual_identity: &crate::identity::IdentityActual,
     url: &str, 
     path: &std::path::Path
 ) -> Result<(), ()> 

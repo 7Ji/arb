@@ -13,7 +13,7 @@ use std::{
         path::{
             PathBuf,
             Path
-        },
+        }, fmt::Display,
     };
 
 #[derive(Clone)]
@@ -110,74 +110,31 @@ impl ForkedChild {
 }
 
 #[derive(Clone)]
-pub(crate) struct Identity {
+pub(crate) struct IdentityCurrent {
     uid: u32,
     gid: u32,
     name: String,
-    env: Option<Environment>,
 }
 
-impl std::fmt::Display for Identity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!(
-            "uid: {}, gid: {}, name: {}", self.uid, self.gid, self.name))
-    }
+#[derive(Clone)]
+pub(crate) struct IdentityActual {
+    uid: u32,
+    gid: u32,
+    name: String,
+    env: Environment,
+    cwd: PathBuf,
+    cwd_no_root: PathBuf,
+    user: String,
+    home_path: PathBuf,
+    home_string: String
 }
 
-impl Identity {
-    pub(crate) fn current() -> Self {
-        Self {
-            uid: unsafe {
-                libc::getuid()
-            },
-            gid: unsafe {
-                libc::getgid()
-            },
-            name: unsafe {
-                let ptr = libc::getlogin();
-                let len = libc::strlen(ptr);
-                let slice = std::slice::from_raw_parts(
-                    ptr as *mut u8, len);
-                String::from_utf8_lossy(slice).into_owned()
-            },
-            env: None,
-        }
-    }
-
-    pub(crate) fn actual() -> Self {
-        if let Some(sudo_uid) = std::env::var_os("SUDO_UID") {
-        if let Some(sudo_gid) = std::env::var_os("SUDO_GID") {
-        if let Some(sudo_user) = std::env::var_os("SUDO_USER") {
-        if let Ok(uid) = sudo_uid.to_string_lossy().parse() {
-        if let Ok(gid) = sudo_gid.to_string_lossy().parse() {
-            let name = sudo_user.to_string_lossy();
-            let env = 
-                Environment::init(uid, &name)
-                .expect("Failed to get env for acutal user");
-            return Self {
-                uid,
-                gid,
-                name: name.to_string(),
-                env: Some(env),
-            }
-        }}}}}
-        Self::current()
-    }
-
+pub(crate) trait Identity {
+    fn uid(&self) -> u32;
+    fn gid(&self) -> u32;
+    fn name(&self) -> &str;
     fn is_root(&self) -> bool {
-        self.uid == 0 && self.gid == 0
-    }
-
-    fn _is_real_root(&self) -> bool {
-        self.is_root() && self.name == "root"
-    }
-
-    fn _is_sudo_root() -> bool {
-        Self::current().is_root() && !Self::actual().is_root()
-    }
-
-    fn current_and_actual() -> (Self, Self) {
-        (Self::current(), Self::actual())
+        self.uid() == 0 && self.gid() == 0
     }
 
     fn sete_raw(uid: libc::uid_t, gid: libc::gid_t) 
@@ -217,7 +174,7 @@ impl Identity {
     }
 
     fn sete(&self) -> Result<(), std::io::Error> {
-        Self::sete_raw(self.uid, self.gid)
+        Self::sete_raw(self.uid(), self.gid())
     }
 
     fn sete_root() -> Result<(), std::io::Error> {
@@ -225,41 +182,17 @@ impl Identity {
     }
 
     /// Return to root
-    pub(crate) fn set_root_command(command: &mut Command) -> &mut Command {
+    fn set_root_command(command: &mut Command) -> &mut Command {
         unsafe {
             command.pre_exec(|| Self::sete_root());
         }
         command
     }
 
-    /// Drop to the identity, as this uses setuid/setgid, you need to return
-    /// to root first
-    pub(crate) fn set_drop_command<'a>(&self, command: &'a mut Command) 
-        -> &'a mut Command 
-    {
-        self.env.as_ref().expect("Env not parsed")
-            .set_command(command);
-        let uid = self.uid;
-        let gid = self.gid;
-        unsafe {
-            command.pre_exec(move || Self::set_raw(uid, gid));
-        }
-        command
-    }
-
-    /// Return to root then drop
-    pub(crate) fn set_root_drop_command<'a>(&self, command: &'a mut Command) 
-        -> &'a mut Command 
-    {
-        self.env.as_ref().expect("Env not parsed")
-            .set_command(command);
-        Self::set_root_command(command);
-        self.set_drop_command(command)
-    }
 
     /// Chroot to a folder, as this uses chroot(), you need to return to root
     /// first
-    pub(crate) fn set_chroot_command<P: AsRef<Path>>(
+    fn set_chroot_command<P: AsRef<Path>>(
         command: &mut Command, root: P
     ) -> &mut Command
     {
@@ -270,24 +203,11 @@ impl Identity {
         command
     }
 
-    /// Return to root, chroot to a folder, then drop
-    pub(crate) fn set_root_chroot_drop_command<'a, 'b, P: AsRef<Path>>(
-        &'a self, command: &'b mut Command, root: P
-    ) -> &'b mut Command
-    {
-        self.env.as_ref().expect("Env not parsed")
-            .set_command(command);
-        Self::set_root_command(command);
-        Self::set_chroot_command(command, root);
-        self.set_drop_command(command)
-        // command
-    }
-
-    pub(crate) fn run_chroot_command<P: AsRef<Path>>(
+    fn run_chroot_command<P: AsRef<Path>>(
         command: &mut Command, root: P
     ) -> Result<(), ()>
     {
-        let r = Identity::set_chroot_command(command, root)
+        let r = Self::set_chroot_command(command, root)
             .output()
             .or_else(|e|{
                 eprintln!("Failed to spawn chroot command {:?}: {}", 
@@ -320,7 +240,7 @@ impl Identity {
     //     }, root)
     // }
 
-    pub(crate) fn fork_and_run_child<F: FnOnce() -> Result<(), ()>,>(f: F)  
+    fn fork_and_run_child<F: FnOnce() -> Result<(), ()>,>(f: F)  
         -> Result<ForkedChild, ()>
     {
         let child = unsafe {
@@ -345,30 +265,8 @@ impl Identity {
         Self::fork_and_run_child(f)?.wait()
     }
 
-    pub(crate) fn get_actual_and_drop() -> Result<Self, ()> {
-        let (current, actual) = Self::current_and_actual();
-        if ! current.is_root() {
-            eprintln!("Current user is not root, please run builder with sudo");
-            return Err(())
-        }
-        if actual.is_root() {
-            eprintln!("Actual user is root, please run builder with sudo");
-            return Err(())
-        }
-        match actual.sete() {
-            Ok(_) => {
-                println!("Dropped from root to {}", actual);
-                Ok(actual)
-            },
-            Err(_) => {
-                eprintln!("Failed to drop from root to {}", actual);
-                Err(())
-            },
-        }
-    }
-
     /// Run a block as root in a forked child
-    pub(crate) fn _as_root_with_chroot<F, P>(f: F, root: P) 
+    fn _as_root_with_chroot<F, P>(f: F, root: P) 
         -> Result<(), ()>
     where 
         F: FnOnce() -> Result<(), ()>,
@@ -388,7 +286,7 @@ impl Identity {
         })
     }
 
-    pub(crate) fn as_root<F: FnOnce() -> Result<(), ()>>(f: F) -> Result<(), ()>
+    fn as_root<F: FnOnce() -> Result<(), ()>>(f: F) -> Result<(), ()>
     {
         Self::fork_and_run(||{
             if Self::sete_root().is_err() {
@@ -399,7 +297,7 @@ impl Identity {
         })
     }
 
-    pub(crate) fn as_root_child<F: FnOnce() -> Result<(), ()>>(f: F) 
+    fn as_root_child<F: FnOnce() -> Result<(), ()>>(f: F) 
         -> Result<ForkedChild, ()>
     {
         Self::fork_and_run_child(||{
@@ -411,7 +309,7 @@ impl Identity {
         })
     }
 
-    pub(crate) fn _with_chroot<F, P>(f: F, root: P) 
+    fn _with_chroot<F, P>(f: F, root: P) 
         -> Result<(), ()>
     where 
         F: FnOnce() -> Result<(), ()>,
@@ -426,41 +324,184 @@ impl Identity {
             f()
         })
     }
+}
 
-    pub(crate) fn home(&self) -> Result<PathBuf, ()> {
-        if let Some(env) = &self.env {
-            Ok(PathBuf::from(&env.home))
-        } else {
-            eprint!("Failed to get home dir, this should not happen");
-            Err(())
-        }
+impl Identity for IdentityCurrent {
+    fn uid(&self) -> u32 {
+        self.uid
     }
 
-    pub(crate) fn home_string(&self) -> Result<String, ()> {
-        if let Some(env) = &self.env {
-            Ok(env.home.to_string_lossy().into_owned())
-        } else {
-            eprint!("Failed to get home dir, this should not happen");
-            Err(())
-        }
+    fn gid(&self) -> u32 {
+        self.gid
     }
 
-    pub(crate) fn user(&self) -> Result<String, ()> {
-        if let Some(env) = &self.env {
-            if let Some(str) = env.user.to_str() {
-                return Ok(str.to_string())
-            }
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+
+impl Display for IdentityCurrent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "uid: {}, gid: {}, name: {}", self.uid, self.gid, self.name))
+    }
+}
+
+impl IdentityCurrent {
+    pub(crate) fn new() -> Self {
+        Self {
+            uid: unsafe {
+                libc::getuid()
+            },
+            gid: unsafe {
+                libc::getgid()
+            },
+            name: unsafe {
+                let ptr = libc::getlogin();
+                let len = libc::strlen(ptr);
+                let slice = std::slice::from_raw_parts(
+                    ptr as *mut u8, len);
+                String::from_utf8_lossy(slice).into_owned()
+            },
         }
-        eprint!("Failed to get user name, this should not happen");
+    }
+}
+
+impl Identity for IdentityActual {
+    fn uid(&self) -> u32 {
+        self.uid
+    }
+
+    fn gid(&self) -> u32 {
+        self.gid
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl Display for IdentityActual {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "uid: {}, gid: {}, name: {}", self.uid, self.gid, self.name))
+    }
+}
+
+impl IdentityActual {
+    pub(crate) fn cwd(&self) -> &Path {
+        &self.cwd
+    }
+    pub(crate) fn cwd_no_root(&self) -> &Path {
+        &self.cwd_no_root
+    }
+    // pub(crate) fn cwd_absolute(&self) -> &Path {
+    //     &self.cwd_absolute
+    // }
+    pub(crate) fn user(&self) -> &str {
+        &self.user
+    }
+    pub(crate) fn home_path(&self) -> &Path {
+        &self.home_path
+    }
+    pub(crate) fn home_str(&self) -> &str {
+        &self.home_string
+    }
+    pub(crate) fn new() -> Result<Self, ()> {
+        if let Some(sudo_uid) = std::env::var_os("SUDO_UID") {
+        if let Some(sudo_gid) = std::env::var_os("SUDO_GID") {
+        if let Some(sudo_user) = std::env::var_os("SUDO_USER") {
+        if let Ok(uid) = sudo_uid.to_string_lossy().parse() {
+        if let Ok(gid) = sudo_gid.to_string_lossy().parse() {
+            let name = sudo_user.to_string_lossy().to_string();
+            let env = Environment::init(uid, 
+                &name).ok_or_else(||{
+                    println!("Failed to get env for actual user")
+                })?;     
+            let cwd = PathBuf::from(&env.cwd);
+            let cwd_no_root = cwd.strip_prefix("/").or_else(|e|{
+                eprintln!("Failed to strip leading / from cwd: {}", e);
+                Err(())
+            })?.to_path_buf();
+            // let cwd_absolute = cwd.canonicalize().or_else(|e|
+            // {
+            //     eprintln!("Failed to canonicalize cwd: {}", e);
+            //     Err(())
+            // })?;
+            let user = env.user.to_string_lossy().to_string();
+            let home_path = PathBuf::from(&env.home);
+            let home_string = env.home.to_string_lossy().to_string();
+            return Ok(Self {
+                uid,
+                gid,
+                name: sudo_user.to_string_lossy().to_string(),
+                env,
+                cwd,
+                cwd_no_root,
+                // cwd_absolute,
+                user,
+                home_path,
+                home_string
+            })
+        }}}}}
         Err(())
     }
 
-    pub(crate) fn cwd(&self) -> Result<PathBuf, ()> {
-        if let Some(env) = &self.env {
-            Ok(PathBuf::from(&env.cwd))
-        } else {
-            eprint!("Failed to get home dir, this should not happen");
-            Err(())
+    pub(crate) fn drop(&self) -> Result<&Self, ()> {
+        let current = IdentityCurrent::new();
+        if ! current.is_root() {
+            eprintln!("Current user is not root, please run builder with sudo");
+            return Err(())
         }
+        if self.is_root() {
+            eprintln!("Actual user is root, please run builder with sudo");
+            return Err(())
+        }
+        match self.sete() {
+            Ok(_) => {
+                println!("Dropped from root to {}", self);
+                Ok(self)
+            },
+            Err(_) => {
+                eprintln!("Failed to drop from root to {}", self);
+                Err(())
+            },
+        }
+    }
+    
+    /// Drop to the identity, as this uses setuid/setgid, you need to return
+    /// to root first
+    pub(crate) fn set_drop_command<'a>(&self, command: &'a mut Command) 
+        -> &'a mut Command 
+    {
+        self.env.set_command(command);
+        let uid = self.uid;
+        let gid = self.gid;
+        unsafe {
+            command.pre_exec(move || Self::set_raw(uid, gid));
+        }
+        command
+    }
+
+    /// Return to root then drop
+    pub(crate) fn set_root_drop_command<'a>(&self, command: &'a mut Command) 
+        -> &'a mut Command 
+    {
+        self.env.set_command(command);
+        Self::set_root_command(command);
+        self.set_drop_command(command)
+    }
+
+    /// Return to root, chroot to a folder, then drop
+    pub(crate) fn set_root_chroot_drop_command<'a, 'b, P: AsRef<Path>>(
+        &'a self, command: &'b mut Command, root: P
+    ) -> &'b mut Command
+    {
+        self.env.set_command(command);
+        Self::set_root_command(command);
+        Self::set_chroot_command(command, root);
+        self.set_drop_command(command)
+        // command
     }
 }
