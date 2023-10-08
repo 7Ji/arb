@@ -338,10 +338,11 @@ impl<'a> Builders<'a> {
         let mut bad = false;
         while self.builders.len() > 0 {
             let mut finished = None;
-            let mut heavy_load = check_heavy_load();
+            let mut heavy_load = false;
             for (id, builder) in 
                 self.builders.iter_mut().enumerate() 
             {
+                heavy_load = check_heavy_load();
                 match builder.step(heavy_load, self.actual_identity, self.nonet,
                                     self.sign) 
                 {
@@ -357,7 +358,6 @@ impl<'a> Builders<'a> {
                 if heavy_load {
                     sleep(Duration::from_secs(1))
                 }
-                heavy_load = check_heavy_load()
             }
             if let Some(id) = finished {
                 let builder = self.builders.swap_remove(id);
