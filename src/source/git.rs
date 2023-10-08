@@ -611,17 +611,15 @@ impl Repo {
         format!("of url {}", &self.url)
     }
 
-    fn sync_for_domain(
+    fn sync_for_domain_mt(
         repos: Vec<Self>,
         max_threads: usize,
         hold: bool,
         proxy: Option<&str>
     ) -> Result<(), ()>
     {
-        let (proxy_string, has_proxy) = match proxy {
-            Some(proxy) => (proxy.to_owned(), true),
-            None => (String::new(), false),
-        };
+        let proxy = proxy.and_then(
+            |proxy|Some(proxy.to_string()));
         let mut threads = vec![];
         let job = format!("syncing git repos from domain '{}'", 
             repos.last().ok_or(())?.get_domain());
@@ -636,17 +634,13 @@ impl Repo {
                         repo.path.display());
                 }
             }
-            let proxy_string_thread = proxy_string.clone();
+            let proxy_thread = proxy.clone();
             if let Err(_) = 
                 threading::wait_if_too_busy(&mut threads, max_threads, &job) {
                 bad = true;
             }
             threads.push(thread::spawn(move ||{
-                let proxy = match has_proxy {
-                    true => Some(proxy_string_thread.as_str()),
-                    false => None,
-                };
-                repo.sync(proxy)
+                repo.sync(proxy_thread.as_deref())
             }));
         }
         if let Err(_) = threading::wait_remaining(threads, &job) {
@@ -657,6 +651,64 @@ impl Repo {
         } else {
             Ok(())
         }
+    }
+
+    fn sync_for_domain_st(
+        repos: Vec<Self>,
+        hold: bool,
+        proxy: Option<&str>
+    ) -> Result<(), ()>
+    {
+        let mut bad = false;
+        for repo in repos {
+            if hold {
+                if repo.healthy() {
+                    continue;
+                } else {
+                    println!(
+                        "Holdgit set but repo '{}' not healthy, need update",
+                        repo.path.display());
+                }
+            }
+            if repo.sync(proxy).is_err() {
+                eprintln!("Failed to sync repo '{}'", &repo.url);
+                bad = true
+            }
+        }
+        if bad {
+            Err(())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn sync_for_domain(
+        repos: Vec<Self>,
+        max_threads: usize,
+        hold: bool,
+        proxy: Option<&str>
+    ) -> Result<(), ()>
+    {
+        if max_threads >= 2 && repos.len() >= 2 {
+            Self::sync_for_domain_mt(repos, max_threads, hold, proxy)
+        } else {
+            Self::sync_for_domain_st(repos, hold, proxy)
+        }
+    }
+
+    fn sync_for_aur(
+        mut repos: Vec<Self>,
+        hold: bool,
+        proxy: Option<&str>
+    ) -> Result<(), ()>
+    {
+        if Self::filter_aur(&mut repos).is_err() {
+            eprintln!("Warning: failed to filter AUR repos")
+        }
+        if repos.is_empty() {
+            return Ok(())
+        }
+        Self::sync_for_domain(repos, 1, hold, proxy)
     }
 
     fn last_fetch(&self) -> i64 {
@@ -741,29 +793,19 @@ impl Repo {
         let proxy = proxy.and_then(
             |proxy_str|Some(proxy_str.to_string()));
         let mut threads = vec![];
-        for (domain, mut repos) in repos_map {
-            if repos.is_empty() {
-                continue
-            }
-            let max_threads = match domain {
-                0xb463cbdec08d6265 => { // aur.archlinux.org,
-                    if Self::filter_aur(&mut repos).is_err() {
-                        eprintln!("Warning: failed to filter AUR repos")
-                    }
-                    if repos.is_empty() {
-                        continue
-                    }
-                    1
-                },
-                _ => 10,
-            };
-            println!("Max {} threads from domain {}", max_threads,
-                        repos.last().ok_or(())?.get_domain());
+        for (domain, repos) in repos_map {
             let proxy_thread = proxy.clone();
-            threads.push(thread::spawn(move || {
-                Self::sync_for_domain(
-                    repos, max_threads, hold, proxy_thread.as_deref())
-            }));
+            if domain == 0xb463cbdec08d6265 {
+                threads.push(thread::spawn(move || {
+                    Self::sync_for_aur(
+                        repos, hold, proxy_thread.as_deref())}))
+
+            } else {
+                threads.push(thread::spawn(move || {
+                    Self::sync_for_domain(
+                        repos, 10, hold,
+                        proxy_thread.as_deref())}))
+            }
         }
         threading::wait_remaining(threads, "syncing git repo groups")
     }
