@@ -290,7 +290,7 @@ fn prepare_pkgdir() -> Result<(), ()> {
 
 
 fn check_heavy_load(jobs: usize, cores: usize) -> bool {
-    if jobs > cores {
+    if jobs >= cores {
         return true
     }
     if match procfs::CpuPressure::new() {
