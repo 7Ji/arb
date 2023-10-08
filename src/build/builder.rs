@@ -39,7 +39,7 @@ impl Default for BuildState {
 }
 
 struct Builder<'a> {
-    pkgbuild: &'a mut PKGBUILD,
+    pkgbuild: &'a PKGBUILD,
     builddir: BuildDir,
     temp_pkgdir: PathBuf,
     command: Command,
@@ -50,13 +50,18 @@ struct Builder<'a> {
 
 impl <'a> Builder<'a> {
     const BUILD_MAX_TRIES: usize = 3;
-    fn from_pkgbuild(pkgbuild: &'a mut PKGBUILD, actual_identity: &IdentityActual) 
+    fn from_pkgbuild(pkgbuild: &'a PKGBUILD, actual_identity: &IdentityActual) 
         -> Result<Self, ()> 
     {
         let builddir = BuildDir::new(&pkgbuild.base)?;
         let temp_pkgdir = pkgbuild.get_temp_pkgdir()?;
         let command = pkgbuild.get_build_command(
             actual_identity, &temp_pkgdir)?;
+        let build_state = if pkgbuild.extracted {
+            BuildState::Extracted
+        } else {
+            BuildState::None
+        };
         Ok(Self {
             pkgbuild,
             builddir,
@@ -64,7 +69,7 @@ impl <'a> Builder<'a> {
             command,
             tries: 0,
             root_state: RootState::default(),
-            build_state: BuildState::default()
+            build_state,
         })
     }
 
@@ -85,33 +90,35 @@ impl <'a> Builder<'a> {
     }
 
     fn step_build(&mut self,  heavy_load: bool, actual_identity: &IdentityActual, 
-        sign: Option<&str> ) -> Result<(), ()> 
+        sign: Option<&str>, jobs: &mut usize ) -> Result<(), ()> 
     {
         match &mut self.build_state {
             BuildState::None => 
-                if self.pkgbuild.extracted {
-                    self.build_state = BuildState::Extracted
-                } else if ! heavy_load {
-                    self.start_extract(actual_identity)?
+                if ! heavy_load {
+                    self.start_extract(actual_identity)?;
+                    *jobs += 1
                 },
             BuildState::Extracting { child } => 
                 match child.try_wait() {
                     Ok(r) => match r {
-                        Some(r) => 
+                        Some(r) => {
+                            *jobs -= 1;
                             if let Some(0) = r.code() {
-                                println!("Successfully extracted source for \
+                                println!(
+                                    "Successfully extracted source for \
                                     pkgbuild '{}'", &self.pkgbuild.base);
                                 self.build_state = BuildState::Extracted;
-                                self.pkgbuild.extracted = true
                             } else {
                                 eprintln!("Failed to extract source for \
                                     pkgbuild '{}'", &self.pkgbuild.base);
                                 return Err(())
-                            },
+                            }
+                        },
                         None => (),
                     },
                     Err(e) => {
                         eprintln!("Failed to wait for extractor: {}", e);
+                        *jobs -= 1;
                         return Err(())
                     },
                 },
@@ -130,6 +137,7 @@ impl <'a> Builder<'a> {
                     };
                     self.build_state = BuildState::Building { child };
                     self.tries += 1;
+                    *jobs += 1;
                     println!("Start building '{}', try {} of {}", 
                         &self.pkgbuild.base, self.tries, Self::BUILD_MAX_TRIES);
                 },
@@ -137,6 +145,7 @@ impl <'a> Builder<'a> {
                 match child.try_wait() {
                     Ok(r) => match r {
                         Some(r) => {
+                            *jobs -= 1;
                             println!("Log of building '{}':", 
                                 &self.pkgbuild.base);
                             if self.builddir.read_log().is_err() {
@@ -167,11 +176,11 @@ impl <'a> Builder<'a> {
                                         after failed build attempt");
                                     return Err(())
                                 }
-                                self.pkgbuild.extracted = false;
                                 if heavy_load {
                                     self.build_state = BuildState::None;
                                 } else {
                                     self.start_extract(actual_identity)?;
+                                    *jobs += 1
                                 }
                             }
                         },
@@ -179,6 +188,7 @@ impl <'a> Builder<'a> {
                     },
                     Err(e) => {
                         eprintln!("Failed to wait for builder: {}", e);
+                        *jobs -= 1;
                         return Err(())
                     },
                 }
@@ -191,7 +201,7 @@ impl <'a> Builder<'a> {
     }
 
     fn step(&mut self, heavy_load: bool, actual_identity: &IdentityActual, 
-            nonet: bool, sign: Option<&str> ) -> Result<(), ()> 
+            nonet: bool, sign: Option<&str>, jobs: &mut usize ) -> Result<(), ()> 
     {
         match &mut self.root_state {
             RootState::None => if ! heavy_load {
@@ -202,7 +212,8 @@ impl <'a> Builder<'a> {
                         println!("Start chroot bootstrapping for pkgbuild '{}'",
                             &self.pkgbuild.base);
                         self.root_state = RootState::Boostrapping { 
-                            bootstrapping_root }
+                            bootstrapping_root };
+                        *jobs += 1;
                     },
                     Err(_) => {
                         eprintln!("Failed to get chroot bootstrapper for \
@@ -215,8 +226,9 @@ impl <'a> Builder<'a> {
                 bootstrapping_root } 
             => match bootstrapping_root.wait_noop() {
                 Ok(r) => match r {
-                    Some(r) => match r {
-                        Ok(_) => {
+                    Some(r) => {
+                        *jobs -= 1;
+                        if r.is_ok() {
                             let old_state = 
                                 std::mem::take(&mut self.root_state);
                             if let RootState::Boostrapping { 
@@ -228,7 +240,7 @@ impl <'a> Builder<'a> {
                                         self.root_state = 
                                             RootState::Bootstrapped { root };
                                         println!("Chroot bootstrapped for \
-                                            pkgbuild '{}'", &self.pkgbuild.base)
+                                            pkgbuild '{}'", &self.pkgbuild.base);
                                     },
                                     Err(_) => {
                                         eprintln!("Failed to bootstrap chroot \
@@ -241,19 +253,21 @@ impl <'a> Builder<'a> {
                                 eprintln!("Status inconsistent");
                                 return Err(())
                             }
-                        },
-                        Err(_) => {
+                        } else  {
                             eprintln!("Bootstrapper failed");
                             return Err(())
-                        },
+                        }
                     },
                     None => (),
                 },
-                Err(_) => return Err(()),
+                Err(_) => {
+                    *jobs -= 1;
+                    return Err(())
+                },
             },
             RootState::Bootstrapped { root } => {
                 let _ = root;
-                self.step_build(heavy_load, actual_identity, sign)?
+                self.step_build(heavy_load, actual_identity, sign, jobs)?
             },
         }
         Ok(())
@@ -275,7 +289,10 @@ fn prepare_pkgdir() -> Result<(), ()> {
 }
 
 
-fn check_heavy_load() -> bool {
+fn check_heavy_load(jobs: usize, cores: usize) -> bool {
+    if jobs > cores {
+        return true
+    }
     match procfs::CpuPressure::new() {
         Ok(cpu_pressure) => cpu_pressure.some.avg10 > 10.00,
         Err(e) => {
@@ -301,13 +318,13 @@ struct Builders<'a> {
 
 impl<'a> Builders<'a> {
     fn from_pkgbuilds(
-        pkgbuilds: &'a mut PKGBUILDs, actual_identity: &'a IdentityActual, 
+        pkgbuilds: &'a PKGBUILDs, actual_identity: &'a IdentityActual, 
         nonet: bool, sign: Option<&'a str>
     ) -> Result<Self, ()> 
     {
         prepare_pkgdir()?;
         let mut builders = vec![];
-        for pkgbuild in pkgbuilds.0.iter_mut() {
+        for pkgbuild in pkgbuilds.0.iter() {
             if ! pkgbuild.need_build {
                 continue
             }
@@ -329,20 +346,21 @@ impl<'a> Builders<'a> {
 
     fn work(&mut self)  -> Result<(), ()> 
     {
-        // let cpuinfo = procfs::CpuInfo::new().or_else(|e|{
-        //     eprintln!("Failed to get cpuinfo: {}", e);
-        //     Err(())
-        // })?;
-        // let cores = cpuinfo.num_cores();
+        let cpuinfo = procfs::CpuInfo::new().or_else(|e|{
+            eprintln!("Failed to get cpuinfo: {}", e);
+            Err(())
+        })?;
+        let cores = cpuinfo.num_cores();
         let mut bad = false;
+        let mut jobs = 0;
         loop {
             let mut finished = None;
             for (id, builder) in 
                 self.builders.iter_mut().enumerate() 
             {
-                let heavy_load = check_heavy_load();
+                let heavy_load = check_heavy_load(jobs, cores);
                 match builder.step(heavy_load, self.actual_identity, self.nonet,
-                                    self.sign) 
+                                    self.sign, &mut jobs) 
                 {
                     Ok(_) => if let BuildState::Built = builder.build_state {
                         finished = Some(id);
@@ -365,7 +383,7 @@ impl<'a> Builders<'a> {
             if self.builders.is_empty() {
                 break
             }
-            if check_heavy_load() {
+            if check_heavy_load(jobs, cores) {
                 sleep(Duration::from_secs(10))
             } else {
                 sleep(Duration::from_millis(100))
