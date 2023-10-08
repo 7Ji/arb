@@ -1011,19 +1011,26 @@ impl PKGBUILDs {
         self.fill_all_pkgvers(actual_identity, &dir)?;
         // Use the fresh DBs in target root
         let base_root = BaseRoot::db_only()?;
-        let mut all_deps = self.check_deps(
+        self.check_deps(
             actual_identity, dir.as_ref(), base_root.path(),
             dephash_strategy)?;
         self.fill_all_ids_dirs(dephash_strategy);
         let need_builds = self.check_if_need_build()? > 0;
         if need_builds {
-            if ! basepkgs.is_empty() {
-                for pkg in basepkgs.iter() {
-                    all_deps.push(pkg.clone())
+            let mut all_deps = vec![];
+            for pkgbuild in self.0.iter() {
+                if ! pkgbuild.need_build {
+                    continue
                 }
-                all_deps.sort_unstable();
-                all_deps.dedup();
+                for dep in pkgbuild.depends.needs.iter() {
+                    all_deps.push(dep.clone())
+                }
             }
+            for pkg in basepkgs.iter() {
+                all_deps.push(pkg.clone())
+            }
+            all_deps.sort_unstable();
+            all_deps.dedup();
             Depends::cache_raw(&all_deps, base_root.db_path())?;
             base_root.finish(actual_identity, basepkgs)?;
             let db_handle = DbHandle::new(base_root.path())?;
