@@ -172,9 +172,7 @@ impl MountedFolder {
 
     /// Root is expected
     fn remove_all() -> Result<(), ()> {
-        // Force remove method to run on roots
-        let _ = Self(PathBuf::from("roots"));
-        Ok(())
+        Self(PathBuf::from("roots")).remove().and(Ok(()))
     }
 }
 
@@ -518,7 +516,7 @@ impl CommonRoot for BaseRoot {
 
 impl Drop for BaseRoot {
     fn drop(&mut self) {
-        let _ = MountedFolder::remove_all();
+        let _ = IdentityActual::as_root(||MountedFolder::remove_all());
     }
 }
 
