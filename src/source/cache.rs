@@ -60,10 +60,6 @@ pub(crate) fn cache_sources_mt(
         Source::map_by_domain(netfile_sources);
     let git_sources_map =
         Source::map_by_domain(git_sources);
-    let (proxy_string, has_proxy) = match proxy {
-        Some(proxy) => (proxy.to_owned(), true),
-        None => (String::new(), false),
-    };
     let mut netfile_threads_map = 
         match get_domain_threads_map(&netfile_sources_map) {
             Some(map) => map,
@@ -108,16 +104,14 @@ pub(crate) fn cache_sources_mt(
                     .expect("Failed to get source from sources vec");
                 let integ_files 
                     = IntegFile::vec_from_source(&netfile_source);
-                let proxy_string_thread = proxy_string.clone();
+                let proxy_thread = proxy
+                    .map(|proxy|proxy.to_owned());
                 let actual_identity_thread = actual_identity.clone();
                 let netfile_thread = thread::spawn(
                 move ||{
-                    let proxy = match has_proxy {
-                        true => Some(proxy_string_thread.as_str()),
-                        false => None,
-                    };
                     netfile::cache_source(&netfile_source, &integ_files,
-                         &actual_identity_thread, skipint, proxy)
+                         &actual_identity_thread, skipint, 
+                         proxy_thread.as_deref())
                 });
                 netfile_threads.push(netfile_thread);
             }
@@ -140,15 +134,10 @@ pub(crate) fn cache_sources_mt(
                 if holdgit && git_repo.healthy() {
                     continue
                 }
-                let proxy_string_thread = proxy_string.clone();
+                let proxy_thread = proxy
+                    .map(|proxy|proxy.to_owned());
                 let git_thread = thread::spawn(
-                move ||{
-                    let proxy = match has_proxy {
-                        true => Some(proxy_string_thread.as_str()),
-                        false => None,
-                    };
-                    git_repo.sync(proxy)
-                });
+                move || git_repo.sync(proxy_thread.as_deref()));
                 git_threads.push(git_thread);
             }
         }
