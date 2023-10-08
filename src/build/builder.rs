@@ -335,7 +335,7 @@ impl<'a> Builders<'a> {
         // })?;
         // let cores = cpuinfo.num_cores();
         let mut bad = false;
-        while self.builders.len() > 0 {
+        loop {
             let mut finished = None;
             for (id, builder) in 
                 self.builders.iter_mut().enumerate() 
@@ -361,6 +361,9 @@ impl<'a> Builders<'a> {
                 let builder = self.builders.swap_remove(id);
                 println!("Finished builder for PKGBUILD '{}'", 
                     &builder.pkgbuild.base);
+            }
+            if self.builders.is_empty() {
+                break
             }
             if check_heavy_load() {
                 sleep(Duration::from_secs(10))
