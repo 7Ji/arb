@@ -1,46 +1,74 @@
-// A single-package GET request 'https://aur.archlinux.org/rpc/v5/info/ampart'
-// {
-//     "resultcount": 1,
-//     "results": [
-//         {
-//             "Depends": [
-//                 "glibc"
-//                 "zlib"
-//             ],
-//             "Description": "A partition tool to modify Amlogic's proprietary eMMC partition format and FDT",
-//             "FirstSubmitted": 1677652518,
-//             "ID": 1219346,
-//             "Keywords": [],
-//             "LastModified": 1677652518,
-//             "License": ["GPL3"],
-//             "Maintainer": "7Ji",
-//             "MakeDepends": ["gcc"],
-//             "Name": "ampart",
-//             "NumVotes": 0,
-//             "OutOfDate": null, 
-//             "PackageBase": "ampart",
-//             "PackageBaseID": 190927,
-//             "Popularity": 0,
-//             "Submitter": "7Ji",
-//             "URL": "https://github.com/7Ji/ampart",
-//             "URLPath": "/cgit/aur.git/snapshot/ampart.tar.gz", 
-//             "Version": "1.3-1"
-//         }
-//     ],
-//     "type": "multiinfo",
-//     "version":5
-// }
-// Basically the only part we need is LastModified, and by comparing that against our FETCH_HEAD we could therefore determine whether it needs update
+use serde::{Serialize, Deserialize};
 
-struct _AurPkg {
-    name: String,
-    last_modified: u64
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
+pub(crate) struct AurPackage {
+    pub(crate) last_modified: u64,
+    pub(crate) name: String
 }
 
-struct _AurPkgs {
-    pkgs: Vec<_AurPkg>
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct AurResult {
+    pub(crate) results: Vec<AurPackage>,
 }
 
-impl _AurPkgs {
+fn request_url(url: &str) -> Result<String, ()> {
+    println!("Requesting URL '{}'", url);
+    let future = async {
+        let response = reqwest::get(url).await.or_else(|e|{
+            eprintln!("Failed to get response: {}", e);
+            Err(())
+        })?;
+        if response.status() != reqwest::StatusCode::OK {
+            eprintln!("Failed to get response");
+            return Err(())
+        }
+        response.text().await.or_else(|e|{
+            eprintln!("Failed to get the response body as text: {}", e);
+            Err(())
+        })
+    };
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .or_else(|e|{
+            eprintln!("Failed to build async runner: {}", e);
+            Err(())
+        })?
+        .block_on(future)
+}
 
+impl AurResult {
+    pub(crate) fn from_pkgs<I, S>(pkgs: I) -> Result<Self, ()> 
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>
+    {
+        const AUR_MAX_TRIES: usize = 3;
+        let mut url = String::from(
+            "https://aur.archlinux.org/rpc/v5/info");
+        let mut started = false;
+        for pkg in pkgs {
+            if started {
+                url.push('&')
+            } else {
+                started = true
+            }
+            url.push_str("arg%5B%5D="); // arg[]=
+            url.push_str(pkg.as_ref());
+        }
+        for i in 0..AUR_MAX_TRIES {
+            println!("Requesting AUR, try {} of {}", i + 1, AUR_MAX_TRIES);
+            let string = match request_url(&url) {
+                Ok(string) => string,
+                Err(_) => continue,
+            };
+            match serde_json::from_str(&string) {
+                Ok(result) => return Ok(result),
+                Err(e) => eprintln!("Failed to parse result: {}", e),
+            }
+        }
+        eprintln!("Failed to get AUR result after all tries");
+        Err(())
+    }
 }

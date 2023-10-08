@@ -118,6 +118,9 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>)
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .unwrap()
+        .or_else(|e|{
+            eprintln!("Failed to build async runner: {}", e);
+            Err(())
+        })?
         .block_on(future)
 }
