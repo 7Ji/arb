@@ -18,6 +18,9 @@ struct Arg {
     #[arg(default_value_t = String::from("config.yaml"))]
     config: String,
 
+    /// Optional packages to only build them
+    pkgs: Vec<String>,
+
     /// HTTP proxy to retry for git updating and http(s)
     /// netfiles if attempt without proxy failed
     #[arg(short, long)]
@@ -88,15 +91,6 @@ fn default_basepkgs() -> Vec<String> {
 fn main() -> Result<(), ()> {
     let actual_identity = identity::IdentityActual::new()?;
     actual_identity.drop()?;
-    // let actual_identity = match 
-    //     identity::IdentityActual::new()? 
-    // {
-    //     Ok(identity) => identity,
-    //     Err(_) => {
-    //         eprintln!("Failed to get actual identity");
-    //         exit(-1);
-    //     },
-    // };
     let arg = Arg::parse();
     let file = match std::fs::File::open(&arg.config) {
         Ok(file) => file,
@@ -105,13 +99,17 @@ fn main() -> Result<(), ()> {
             exit(-1);
         },
     };
-    let config: Config = match serde_yaml::from_reader(file) {
+    let mut config: Config = match serde_yaml::from_reader(file) {
         Ok(config) => config,
         Err(e) => {
             eprintln!("Failed to parse YAML: {}", e);
             exit(-1)
         },
     };
+    if ! arg.pkgs.is_empty() {
+        println!("Only build the following packages: {:?}", arg.pkgs);
+        config.pkgbuilds.retain(|name, _|arg.pkgs.contains(name));
+    }
     if let Err(_) = build::work(
         actual_identity,
         &config.pkgbuilds,
