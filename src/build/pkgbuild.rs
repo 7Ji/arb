@@ -78,11 +78,12 @@ pub(super) struct PKGBUILD {
     pub(super) extracted: bool,
     git: PathBuf,
     home_binds: Vec<String>,
-    _names: Vec<String>,
+    names: Vec<String>,
     pub(super) need_build: bool,
     pkgid: String,
     pkgdir: PathBuf,
     pkgver: Pkgver,
+    provides: Vec<String>,
     sources: Vec<source::Source>,
     subtree: Option<PathBuf>,
     url: String,
@@ -113,6 +114,17 @@ impl git::ToReposMap for PKGBUILD {
 }
 
 impl PKGBUILD {
+    // pub(super) fn provides(&self, pkg: &String) -> bool {
+    //     self.names.contains(pkg) || self.provides.contains(pkg)
+    // }
+    pub(super) fn wants<'a> (&'a self, other: &'a Self) -> Option<&'a str> {
+        for pkg in other.names.iter().chain(other.provides.iter()) {
+            if self.depends.wants(pkg) {
+                return Some(pkg)
+            }
+        }
+        None
+    }
     fn new(
         name: &str, url: &str, build_parent: &Path, git_parent: &Path,
         branch: Option<&str>, subtree: Option<&str>, deps: Option<&Vec<String>>,
@@ -163,11 +175,12 @@ impl PKGBUILD {
                 Some(home_binds) => home_binds.clone(),
                 None => vec![],
             },
-            _names: vec![],
+            names: vec![],
             need_build: false,
             pkgid: String::new(),
             pkgdir: PathBuf::from("pkgs"),
             pkgver: Pkgver::Plain,
+            provides: vec![],
             sources: vec![],
             subtree: match subtree {
                 Some(subtree) => {

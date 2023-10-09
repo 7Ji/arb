@@ -275,4 +275,13 @@ impl Depends {
             },
         }
     }
+
+    pub(super) fn wants(&self, pkg: &str) -> bool {
+        for dep in self.deps.iter().chain(self.makedeps.iter()) {
+            if dep == pkg {
+                return true
+            }
+        }
+        false
+    }
 }
