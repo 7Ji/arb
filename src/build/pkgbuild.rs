@@ -113,6 +113,12 @@ impl git::ToReposMap for PKGBUILD {
     }
 }
 
+impl AsRef<PKGBUILD> for PKGBUILD {
+    fn as_ref(&self) -> &PKGBUILD {
+        self
+    }
+}
+
 impl PKGBUILD {
     // pub(super) fn provides(&self, pkg: &String) -> bool {
     //     self.names.contains(pkg) || self.provides.contains(pkg)

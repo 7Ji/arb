@@ -355,6 +355,33 @@ impl<'a> Builders<'a> {
         })
     }
 
+    fn from_pkgbuild_layer(
+        pkgbuild_layer: &Vec<&'a PKGBUILD>, actual_identity: &'a IdentityActual, 
+        nonet: bool, sign: Option<&'a str>
+    ) -> Result<Self, ()> 
+    {
+        prepare_pkgdir()?;
+        let mut builders = vec![];
+        for pkgbuild in pkgbuild_layer.iter() {
+            if ! pkgbuild.need_build {
+                continue
+            }
+            match Builder::from_pkgbuild(pkgbuild, actual_identity) {
+                Ok(builder) => builders.push(builder),
+                Err(_) => {
+                    eprintln!("Failed to create builder for pkgbuild");
+                    return Err(())
+                },
+            }
+        }
+        Ok(Self {
+            builders,
+            actual_identity,
+            nonet,
+            sign,
+        })
+    }
+
     fn work(&mut self)  -> Result<(), ()> 
     {
         let cpuinfo = procfs::CpuInfo::new().or_else(|e|{
@@ -412,11 +439,21 @@ impl<'a> Builders<'a> {
 }
 
 pub(super) fn build_any_needed(
-    pkgbuilds: &mut PKGBUILDs,  actual_identity: &IdentityActual, 
+    pkgbuilds: &PKGBUILDs,  actual_identity: &IdentityActual, 
     nonet: bool, sign: Option<&str>
 ) -> Result<(), ()>
 {
     Builders::from_pkgbuilds(pkgbuilds, actual_identity, nonet, sign)?
+        .work()?;
+    Ok(())
+}
+
+pub(super) fn build_any_needed_layer(
+    pkgbuild_layer: &Vec<&PKGBUILD>,  actual_identity: &IdentityActual, 
+    nonet: bool, sign: Option<&str>
+) -> Result<(), ()>
+{
+    Builders::from_pkgbuild_layer(pkgbuild_layer, actual_identity, nonet, sign)?
         .work()?;
     Ok(())
 }

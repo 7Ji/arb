@@ -3,7 +3,7 @@ use super::pkgbuild::{PKGBUILD, PKGBUILDs};
 struct DepNode<'a> {
     pkgbuild: &'a PKGBUILD,
     wants: Vec<&'a PKGBUILD>,
-    deps: Vec<&'a str>,
+    // deps: Vec<&'a str>,
 }
 
 struct DepNodes<'a> {
@@ -33,13 +33,13 @@ impl<'a> DepNodes<'a>  {
             nodes.push(DepNode{
                 pkgbuild,
                 wants,
-                deps
+                // deps
             })
         }
         Ok(Self{nodes})
     }
 
-    fn split(mut self) {
+    fn split(mut self) -> Result<Vec<Vec<&'a PKGBUILD>>, ()> {
         let mut layers: Vec<Vec<DepNode>> = vec![];
         while ! self.nodes.is_empty() {
             if let Some(layer) = layers.last() {
@@ -58,20 +58,30 @@ impl<'a> DepNodes<'a>  {
             if layer.is_empty() {
                 eprintln!("Failed to split dep layers more, current layer is \
                     empty, remaining nodes: {}", nodes.len());
-                return
+                return Err(())
             }
             self.nodes = nodes;
             layers.push(layer);
         }
         println!("Split PKGBUILDs into {} layers:", layers.len());
+        let mut pkgbuild_layers = vec![];
         for (layer_id, layer) in 
             layers.iter().enumerate() 
         {
+            let mut pkgbuild_layer = vec![];
             println!("Layer {}:", layer_id);
             for node in layer.iter() {
-                println!(" '{}'", &node.pkgbuild.base)
+                println!(" '{}'", &node.pkgbuild.base);
+                pkgbuild_layer.push(node.pkgbuild);
             }
-
+            pkgbuild_layers.push(pkgbuild_layer)
         }
+        Ok(pkgbuild_layers)
     }
+}
+
+pub(super) fn split_pkgbuilds<'a>(pkgbuilds: &'a PKGBUILDs) 
+    -> Result<Vec<Vec<&'a PKGBUILD>>, ()> 
+{
+    DepNodes::from_pkgbuilds(pkgbuilds)?.split()
 }
