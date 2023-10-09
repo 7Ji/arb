@@ -3,6 +3,7 @@ use std::collections::HashMap;
 mod builder;
 mod depend;
 mod dir;
+mod interdep;
 mod pkgbuild;
 mod sign;
 
