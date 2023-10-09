@@ -69,11 +69,12 @@ impl<'a> DepNodes<'a>  {
             layers.iter().enumerate() 
         {
             let mut pkgbuild_layer = vec![];
-            println!("Layer {}:", layer_id);
+            print!("Layer {}:", layer_id);
             for node in layer.iter() {
-                println!(" '{}'", &node.pkgbuild.base);
+                print!(" '{}'", &node.pkgbuild.base);
                 pkgbuild_layer.push(node.pkgbuild);
             }
+            println!();
             pkgbuild_layers.push(pkgbuild_layer)
         }
         Ok(pkgbuild_layers)
