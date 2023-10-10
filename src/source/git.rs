@@ -749,34 +749,83 @@ impl Repo {
                 return Err(())
             },
         };
-        if aur_result.results.len() != repos.len() {
-            eprintln!("Results and repos len mismatch");
-            return Err(())
-        }
-        let mut i = 0;
-        while i < repos.len() {
-            let repo = match repos.get(i) {
-                Some(repo) => repo,
-                None => {
-                    eprintln!("Failed to get repo");
-                    return Err(())
-                },
-            };
-            let pkg = match aur_result.results.get(i) {
-                Some(pkg) => pkg,
-                None => {
-                    eprintln!("Failed to get pkg");
-                    return Err(())
-                },
-            };
-            // leave a 1-min window
-            if repo.last_fetch() > pkg.last_modified + 60 {
-                println!("Repo '{}' last fetch later than AUR last modified, \
-                    skippping it", repo.path.display());
-                repos.swap_remove(i);
-                aur_result.results.swap_remove(i);
-            } else {
-                i += 1
+        if aur_result.results.len() == repos.len() {
+            let mut i = 0;
+            while i < repos.len() {
+                let repo = match repos.get(i) {
+                    Some(repo) => repo,
+                    None => {
+                        eprintln!("Failed to get repo");
+                        return Err(())
+                    },
+                };
+                let pkg = match aur_result.results.get(i) {
+                    Some(pkg) => pkg,
+                    None => {
+                        eprintln!("Failed to get pkg");
+                        return Err(())
+                    },
+                };
+                // leave a 1-min window
+                if repo.last_fetch() > pkg.last_modified + 60 {
+                    println!(
+                        "Repo '{}' last fetch later than AUR last modified, \
+                        skippping it", &repo.url);
+                    repos.swap_remove(i);
+                    aur_result.results.swap_remove(i);
+                } else {
+                    println!("Repo '{}' needs update from AUR", 
+                        &repo.url);
+                    i += 1
+                }
+            }
+        } else {
+            aur_result.results.sort_unstable_by(
+                |result_a, result_b| 
+                    result_a.name.cmp(&result_b.name));
+            let mut i = 0;
+            while i < repos.len() {
+                let repo = match repos.get(i) {
+                    Some(repo) => repo,
+                    None => {
+                        eprintln!("Failed to get repo");
+                        return Err(())
+                    },
+                };
+                let pkg = match pkgs.get(i) {
+                    Some(pkg) => pkg,
+                    None => {
+                        eprintln!("Failed to get pkg");
+                        return Err(())
+                    },
+                };
+                if let Ok(j) = aur_result.results.binary_search_by(
+                    |result|result.name.cmp(pkg)) 
+                {
+                    let result = match 
+                        aur_result.results.get(j) 
+                    {
+                        Some(result) => result,
+                        None => {
+                            eprintln!("Failed to get result");
+                            return Err(())
+                        },
+                    };
+                    if repo.last_fetch() > result.last_modified + 60 {
+                        println!("Repo '{}' last fetch later than AUR last \
+                            modified, skippping it", &repo.url);
+                        repos.swap_remove(i);
+                        pkgs.swap_remove(i);
+                    } else {
+                        println!("Repo '{}' needs update from AUR", 
+                            &repo.url);
+                        i += 1
+                    }
+                } else { // Can not find
+                    println!("Repo '{}' not found, needs update from AUR", 
+                        &repo.url);
+                    i += 1
+                }
             }
         }
         println!("Filtered AUR repos");
