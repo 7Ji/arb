@@ -1,5 +1,3 @@
-use std::process::exit;
-
 use clap::Parser;
 use serde::Deserialize;
 
@@ -88,29 +86,31 @@ fn default_basepkgs() -> Vec<String> {
     vec![String::from("base-devel")]
 }
 
-fn main() -> Result<(), ()> {
-    let actual_identity = identity::IdentityActual::new()?;
-    actual_identity.drop()?;
+fn main() -> Result<(), &'static str> {
+    let actual_identity = 
+    identity::IdentityActual::new_and_drop()
+    .or_else(|_|{
+        if let Err(e) = Arg::try_parse() {
+            let _ = e.print();
+        }
+        Err("Failed to get actual identity")
+    })?;
     let arg = Arg::parse();
-    let file = match std::fs::File::open(&arg.config) {
-        Ok(file) => file,
-        Err(e) => {
-            eprintln!("Failed to open config file '{}': {}", arg.config, e);
-            exit(-1);
-        },
-    };
-    let mut config: Config = match serde_yaml::from_reader(file) {
-        Ok(config) => config,
-        Err(e) => {
-            eprintln!("Failed to parse YAML: {}", e);
-            exit(-1)
-        },
-    };
+    let file = std::fs::File::open(&arg.config).or_else(
+    |e|{
+        eprintln!("Failed to open config file '{}': {}", arg.config, e);
+        Err("Failed to open config file")
+    })?;
+    let mut config: Config = serde_yaml::from_reader(file).or_else(
+    |e|{
+        eprintln!("Failed to parse YAML: {}", e);
+        Err("Failed to parse YAML config")
+    })?;
     if ! arg.pkgs.is_empty() {
         println!("Only build the following packages: {:?}", arg.pkgs);
         config.pkgbuilds.retain(|name, _|arg.pkgs.contains(name));
     }
-    if let Err(_) = build::work(
+    build::work(
         actual_identity,
         &config.pkgbuilds,
         &config.basepkgs,
@@ -123,9 +123,7 @@ fn main() -> Result<(), ()> {
         arg.nonet || config.nonet,
         arg.gmr.as_deref().or(config.gmr.as_deref()),
         &config.dephash_strategy,
-        arg.sign.as_deref().or(config.sign.as_deref())) 
-    {
-        std::process::exit(-1)
-    }
+        arg.sign.as_deref().or(config.sign.as_deref())
+    ).or_else(|_|Err("Failed to build packages"))?;
     Ok(())
 }

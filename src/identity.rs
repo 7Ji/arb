@@ -469,6 +469,21 @@ impl IdentityActual {
             },
         }
     }
+
+    pub(crate) fn new_and_drop() -> Result<Self, ()> {
+        let identity = match Self::new() {
+            Ok(identity) => identity,
+            Err(_) => {
+                eprintln!("Failed to get actual identity, did you start the \
+                    builder with sudo as a non-root user?");
+                return Err(())
+            },
+        };
+        match identity.drop() {
+            Ok(_) => Ok(identity),
+            Err(_) => Err(()),
+        }
+    }
     
     /// Drop to the identity, as this uses setuid/setgid, you need to return
     /// to root first
