@@ -38,7 +38,7 @@ fn get_pw_entry_from_uid(uid: libc::uid_t) -> Result<libc::passwd, ()> {
 
 fn get_something_raw_from_uid<F>(uid: libc::uid_t, f: F) -> Result<Vec<u8>, ()> 
 where
-    F: FnOnce(&libc::passwd) -> *mut i8
+    F: FnOnce(&libc::passwd) -> *mut libc::c_char
 {
     let pw_entry = get_pw_entry_from_uid(uid)?;
     let attribute = f(&pw_entry);
