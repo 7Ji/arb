@@ -349,22 +349,21 @@ impl Display for IdentityCurrent {
 }
 
 impl IdentityCurrent {
-    pub(crate) fn new() -> Self {
-        Self {
-            uid: unsafe {
-                libc::getuid()
-            },
-            gid: unsafe {
-                libc::getgid()
-            },
-            name: unsafe {
-                let ptr = libc::getlogin();
-                let len = libc::strlen(ptr);
-                let slice = std::slice::from_raw_parts(
-                    ptr as *mut u8, len);
-                String::from_utf8_lossy(slice).into_owned()
-            },
+    pub(crate) fn new() -> Result<Self, ()> {
+        let login_ptr = unsafe {libc::getlogin()};
+        if login_ptr == std::ptr::null_mut() {
+            eprintln!("getlogin() call failed: {}", 
+                std::io::Error::last_os_error());
+            return Err(())
         }
+        let login_len = unsafe {libc::strlen(login_ptr)};
+        let slice = unsafe {
+            std::slice::from_raw_parts(login_ptr as *mut u8, login_len)};
+        Ok(Self {
+            uid: unsafe { libc::getuid() },
+            gid: unsafe { libc::getgid() },
+            name: String::from_utf8_lossy(slice).to_string(),
+        })
     }
 }
 
@@ -475,7 +474,7 @@ impl IdentityActual {
 
     pub(crate) fn drop(&self) -> Result<&Self, ()> {
         let current = IdentityCurrent::new();
-        if ! current.is_root() {
+        if ! current?.is_root() {
             eprintln!("Current user is not root, please run builder with sudo");
             return Err(())
         }
