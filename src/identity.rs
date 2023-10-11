@@ -26,20 +26,59 @@ struct Environment {
     path: OsString
 }
 
+fn get_pw_entry_from_uid(uid: libc::uid_t) -> Result<libc::passwd, ()> {
+    let pw_entry = unsafe { libc::getpwuid(uid) };
+    if pw_entry.is_null() {
+        eprintln!("getpwuid() call failed: {}", 
+            std::io::Error::last_os_error());
+        return Err(())
+    }
+    Ok(unsafe { pw_entry.read() })
+}
+
+fn get_something_raw_from_uid<F>(uid: libc::uid_t, f: F) -> Result<Vec<u8>, ()> 
+where
+    F: FnOnce(&libc::passwd) -> *mut i8
+{
+    let pw_entry = get_pw_entry_from_uid(uid)?;
+    let attribute = f(&pw_entry);
+    let len = unsafe { libc::strlen(attribute) };
+    let raw = unsafe {
+        std::slice::from_raw_parts(attribute as *const u8, len) };
+    Ok(raw.to_vec())
+}
+
+fn get_home_raw_from_uid(uid: libc::uid_t) -> Result<Vec<u8>, ()> {
+    get_something_raw_from_uid(uid, |passwd|passwd.pw_dir)
+}
+
+fn get_name_raw_from_uid(uid: libc::uid_t) -> Result<Vec<u8>, ()> {
+    get_something_raw_from_uid(uid, |passwd|passwd.pw_name)
+}
+
+
 impl Environment {
-    fn init(uid: libc::uid_t, name: &str) -> Option<Self> {
-        let pw_dir = unsafe {
-            let pw_dir = libc::getpwuid(uid).read().pw_dir;
-            let len_dir = libc::strlen(pw_dir);
-            std::slice::from_raw_parts(pw_dir as *const u8, len_dir)
-        };
-        Some(Self {
+    fn init(uid: libc::uid_t, name: &str) -> Result<Self, ()> {
+        let home_raw = get_home_raw_from_uid(uid)?;
+        let cwd = std::env::current_dir().or_else(|e|{
+            eprintln!("Failed to get current dir: {}", e);
+            Err(())
+        })?.as_os_str().to_os_string();
+        let path = std::env::var_os("PATH").ok_or_else(||{
+            eprintln!("Failed to get PATH from env");
+        })?;
+        let user = OsString::from_str(name).or_else(
+        |e|{
+            eprintln!("Failed to convert user '{}' to OsString: {}", name, e);
+            Err(())
+        })?;
+        Ok(Self {
             shell: OsString::from("/bin/bash"),
-            cwd: std::env::current_dir().ok()?.as_os_str().to_os_string(),
-            home: OsString::from_vec(pw_dir.to_vec()),
+            cwd,
+            home: OsString::from_vec(home_raw),
             lang: OsString::from("en_US.UTF-8"),
-            user: OsString::from_str(name).ok()?,
-            path: std::env::var_os("PATH")?,
+            user,
+            path,
         })
 
     }
@@ -111,15 +150,15 @@ impl ForkedChild {
 
 #[derive(Clone)]
 pub(crate) struct IdentityCurrent {
-    uid: u32,
-    gid: u32,
+    uid: libc::uid_t,
+    gid: libc::gid_t,
     name: String,
 }
 
 #[derive(Clone)]
 pub(crate) struct IdentityActual {
-    uid: u32,
-    gid: u32,
+    uid: libc::uid_t,
+    gid: libc::gid_t,
     name: String,
     env: Environment,
     cwd: PathBuf,
@@ -130,8 +169,8 @@ pub(crate) struct IdentityActual {
 }
 
 pub(crate) trait Identity {
-    fn uid(&self) -> u32;
-    fn gid(&self) -> u32;
+    fn uid(&self) -> libc::uid_t;
+    fn gid(&self) -> libc::gid_t;
     fn name(&self) -> &str;
     fn is_root(&self) -> bool {
         self.uid() == 0 && self.gid() == 0
@@ -350,19 +389,12 @@ impl Display for IdentityCurrent {
 
 impl IdentityCurrent {
     pub(crate) fn new() -> Result<Self, ()> {
-        let login_ptr = unsafe {libc::getlogin()};
-        if login_ptr == std::ptr::null_mut() {
-            eprintln!("getlogin() call failed: {}", 
-                std::io::Error::last_os_error());
-            return Err(())
-        }
-        let login_len = unsafe {libc::strlen(login_ptr)};
-        let slice = unsafe {
-            std::slice::from_raw_parts(login_ptr as *mut u8, login_len)};
+        let uid = unsafe { libc::getuid() };
+        let name_raw = get_name_raw_from_uid(uid)?;
         Ok(Self {
-            uid: unsafe { libc::getuid() },
+            uid,
             gid: unsafe { libc::getgid() },
-            name: String::from_utf8_lossy(slice).to_string(),
+            name: String::from_utf8_lossy(&name_raw).to_string(),
         })
     }
 }
@@ -409,10 +441,10 @@ impl IdentityActual {
     }
 
     fn new(uid: u32, gid: u32, name: String) -> Result<Self, ()> {
-        let env = Environment::init(uid, 
-            &name).ok_or_else(||{
-                println!("Failed to get env for actual user")
-            })?;     
+        let env = Environment::init(uid, &name).or_else(|_|{
+            println!("Failed to get env for actual user");
+            Err(())
+        })?;     
         let cwd = PathBuf::from(&env.cwd);
         let cwd_no_root = cwd.strip_prefix("/").or_else(
         |e|{
