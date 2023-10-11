@@ -408,42 +408,67 @@ impl IdentityActual {
     pub(crate) fn home_str(&self) -> &str {
         &self.home_string
     }
-    pub(crate) fn new() -> Result<Self, ()> {
+
+    fn new(uid: u32, gid: u32, name: String) -> Result<Self, ()> {
+        let env = Environment::init(uid, 
+            &name).ok_or_else(||{
+                println!("Failed to get env for actual user")
+            })?;     
+        let cwd = PathBuf::from(&env.cwd);
+        let cwd_no_root = cwd.strip_prefix("/").or_else(
+        |e|{
+            eprintln!("Failed to strip leading / from cwd: {}", e);
+            Err(())
+        })?.to_path_buf();
+        let user = env.user.to_string_lossy().to_string();
+        let home_path = PathBuf::from(&env.home);
+        let home_string = env.home.to_string_lossy().to_string();
+        Ok(Self {
+            uid,
+            gid,
+            name,
+            env,
+            cwd,
+            cwd_no_root,
+            user,
+            home_path,
+            home_string
+        })
+
+    }
+
+    fn new_from_identity_pair(identity_pair: &str) -> Result<Self, ()> {
+        let components: Vec<&str> = identity_pair
+            .splitn(3, ':')
+            .collect();
+        if components.len() != 3 {
+            eprintln!("Identity pair '{}' syntax incorrect", identity_pair);
+            return Err(())
+        }
+        let components: [&str; 3] = match components.try_into() {
+            Ok(components) => components,
+            Err(_) => {
+                eprintln!("Failed to convert identity components to array");
+                return Err(())
+            },
+        };
+        if let Ok(uid) = components[0].parse() {
+        if let Ok(gid) = components[1].parse() {
+            return Self::new(uid, gid, components[2].to_string());
+        }
+        }
+        eprintln!("Can not parse identity pair '{}'", identity_pair);
+        Err(())
+    }
+
+    fn new_from_sudo() -> Result<Self, ()> {
         if let Some(sudo_uid) = std::env::var_os("SUDO_UID") {
         if let Some(sudo_gid) = std::env::var_os("SUDO_GID") {
         if let Some(sudo_user) = std::env::var_os("SUDO_USER") {
         if let Ok(uid) = sudo_uid.to_string_lossy().parse() {
         if let Ok(gid) = sudo_gid.to_string_lossy().parse() {
-            let name = sudo_user.to_string_lossy().to_string();
-            let env = Environment::init(uid, 
-                &name).ok_or_else(||{
-                    println!("Failed to get env for actual user")
-                })?;     
-            let cwd = PathBuf::from(&env.cwd);
-            let cwd_no_root = cwd.strip_prefix("/").or_else(|e|{
-                eprintln!("Failed to strip leading / from cwd: {}", e);
-                Err(())
-            })?.to_path_buf();
-            // let cwd_absolute = cwd.canonicalize().or_else(|e|
-            // {
-            //     eprintln!("Failed to canonicalize cwd: {}", e);
-            //     Err(())
-            // })?;
-            let user = env.user.to_string_lossy().to_string();
-            let home_path = PathBuf::from(&env.home);
-            let home_string = env.home.to_string_lossy().to_string();
-            return Ok(Self {
-                uid,
-                gid,
-                name: sudo_user.to_string_lossy().to_string(),
-                env,
-                cwd,
-                cwd_no_root,
-                // cwd_absolute,
-                user,
-                home_path,
-                home_string
-            })
+            return Self::new(
+                uid, gid, sudo_user.to_string_lossy().to_string())
         }}}}}
         Err(())
     }
@@ -470,8 +495,12 @@ impl IdentityActual {
         }
     }
 
-    pub(crate) fn new_and_drop() -> Result<Self, ()> {
-        let identity = match Self::new() {
+    pub(crate) fn new_and_drop(identity_pair: Option<&str>) -> Result<Self, ()> {
+        let identity = match match identity_pair {
+            Some(identity_pair) => 
+                Self::new_from_identity_pair(identity_pair),
+            None => Self::new_from_sudo(),
+        } {
             Ok(identity) => identity,
             Err(_) => {
                 eprintln!("Failed to get actual identity, did you start the \

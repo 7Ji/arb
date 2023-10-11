@@ -48,6 +48,11 @@ struct Arg {
     #[arg(short='N', long, default_value_t = false)]
     nonet: bool,
 
+    /// Drop to the specific uid:gid:name pair, instead of getting from 
+    /// SUDO_UID/GID/USER
+    #[arg(short='d', long)]
+    drop: Option<String>,
+
     /// Prefix of a 7Ji/git-mirrorer instance, e.g. git://gmr.lan,
     /// The mirror would be tried first before actual git remote
     #[arg(short='g', long)]
@@ -87,15 +92,12 @@ fn default_basepkgs() -> Vec<String> {
 }
 
 fn main() -> Result<(), &'static str> {
+    let arg = Arg::parse();
     let actual_identity = 
-    identity::IdentityActual::new_and_drop()
+    identity::IdentityActual::new_and_drop(arg.drop.as_deref())
     .or_else(|_|{
-        if let Err(e) = Arg::try_parse() {
-            let _ = e.print();
-        }
         Err("Failed to get actual identity")
     })?;
-    let arg = Arg::parse();
     let file = std::fs::File::open(&arg.config).or_else(
     |e|{
         eprintln!("Failed to open config file '{}': {}", arg.config, e);
