@@ -48,8 +48,7 @@ struct Arg {
     #[arg(short='N', long, default_value_t = false)]
     nonet: bool,
 
-    /// Drop to the specific uid:gid:name pair, instead of getting from 
-    /// SUDO_UID/GID/USER
+    /// Drop to the specific uid:gid pair, instead of getting from SUDO_UID/GID
     #[arg(short='d', long)]
     drop: Option<String>,
 

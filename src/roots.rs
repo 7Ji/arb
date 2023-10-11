@@ -417,7 +417,7 @@ impl BaseRoot {
         // std::thread::sleep(std::time::Duration::from_secs(100));
         IdentityActual::run_chroot_command(
             Command::new("/usr/bin/mkhomedir_helper")
-                .arg(actual_identity.user()),
+                .arg(actual_identity.name()),
             self.path())?;
         Ok(self)
     }
