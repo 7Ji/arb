@@ -43,23 +43,26 @@ strip target/release/arch_repo_builder -o output/path
 
 ## Usage
 ```
-Usage: arch_repo_builder [OPTIONS] [CONFIG]
+Usage: arch_repo_builder [OPTIONS] [CONFIG] [PKGS]...
 
 Arguments:
-  [CONFIG]  Optional config.yaml file [default: config.yaml]
+  [CONFIG]   Optional config.yaml file [default: config.yaml]
+  [PKGS]...  Optional packages to only build them
 
 Options:
-  -p, --proxy <PROXY>  HTTP proxy to retry for git updating and http(s) netfiles if attempt without proxy failed
-  -P, --holdpkg        Hold versions of PKGBUILDs, do not update them
-  -G, --holdgit        Hold versions of git sources, do not update them
-  -I, --skipint        Skip integrity check for netfile sources if they're found
-  -B, --nobuild        Do not actually build the packages
-  -C, --noclean        Do not clean unused sources and outdated packages
-  -N, --nonet          Disallow any network connection during makepkg's build routine
-  -g, --gmr <GMR>      Prefix of a 7Ji/git-mirrorer instance, e.g. git://gmr.lan, The mirror would be tried first before actual git remote
-  -s, --sign <SIGN>    The GnuPG key ID used to sign packages
-  -h, --help           Print help
-  -V, --version        Print version
+  -p, --proxy <PROXY>              HTTP proxy to retry for git updating and http(s) netfiles if attempt without proxy failed
+      --proxy-after <PROXY_AFTER>  Attempt without proxy for this amount of tries before actually using the proxy, to save bandwidth
+  -P, --holdpkg                    Hold versions of PKGBUILDs, do not update them
+  -G, --holdgit                    Hold versions of git sources, do not update them
+  -I, --skipint                    Skip integrity check for netfile sources if they're found
+  -B, --nobuild                    Do not actually build the packages
+  -C, --noclean                    Do not clean unused sources and outdated packages
+  -N, --nonet                      Disallow any network connection during makepkg's build routine
+  -d, --drop <DROP>                Drop to the specific uid:gid pair, instead of getting from SUDO_UID/GID
+  -g, --gmr <GMR>                  Prefix of a 7Ji/git-mirrorer instance, e.g. git://gmr.lan, The mirror would be tried first before actual git remote
+  -s, --sign <SIGN>                The GnuPG key ID used to sign packages
+  -h, --help                       Print help
+  -V, --version                    Print version
 ```
 
 **Note: You must run the builder with sudo as a normal user, the builder would drop back to the normal user you call sudo with. This is for the purpose of unattended chroot deployment, bind-mounting, etc, as it could quickly use setuid and setgid syscalls to return to root. Don't worry, the builder would only run those root stuffs in forked child, not in itself.**

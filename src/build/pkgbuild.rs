@@ -4,7 +4,7 @@ use crate::{
         source::{
             self,
             git::{self, Gmr},
-            MapByDomain,
+            MapByDomain, Proxy,
         },
         roots::{
             CommonRoot,
@@ -559,7 +559,7 @@ impl PKGBUILDs {
         Ok(Self(pkgbuilds))
     }
 
-    fn sync(&self, hold: bool, proxy: Option<&str>, gmr: Option<&Gmr>) 
+    fn sync(&self, hold: bool, proxy: Option<&Proxy>, gmr: Option<&Gmr>) 
         -> Result<(), ()> 
     {
         let map =
@@ -588,7 +588,7 @@ impl PKGBUILDs {
 
     pub(super) fn from_config_healthy(
         config: &HashMap<String, PkgbuildConfig>, 
-        hold: bool, noclean: bool, proxy: Option<&str>, gmr: Option<&Gmr>
+        hold: bool, noclean: bool, proxy: Option<&Proxy>, gmr: Option<&Gmr>
     ) -> Result<Self, ()>
     {
         let mut pkgbuilds = Self::from_config(config)?;
@@ -992,7 +992,7 @@ impl PKGBUILDs {
         holdgit: bool,
         skipint: bool,
         noclean: bool,
-        proxy: Option<&str>,
+        proxy: Option<&Proxy>,
         gmr: Option<&git::Gmr>,
         dephash_strategy: &DepHashStrategy,
     ) -> Result<Option<BaseRoot>, ()> 

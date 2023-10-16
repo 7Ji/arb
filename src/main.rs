@@ -24,6 +24,11 @@ struct Arg {
     #[arg(short, long)]
     proxy: Option<String>,
 
+    /// Attempt without proxy for this amount of tries before actually using
+    /// the proxy, to save bandwidth
+    #[arg(long)]
+    proxy_after: Option<usize>,
+
     /// Hold versions of PKGBUILDs, do not update them
     #[arg(short='P', long, default_value_t = false)]
     holdpkg: bool,
@@ -79,6 +84,7 @@ struct Config {
     sign: Option<String>,
     gmr: Option<String>,
     proxy: Option<String>,
+    proxy_after: Option<usize>,
     #[serde(default = "default_basepkgs")]
     basepkgs: Vec<String>,
     #[serde(default)]
@@ -111,11 +117,20 @@ fn main() -> Result<(), &'static str> {
         println!("Only build the following packages: {:?}", arg.pkgs);
         config.pkgbuilds.retain(|name, _|arg.pkgs.contains(name));
     }
+    let proxy = source::Proxy::from_str_usize(
+        arg.proxy.as_deref().or(config.proxy.as_deref()), 
+        match arg.proxy_after {
+            Some(proxy_after) => proxy_after,
+            None => match config.proxy_after {
+                Some(proxy_after) => proxy_after,
+                None => 0,
+            },
+        });
     build::work(
         actual_identity,
         &config.pkgbuilds,
         &config.basepkgs,
-        arg.proxy.as_deref().or(config.proxy.as_deref()),
+        proxy.as_ref(),
         arg.holdpkg || config.holdpkg,
         arg.holdgit || config.holdgit,
         arg.skipint || config.skipint,

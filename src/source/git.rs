@@ -27,7 +27,7 @@ use std::{
         thread,
     };
 
-use super::aur::AurResult;
+use super::{aur::AurResult, Proxy};
 
 const REFSPECS_HEADS_TAGS: &[&str] = &[
     "+refs/heads/*:refs/heads/*",
@@ -265,12 +265,16 @@ fn remote_safe_url<'a>(remote: &'a Remote) -> &'a str {
 fn fetch_remote(
     remote: &mut Remote,
     fetch_opts: &mut FetchOptions,
-    proxy: Option<&str>,
+    proxy: Option<&Proxy>,
     refspecs: &[&str],
-    tries: u8
+    tries: usize
 ) -> Result<(), ()> 
 {
-    for _ in 0..tries {
+    let (tries_without_proxy, tries_with_proxy) = match proxy {
+        Some(proxy) => (proxy.after, tries),
+        None => (tries, 0),
+    };
+    for _ in 0..tries_without_proxy {
         match remote.fetch(
             refspecs, Some(fetch_opts), None
         ) {
@@ -281,33 +285,35 @@ fn fetch_remote(
             },
         }
     }
-    match proxy {
-        Some(proxy) => {
-            eprintln!(
-                "Failed to fetch from remote '{}'. Will use proxy to retry",
-                remote_safe_url(&remote));
-            let mut proxy_opts = ProxyOptions::new();
-            proxy_opts.url(proxy);
-            fetch_opts.proxy_options(proxy_opts);
-            for _ in 0..tries {
-                match remote.fetch(
-                    refspecs, Some(fetch_opts), None) {
-                    Ok(_) => return Ok(()),
-                    Err(e) => {
-                        eprintln!("Failed to fetch from remote '{}': {}",
-                        remote_safe_url(&remote), e);
-                    },
-                }
-            };
-            eprintln!("Failed to fetch from remote '{}' even with proxy", 
-                remote_safe_url(&remote));
-        }
+    let proxy = match proxy {
+        Some(proxy) => proxy,
         None => {
-            eprintln!("Failed to fetch from remote '{}' after {} retries",
-                remote_safe_url(&remote), tries);
+            eprintln!("Failed to fetch from remote '{}' after {} tries and \
+                there's no proxy to retry, giving up", remote_safe_url(&remote),
+                tries_without_proxy);
+            return Err(())
         },
+    };
+    if tries_without_proxy > 0 {
+        eprintln!("Failed to fetch from remote '{}' after {} tries, will use \
+            proxy to retry", remote_safe_url(&remote), tries_without_proxy);
     }
-    return Err(());
+    let mut proxy_opts = ProxyOptions::new();
+    proxy_opts.url(&proxy.url);
+    fetch_opts.proxy_options(proxy_opts);
+    for _ in 0..tries_with_proxy {
+        match remote.fetch(
+            refspecs, Some(fetch_opts), None) {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                eprintln!("Failed to fetch from remote '{}': {}",
+                remote_safe_url(&remote), e);
+            },
+        }
+    };
+    eprintln!("Failed to fetch from remote '{}' even with proxy", 
+        remote_safe_url(&remote));
+    Err(())
 }
 
 impl Repo {
@@ -411,7 +417,8 @@ impl Repo {
     }
 
     fn sync_raw(
-        repo: &Repository, url: &str, proxy: Option<&str>, refspecs: &[&str], tries: u8
+        repo: &Repository, url: &str, proxy: Option<&Proxy>, refspecs: &[&str], 
+        tries: usize
     ) -> Result<(), ()> 
     {
         let mut remote =
@@ -422,7 +429,7 @@ impl Repo {
         Ok(())
     }
 
-    pub(crate) fn sync(&self, proxy: Option<&str>)
+    pub(crate) fn sync(&self, proxy: Option<&Proxy>)
         -> Result<(), ()>
     {
         let mut refspecs_dynamic = vec![];
@@ -615,11 +622,11 @@ impl Repo {
         repos: Vec<Self>,
         max_threads: usize,
         hold: bool,
-        proxy: Option<&str>
+        proxy: Option<&Proxy>
     ) -> Result<(), ()>
     {
-        let proxy = proxy.and_then(
-            |proxy|Some(proxy.to_string()));
+        // let proxy = proxy.and_then(
+        //     |proxy|Some(proxy.clone()));
         let mut threads = vec![];
         let job = format!("syncing git repos from domain '{}'", 
             repos.last().ok_or(())?.get_domain());
@@ -634,13 +641,14 @@ impl Repo {
                         repo.path.display());
                 }
             }
-            let proxy_thread = proxy.clone();
+            let proxy_thread = proxy.and_then(
+                |proxy|Some(proxy.to_owned()));
             if let Err(_) = 
                 threading::wait_if_too_busy(&mut threads, max_threads, &job) {
                 bad = true;
             }
             threads.push(thread::spawn(move ||{
-                repo.sync(proxy_thread.as_deref())
+                repo.sync(proxy_thread.as_ref())
             }));
         }
         if let Err(_) = threading::wait_remaining(threads, &job) {
@@ -656,7 +664,7 @@ impl Repo {
     fn sync_for_domain_st(
         repos: Vec<Self>,
         hold: bool,
-        proxy: Option<&str>
+        proxy: Option<&Proxy>
     ) -> Result<(), ()>
     {
         let mut bad = false;
@@ -686,7 +694,7 @@ impl Repo {
         repos: Vec<Self>,
         max_threads: usize,
         hold: bool,
-        proxy: Option<&str>
+        proxy: Option<&Proxy>
     ) -> Result<(), ()>
     {
         if max_threads >= 2 && repos.len() >= 2 {
@@ -699,7 +707,7 @@ impl Repo {
     fn sync_for_aur(
         mut repos: Vec<Self>,
         hold: bool,
-        proxy: Option<&str>
+        proxy: Option<&Proxy>
     ) -> Result<(), ()>
     {
         if Self::filter_aur(&mut repos).is_err() {
@@ -835,25 +843,24 @@ impl Repo {
     pub(crate) fn sync_mt(
         repos_map: HashMap<u64, Vec<Self>>,
         hold: bool,
-        proxy: Option<&str>
+        proxy: Option<&Proxy>
     ) -> Result<(), ()>
     {
         println!("Syncing repos with {} groups", repos_map.len());
-        let proxy = proxy.and_then(
-            |proxy_str|Some(proxy_str.to_string()));
         let mut threads = vec![];
         for (domain, repos) in repos_map {
-            let proxy_thread = proxy.clone();
+            let proxy_thread = proxy.and_then(
+                |proxy_actual|Some(proxy_actual.to_owned()));
             if domain == 0xb463cbdec08d6265 {
                 threads.push(thread::spawn(move || {
                     Self::sync_for_aur(
-                        repos, hold, proxy_thread.as_deref())}))
+                        repos, hold, proxy_thread.as_ref())}))
 
             } else {
                 threads.push(thread::spawn(move || {
                     Self::sync_for_domain(
                         repos, 10, hold,
-                        proxy_thread.as_deref())}))
+                        proxy_thread.as_ref())}))
             }
         }
         threading::wait_remaining(threads, "syncing git repo groups")

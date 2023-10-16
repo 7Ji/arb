@@ -6,7 +6,7 @@ use super::{
             NetfileProtocol,
             Protocol,
         },
-        download,
+        download, Proxy,
     };
 
 pub(super) fn ensure_parents() -> Result<(), ()>
@@ -114,7 +114,7 @@ pub(super) fn download_source(
     integ_file: &super::cksums::IntegFile,
     actual_identity: &crate::identity::IdentityActual,
     skipint: bool,
-    proxy: Option<&str>
+    proxy: Option<&Proxy>
 ) -> Result<(), ()> 
 {
     const MAX_TRIES: usize = 3;
@@ -128,14 +128,19 @@ pub(super) fn download_source(
     let url = source.url.as_str();
     let mut integ_file_temp = integ_file.temp()?;
     let mut proxy_actual = None;
-    let max_tries = match proxy {
-        Some(_) => MAX_TRIES * 2,
-        None => MAX_TRIES,
+    let mut max_tries = MAX_TRIES;
+    let mut enable_proxy_at = MAX_TRIES;
+    if let Some(proxy) = proxy {
+        max_tries += proxy.after;
+        enable_proxy_at = proxy.after
     };
     for i in 0..max_tries {
-        if i == MAX_TRIES {
-            println!("Failed to download for {} times, using proxy", MAX_TRIES);
-            proxy_actual = proxy
+        if i == enable_proxy_at {
+            if i > 0 {
+                println!("Failed to download for {} times, using proxy", i);
+            }
+            proxy_actual = proxy.and_then(
+                |proxy|Some(proxy.url.as_str()));
         }
         println!("Downloading '{}' to '{}', try {} of {}",
             source.url, integ_file_temp.path.display(), i + 1, max_tries);
@@ -171,7 +176,7 @@ pub(super) fn cache_source(
     integ_files: &Vec<super::cksums::IntegFile>,
     actual_identity: &crate::identity::IdentityActual,
     skipint: bool,
-    proxy: Option<&str>
+    proxy: Option<&Proxy>
 ) -> Result<(), ()> 
 {
     assert!(integ_files.len() > 0, "No integ files");

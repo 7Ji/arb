@@ -11,7 +11,7 @@ use super::{
     cksums::IntegFile,
     git::ToReposMap,
     Source,
-    MapByDomain
+    MapByDomain, Proxy
 };
 
 fn get_domain_threads_map<T>(orig_map: &HashMap<u64, Vec<T>>) 
@@ -51,7 +51,7 @@ pub(crate) fn cache_sources_mt(
     actual_identity: &crate::identity::IdentityActual,
     holdgit: bool,
     skipint: bool,
-    proxy: Option<&str>,
+    proxy: Option<&Proxy>,
     gmr: Option<&super::git::Gmr>
 ) -> Result<(), ()> 
 {
@@ -111,7 +111,7 @@ pub(crate) fn cache_sources_mt(
                 move ||{
                     netfile::cache_source(&netfile_source, &integ_files,
                          &actual_identity_thread, skipint, 
-                         proxy_thread.as_deref())
+                         proxy_thread.as_ref())
                 });
                 netfile_threads.push(netfile_thread);
             }
@@ -137,7 +137,7 @@ pub(crate) fn cache_sources_mt(
                 let proxy_thread = proxy
                     .map(|proxy|proxy.to_owned());
                 let git_thread = thread::spawn(
-                move || git_repo.sync(proxy_thread.as_deref()));
+                move || git_repo.sync(proxy_thread.as_ref()));
                 git_threads.push(git_thread);
             }
         }

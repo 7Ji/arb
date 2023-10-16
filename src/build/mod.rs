@@ -10,7 +10,7 @@ mod sign;
 pub(crate) use pkgbuild::PkgbuildConfig as PkgbuildConfig;
 pub(crate) use depend::DepHashStrategy as DepHashStrategy;
 
-use crate::{roots::BaseRoot, identity::IdentityActual};
+use crate::{roots::BaseRoot, identity::IdentityActual, source::Proxy};
 
 use self::pkgbuild::PKGBUILDs;
 
@@ -40,7 +40,7 @@ pub(crate) fn work(
     actual_identity: crate::identity::IdentityActual,
     pkgbuilds_config: &HashMap<String, PkgbuildConfig>,
     basepkgs: &Vec<String>,
-    proxy: Option<&str>,
+    proxy: Option<&Proxy>,
     holdpkg: bool,
     holdgit: bool,
     skipint: bool,

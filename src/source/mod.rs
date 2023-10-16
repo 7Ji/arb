@@ -14,6 +14,7 @@ pub(crate) mod git;
 mod protocol;
 mod netfile;
 mod parse;
+mod proxy;
 
 use cksums::{
     IntegFile,
@@ -43,6 +44,7 @@ pub(crate) use clean::{
     remove_unused,
 };
 pub(crate) use extract::extract;
+pub(crate) use proxy::Proxy;
 
 #[derive(Clone)]
 pub(crate) struct Source {
