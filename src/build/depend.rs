@@ -55,21 +55,24 @@ impl DbHandle {
                 return Err(())
             },
         };
+        let config = match 
+            super::paconf::Config::from_pacman_conf_content(&content) 
+        {
+            Ok(config) => config,
+            Err(_) => {
+                eprintln!("Failed to read pacman config");
+                return Err(())
+            },
+        };
+        let _new_config = config.with_cusrepo(
+            "arch_repo_builder_internal_do_not_use",
+            "/srv/repo_builder/pkgs");
         let sig_level = handle.default_siglevel();
-        for line in content.lines() {
-            let line = line.trim();
-            if ! line.starts_with('[') || ! line.ends_with(']') {
-                continue   
-            }
-            let section = line.trim_start_matches('[')
-                .trim_end_matches(']');
-            if section == "options" {
-                continue
-            }
-            match handle.register_syncdb(section, sig_level) {
+        for repo in config.repos.iter() {
+            match handle.register_syncdb(repo.name, sig_level) {
                 Ok(_) => (),
                 Err(e) => {
-                    eprintln!("Failed to register repo '{}': {}", section, e);
+                    eprintln!("Failed to register repo '{}': {}", repo.name, e);
                     return Err(())
                 },
             }

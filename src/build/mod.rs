@@ -6,6 +6,7 @@ mod dir;
 mod interdep;
 mod pkgbuild;
 mod sign;
+mod paconf;
 
 pub(crate) use pkgbuild::PkgbuildConfig as PkgbuildConfig;
 pub(crate) use depend::DepHashStrategy as DepHashStrategy;
