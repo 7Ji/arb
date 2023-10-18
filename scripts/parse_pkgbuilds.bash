@@ -12,7 +12,8 @@ dump_array_with_optional_arch() { #1: var name, 2: report name
 while read -r line; do
   source ./"${line}"
   echo "[PKGBUILD]"
-  echo "base:${pkgbase:-${pkgname}}"
+  pkgbase="${pkgbase:-${pkgname}}"
+  echo "base:${pkgbase}"
   for item in "${pkgname[@]}"; do
     echo "name:${item}"
   done
@@ -28,8 +29,8 @@ while read -r line; do
   unset -f pkgver
   unset depends provides
   eval $(declare -f package | sed --quiet 's/ \+\(depends=.\+\);/\1/p; s/ \+\(provides=.\+\);/\1/p')
-  dump_array_with_optional_arch depends dep
-  dump_array_with_optional_arch provides provide
+  dump_array_with_optional_arch depends dep_"${pkgbase}"
+  dump_array_with_optional_arch provides provide_"${pkgbase}"
   for item in "${pkgname[@]}"; do
     unset depends provides
     eval $(declare -f package_"${item}" | sed --quiet 's/ \+\(depends=.\+\);/\1/p; s/ \+\(provides=.\+\);/\1/p')

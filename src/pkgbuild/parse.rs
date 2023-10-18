@@ -4,9 +4,25 @@ use std::{path::Path, process::{Command, Stdio}, io::{Write, Read}};
 
 use crate::identity::IdentityActual;
 
+struct PackageBorrowed<'a> {
+    name: &'a [u8],
+    deps: Vec<&'a [u8]>,
+    provides: Vec<&'a [u8]>,
+}
+
+impl<'a> Default for PackageBorrowed<'a> {
+    fn default() -> Self {
+        Self {
+            name: b"",
+            deps: vec![],
+            provides: vec![] 
+        }
+    }
+}
+
 struct PkgbuildBorrowed<'a> {
     base: &'a [u8],
-    names: Vec<&'a [u8]>,
+    pkgs: Vec<PackageBorrowed<'a>>,
     deps: Vec<&'a [u8]>,
     makedeps: Vec<&'a [u8]>,
     provides: Vec<&'a [u8]>,
@@ -22,11 +38,41 @@ struct PkgbuildBorrowed<'a> {
     pkgver_func: bool,
 }
 
+impl<'a> PkgbuildBorrowed<'a> {
+    fn find_pkg_mut(&'a mut self, name: &[u8]) 
+        -> Result<&mut PackageBorrowed, ()> 
+    {
+        let mut pkg = None;
+        for pkg_cmp in self.pkgs.iter_mut() {
+            if pkg_cmp.name == name {
+                pkg = Some(pkg_cmp);
+                break
+            }
+        }
+        pkg.ok_or_else(||eprintln!("Failed to find pkg {}",
+            String::from_utf8_lossy(name)))
+    }
+    fn push_pkg_dep(&'a mut self, pkg_name: &[u8], dep: &'a [u8])
+        -> Result<(), ()> 
+    {
+        let pkg = self.find_pkg_mut(pkg_name)?;
+        pkg.deps.push(dep);
+        Ok(())
+    }
+    fn push_pkg_provide(&'a mut self, pkg_name: &[u8], provide: &'a [u8]) 
+        -> Result<(), ()> 
+    {
+        let pkg = self.find_pkg_mut(pkg_name)?;
+        pkg.provides.push(provide);
+        Ok(())
+    }
+}
+
 impl<'a> Default for PkgbuildBorrowed<'a> {
     fn default() -> Self {
         Self {
             base: b"",
-            names: vec![],
+            pkgs: vec![],
             deps: vec![],
             makedeps: vec![],
             provides: vec![],
@@ -65,7 +111,12 @@ impl<'a> PkgbuildsBorrowed<'a> {
                     ||eprintln!("Failed to get value"))?;
                 match key {
                     b"base" => pkgbuild.base = value,
-                    b"name" => pkgbuild.names.push(value),
+                    b"name" => {
+                        let mut pkg = 
+                            PackageBorrowed::default();
+                        pkg.name = key;
+                        pkgbuild.pkgs.push(pkg);
+                    },
                     b"dep" => pkgbuild.deps.push(value),
                     b"makedep" => pkgbuild.makedeps.push(value),
                     b"provide" => pkgbuild.provides.push(value),
@@ -88,9 +139,32 @@ impl<'a> PkgbuildsBorrowed<'a> {
                         }
                     }
                     _ => {
-                        eprintln!("Unexpected line: {}", 
-                            String::from_utf8_lossy(line));
-                        return Err(())
+                        let (offset, is_dep) = 
+                        if key.starts_with(b"dep_") {(4, true)}
+                        else if key.starts_with(b"provide_") {(8, false)}
+                        else {
+                            eprintln!("Unexpected line: {}", 
+                                String::from_utf8_lossy(line));
+                            return Err(())
+                        };
+                        let name = &key[offset..];
+                        let mut pkg = None;
+                        for pkg_cmp in 
+                            pkgbuild.pkgs.iter_mut() 
+                        {
+                            if pkg_cmp.name == name {
+                                pkg = Some(pkg_cmp);
+                                break
+                            }
+                        }
+                        let pkg = pkg.ok_or_else(
+                            ||eprintln!("Failed to find pkg {}",
+                            String::from_utf8_lossy(name)))?;
+                        if is_dep {
+                            pkg.deps.push(value)
+                        } else {
+                            pkg.provides.push(value)
+                        }
                     }
                 }
             } else if line == b"[PKGBUILD]" {
@@ -112,9 +186,15 @@ impl<'a> PkgbuildsBorrowed<'a> {
     }
 }
 
+struct PackageOwned {
+    name: String,
+    deps: Vec<String>,
+    provides: Vec<String>,
+}
+
 struct PkgbuildOwned {
     base: String,
-    names: Vec<String>,
+    pkgs: Vec<PackageOwned>,
     deps: Vec<String>,
     makedeps: Vec<String>,
     provides: Vec<String>,
@@ -134,14 +214,26 @@ struct PkgbuildsOwned {
 }
 
 fn vec_string_from_vec_u8(original: &Vec<&[u8]>) -> Vec<String> {
-    original.iter().map(|item|String::from_utf8_lossy(item).into_owned()).collect()
+    original.iter().map(|item|
+        String::from_utf8_lossy(item).into_owned()).collect()
+}
+
+impl PackageOwned {
+    fn from_borrowed(borrowed: &PackageBorrowed) -> Self {
+        Self {
+            name: String::from_utf8_lossy(borrowed.name).into_owned(),
+            deps: vec_string_from_vec_u8(&borrowed.deps),
+            provides: vec_string_from_vec_u8(&borrowed.provides),
+        }
+    }
 }
 
 impl PkgbuildOwned {
     fn from_borrowed(borrowed: &PkgbuildBorrowed) -> Self {
         Self {
             base: String::from_utf8_lossy(borrowed.base).into_owned(),
-            names: vec_string_from_vec_u8(&borrowed.names),
+            pkgs: borrowed.pkgs.iter().map(|pkg|
+                PackageOwned::from_borrowed(pkg)).collect(),
             deps: vec_string_from_vec_u8(&borrowed.deps),
             makedeps: vec_string_from_vec_u8(&borrowed.makedeps),
             provides: vec_string_from_vec_u8(&borrowed.provides),
