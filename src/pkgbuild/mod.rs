@@ -46,6 +46,8 @@ use std::{
 use xxhash_rust::xxh3::xxh3_64;
 // use super::{depend::Depends, DepHashStrategy};
 // use super::depend::DbHandle;
+// mod parse;
+
 
 #[derive(Clone)]
 enum Pkgver {
@@ -284,7 +286,7 @@ impl PKGBUILD {
     pub(crate) fn extractor_source(
         &self, actual_identity: &IdentityActual) -> Result<Child, ()> 
     {
-        const SCRIPT: &str = include_str!("../scripts/extract_sources.bash");
+        const SCRIPT: &str = include_str!("../../scripts/extract_sources.bash");
         if let Err(e) = create_dir_all(&self.build) {
             eprintln!("Failed to create build dir: {}", e);
             return Err(());
