@@ -1,102 +1,38 @@
-use clap::Parser;
-use serde::Deserialize;
-
 mod build;
 mod child;
+mod config;
+mod depend;
 mod filesystem;
 mod identity;
+mod pkgbuild;
 mod roots;
+mod sign;
 mod source;
 mod threading;
 
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Arg {
-    /// Optional config.yaml file
-    #[arg(default_value_t = String::from("config.yaml"))]
-    config: String,
+use std::collections::HashMap;
 
-    /// Optional packages to only build them
-    pkgs: Vec<String>,
+use clap::Parser;
+use config::{Arg,Config, Pkgbuild as PkgbuildConfig, DepHashStrategy};
+use source::Proxy;
 
-    /// HTTP proxy to retry for git updating and http(s)
-    /// netfiles if attempt without proxy failed
-    #[arg(short, long)]
-    proxy: Option<String>,
-
-    /// Attempt without proxy for this amount of tries before actually using
-    /// the proxy, to save bandwidth
-    #[arg(long)]
-    proxy_after: Option<usize>,
-
-    /// Hold versions of PKGBUILDs, do not update them
-    #[arg(short='P', long, default_value_t = false)]
+struct Settings {
+    actual_identity: crate::identity::IdentityActual,
+    pkgbuilds_config: HashMap<String, PkgbuildConfig>,
+    basepkgs: Vec<String>,
+    proxy: Option<Proxy>,
     holdpkg: bool,
-
-    /// Hold versions of git sources, do not update them
-    #[arg(short='G', long, default_value_t = false)]
     holdgit: bool,
-
-    /// Skip integrity check for netfile sources if they're found
-    #[arg(short='I', long, default_value_t = false)]
     skipint: bool,
-
-    /// Do not actually build the packages
-    #[arg(short='B', long, default_value_t = false)]
     nobuild: bool,
-
-    /// Do not clean unused sources and outdated packages
-    #[arg(short='C', long, default_value_t = false)]
     noclean: bool,
-
-    /// Disallow any network connection during makepkg's build routine
-    #[arg(short='N', long, default_value_t = false)]
     nonet: bool,
-
-    /// Drop to the specific uid:gid pair, instead of getting from SUDO_UID/GID
-    #[arg(short='d', long)]
-    drop: Option<String>,
-
-    /// Prefix of a 7Ji/git-mirrorer instance, e.g. git://gmr.lan,
-    /// The mirror would be tried first before actual git remote
-    #[arg(short='g', long)]
     gmr: Option<String>,
-
-    /// The GnuPG key ID used to sign packages
-    #[arg(short, long)]
+    dephash_strategy: DepHashStrategy,
     sign: Option<String>
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
-struct Config {
-    #[serde(default)]
-    holdpkg: bool,
-    #[serde(default)]
-    holdgit: bool,
-    #[serde(default)]
-    skipint: bool,
-    #[serde(default)]
-    nobuild: bool,
-    #[serde(default)]
-    noclean: bool,
-    #[serde(default)]
-    nonet: bool,
-    sign: Option<String>,
-    gmr: Option<String>,
-    proxy: Option<String>,
-    proxy_after: Option<usize>,
-    #[serde(default = "default_basepkgs")]
-    basepkgs: Vec<String>,
-    #[serde(default)]
-    dephash_strategy: build::DepHashStrategy,
-    pkgbuilds: std::collections::HashMap<String, build::PkgbuildConfig>,
-}
-
-fn default_basepkgs() -> Vec<String> {
-    vec![String::from("base-devel")]
-}
-
-fn main() -> Result<(), &'static str> {
+fn prepare() -> Result<Settings, &'static str> {
     let arg = Arg::parse();
     let actual_identity = 
     identity::IdentityActual::new_and_drop(arg.drop.as_deref())
@@ -126,20 +62,54 @@ fn main() -> Result<(), &'static str> {
                 None => 0,
             },
         });
-    build::work(
+    filesystem::prepare_updated_latest_dirs().or_else(
+        |_|Err("Failed to prepare pkgs/{updated,latest}"))?;
+    Ok(Settings {
         actual_identity,
-        &config.pkgbuilds,
-        &config.basepkgs,
-        proxy.as_ref(),
-        arg.holdpkg || config.holdpkg,
-        arg.holdgit || config.holdgit,
-        arg.skipint || config.skipint,
-        arg.nobuild || config.nobuild,
-        arg.noclean || config.noclean,
-        arg.nonet || config.nonet,
-        arg.gmr.as_deref().or(config.gmr.as_deref()),
-        &config.dephash_strategy,
-        arg.sign.as_deref().or(config.sign.as_deref())
-    ).or_else(|_|Err("Failed to build packages"))?;
-    Ok(())
+        pkgbuilds_config: config.pkgbuilds,
+        basepkgs: config.basepkgs,
+        proxy,
+        holdpkg: arg.holdpkg || config.holdpkg,
+        holdgit: arg.holdgit || config.holdgit,
+        skipint: arg.skipint || config.skipint,
+        nobuild: arg.nobuild || config.nobuild,
+        noclean: arg.noclean || config.noclean,
+        nonet: arg.nonet || config.nonet,
+        gmr: arg.gmr.or(config.gmr),
+        dephash_strategy: config.dephash_strategy,
+        sign: arg.sign.or(config.sign),
+    })
+}
+
+fn work(settings: Settings) -> Result<(), &'static str> {
+    let gmr = settings.gmr.and_then(|gmr|
+        Some(crate::source::git::Gmr::init(gmr.as_str())));
+    let mut pkgbuilds = 
+        pkgbuild::PKGBUILDs::from_config_healthy(
+            &settings.pkgbuilds_config, settings.holdpkg, 
+            settings.noclean, settings.proxy.as_ref(), 
+            gmr.as_ref()
+        ).or_else(|_|Err("Failed to prepare PKGBUILDs list"))?;
+    let root = pkgbuilds.prepare_sources(
+        &settings.actual_identity, &settings.basepkgs, settings.holdgit, 
+        settings.skipint, settings.noclean, settings.proxy.as_ref(),
+        gmr.as_ref(), &settings.dephash_strategy
+        ).or_else(|_|Err("Failed to prepare sources"))?;
+    let r = build::maybe_build(&pkgbuilds,
+        root, &settings.actual_identity, settings.nobuild, settings.nonet,
+         settings.sign.as_deref());
+    let _ = std::fs::remove_dir("build");
+    pkgbuilds.link_pkgs();
+    if ! settings.noclean {
+        pkgbuilds.clean_pkgdir();
+    }
+    if r.is_err() {
+        Err("Failed to build")
+    } else {
+        Ok(())
+    }
+}
+
+fn main() -> Result<(), &'static str> {
+    work(prepare()?)
 }

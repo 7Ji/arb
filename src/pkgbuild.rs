@@ -1,5 +1,6 @@
 // TODO: Split this into multiple modules
 use crate::{
+        config::Pkgbuild as PkgbuildConfig,
         identity::IdentityActual,
         source::{
             self,
@@ -14,10 +15,9 @@ use crate::{
         threading::{
             self,
             wait_if_too_busy,
-        }, filesystem::remove_dir_all_try_best, build::sign::sign_pkgs
+        }, filesystem::remove_dir_all_try_best, sign::sign_pkgs, depend::{Depends, DbHandle}, config::DepHashStrategy
     };
 use git2::Oid;
-use serde::Deserialize;
 use std::{
         collections::HashMap,
         ffi::OsString,
@@ -44,23 +44,8 @@ use std::{
         iter::zip,
     };
 use xxhash_rust::xxh3::xxh3_64;
-use super::{depend::Depends, DepHashStrategy};
-use super::depend::DbHandle;
-
-#[derive(Debug, PartialEq, Deserialize)]
-#[serde(untagged)]
-pub(crate) enum PkgbuildConfig {
-    Simple (String),
-    Complex {
-        url: String,
-        branch: Option<String>,
-        subtree: Option<String>,
-        deps: Option<Vec<String>>,
-        makedeps: Option<Vec<String>>,
-        home_binds: Option<Vec<String>>,
-        binds: Option<HashMap<String, String>>
-    },
-}
+// use super::{depend::Depends, DepHashStrategy};
+// use super::depend::DbHandle;
 
 #[derive(Clone)]
 enum Pkgver {
@@ -69,17 +54,17 @@ enum Pkgver {
 }
 
 #[derive(Clone)]
-pub(super) struct PKGBUILD {
-    pub(super) base: String,
+pub(crate) struct PKGBUILD {
+    pub(crate) base: String,
     branch: String,
     build: PathBuf,
     commit: git2::Oid,
     depends: Depends,
-    pub(super) extracted: bool,
+    pub(crate) extracted: bool,
     git: PathBuf,
     home_binds: Vec<String>,
     names: Vec<String>,
-    pub(super) need_build: bool,
+    pub(crate) need_build: bool,
     pkgid: String,
     pkgdir: PathBuf,
     pkgver: Pkgver,
@@ -120,10 +105,10 @@ impl AsRef<PKGBUILD> for PKGBUILD {
 }
 
 impl PKGBUILD {
-    // pub(super) fn provides(&self, pkg: &String) -> bool {
+    // pub(crate) fn provides(&self, pkg: &String) -> bool {
     //     self.names.contains(pkg) || self.provides.contains(pkg)
     // }
-    pub(super) fn wants<'a> (&'a self, other: &'a Self) -> Option<&'a str> {
+    pub(crate) fn wants<'a> (&'a self, other: &'a Self) -> Option<&'a str> {
         for pkg in other.names.iter().chain(other.provides.iter()) {
             if self.depends.wants(pkg) {
                 return Some(pkg)
@@ -296,10 +281,10 @@ impl PKGBUILD {
         }
     }
 
-    pub(super) fn extractor_source(
+    pub(crate) fn extractor_source(
         &self, actual_identity: &IdentityActual) -> Result<Child, ()> 
     {
-        const SCRIPT: &str = include_str!("../../scripts/extract_sources.bash");
+        const SCRIPT: &str = include_str!("../scripts/extract_sources.bash");
         if let Err(e) = create_dir_all(&self.build) {
             eprintln!("Failed to create build dir: {}", e);
             return Err(());
@@ -370,7 +355,7 @@ impl PKGBUILD {
         println!("PKGBUILD '{}' pkgid is '{}'", self.base, self.pkgid);
     }
 
-    pub(super) fn get_temp_pkgdir(&self) -> Result<PathBuf, ()> {
+    pub(crate) fn get_temp_pkgdir(&self) -> Result<PathBuf, ()> {
         let mut temp_name = self.pkgid.clone();
         temp_name.push_str(".temp");
         let temp_pkgdir = self.pkgdir.with_file_name(temp_name);
@@ -384,7 +369,7 @@ impl PKGBUILD {
         }
     }
 
-    pub(super) fn get_build_command(
+    pub(crate) fn get_build_command(
         &self,
         actual_identity: &IdentityActual,
         temp_pkgdir: &Path
@@ -425,7 +410,7 @@ impl PKGBUILD {
         Ok(command)
     }
 
-    pub(super) fn link_pkgs(&self) -> Result<(), ()> {
+    pub(crate) fn link_pkgs(&self) -> Result<(), ()> {
         let mut rel = PathBuf::from("..");
         rel.push(&self.pkgid);
         let updated = PathBuf::from("pkgs/updated");
@@ -455,7 +440,7 @@ impl PKGBUILD {
         if bad { Err(()) } else { Ok(()) }
     }
 
-    pub(super) fn finish_build(&self, 
+    pub(crate) fn finish_build(&self, 
         actual_identity: &IdentityActual, temp_pkgdir: &Path, sign: Option<&str>
     ) 
         -> Result<(), ()> 
@@ -509,7 +494,7 @@ impl PKGBUILD {
         binds
     }
 
-    pub(super) fn _get_overlay_root(
+    pub(crate) fn _get_overlay_root(
         &self, actual_identity: &IdentityActual, nonet: bool
     ) -> Result<OverlayRoot, ()> 
     {
@@ -517,7 +502,7 @@ impl PKGBUILD {
             &self.depends.needs, self.get_home_binds(), nonet)
     }
 
-    pub(super) fn get_bootstrapping_overlay_root(
+    pub(crate) fn get_bootstrapping_overlay_root(
         &self, actual_identity: &IdentityActual, nonet: bool
     ) -> Result<BootstrappingOverlayRoot, ()> 
     {
@@ -527,10 +512,10 @@ impl PKGBUILD {
 }
 
 // struct PkgsDepends (Vec<Depends>);
-pub(super) struct PKGBUILDs (pub(super) Vec<PKGBUILD>);
+pub(crate) struct PKGBUILDs (pub(crate) Vec<PKGBUILD>);
 
 impl PKGBUILDs {
-    pub(super) fn from_config(config: &HashMap<String, PkgbuildConfig>) 
+    pub(crate) fn from_config(config: &HashMap<String, PkgbuildConfig>) 
         -> Result<Self, ()> 
     {
         let build_parent = PathBuf::from("build");
@@ -586,7 +571,7 @@ impl PKGBUILDs {
         true
     }
 
-    pub(super) fn from_config_healthy(
+    pub(crate) fn from_config_healthy(
         config: &HashMap<String, PkgbuildConfig>, 
         hold: bool, noclean: bool, proxy: Option<&Proxy>, gmr: Option<&Gmr>
     ) -> Result<Self, ()>
@@ -985,7 +970,7 @@ impl PKGBUILDs {
         if bad { Err(()) } else { Ok(need_build) }
     }
 
-    pub(super) fn prepare_sources(
+    pub(crate) fn prepare_sources(
         &mut self,
         actual_identity: &IdentityActual, 
         basepkgs: &Vec<String>,
@@ -1071,7 +1056,7 @@ impl PKGBUILDs {
         }
     }
     
-    pub(super) fn clean_pkgdir(&self) {
+    pub(crate) fn clean_pkgdir(&self) {
         let mut used: Vec<String> = self.0.iter().map(
             |pkgbuild| pkgbuild.pkgid.clone()).collect();
         used.push(String::from("updated"));
@@ -1080,7 +1065,7 @@ impl PKGBUILDs {
         source::remove_unused("pkgs", &used);
     }
 
-    pub(super) fn link_pkgs(&self) {
+    pub(crate) fn link_pkgs(&self) {
         let rel = PathBuf::from("..");
         let latest = PathBuf::from("pkgs/latest");
         for pkgbuild in self.0.iter() {

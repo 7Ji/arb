@@ -1,111 +1,21 @@
-use std::{hash::Hasher, process::{Command, Stdio}, path::Path, os::unix::prelude::OsStrExt, ffi::OsStr};
+use std::{hash::Hasher, ffi::OsStr, process::{Command, Stdio}};
 
-use alpm::{self, Package};
-use serde::Deserialize;
+use alpm::Package;
 use xxhash_rust::xxh3;
 
-use crate::identity::{Identity, IdentityActual};
+use crate::{config::DepHashStrategy, identity::{IdentityActual, Identity}};
 
-#[derive(Debug, PartialEq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum DepHashStrategy {
-    Strict, // dep + makedep
-    Loose,  // dep
-    None,   // none
-}
+use super::DbHandle;
 
-impl Default for DepHashStrategy {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 #[derive(Clone)]
-pub(super) struct Depends {
-    pub(super) deps: Vec<String>,
-    pub(super) makedeps: Vec<String>,
-    pub(super) needs: Vec<String>,
-    pub(super) hash: u64,
+pub(crate) struct Depends {
+    pub(crate) deps: Vec<String>,
+    pub(crate) makedeps: Vec<String>,
+    pub(crate) needs: Vec<String>,
+    pub(crate) hash: u64,
 }
 
-pub(super) struct DbHandle {
-    alpm_handle: alpm::Alpm,
-}
-
-impl DbHandle {
-    pub(super) fn new<P: AsRef<Path>>(root: P) -> Result<Self, ()> {
-        let handle = match alpm::Alpm::new(
-            root.as_ref().as_os_str().as_bytes(),
-            root.as_ref().join("var/lib/pacman")
-                .as_os_str().as_bytes()) 
-        {
-            Ok(handle) => handle,
-            Err(e) => {
-                eprintln!("Failed to open pacman DB at root '{}': {}",
-                root.as_ref().display(), e);
-                return Err(())
-            },
-        };
-        let content = match std::fs::read_to_string(
-            "/etc/pacman.conf") 
-        {
-            Ok(content) => content,
-            Err(e) => {
-                eprintln!("Failed to open pacman config: {}", e);
-                return Err(())
-            },
-        };
-        let config = match 
-            super::paconf::Config::from_pacman_conf_content(&content) 
-        {
-            Ok(config) => config,
-            Err(_) => {
-                eprintln!("Failed to read pacman config");
-                return Err(())
-            },
-        };
-        let _new_config = config.with_cusrepo(
-            "arch_repo_builder_internal_do_not_use",
-            "/srv/repo_builder/pkgs");
-        let sig_level = handle.default_siglevel();
-        for repo in config.repos.iter() {
-            match handle.register_syncdb(repo.name, sig_level) {
-                Ok(_) => (),
-                Err(e) => {
-                    eprintln!("Failed to register repo '{}': {}", repo.name, e);
-                    return Err(())
-                },
-            }
-        }
-        if handle.syncdbs().len() == 0 {
-            eprintln!("No DBs defined");
-            return Err(())
-        }
-        Ok(DbHandle { alpm_handle: handle })
-    }
-
-    fn find_satisfier<S: AsRef<str>>(&self, dep: S) -> Option<Package> {
-        let mut pkg_satisfier = None;
-        for db in self.alpm_handle.syncdbs() {
-            if let Ok(pkg) = db.pkg(dep.as_ref()) {
-                return Some(pkg)
-            }
-            if let Some(pkg) = 
-                db.pkgs().find_satisfier(dep.as_ref()) 
-            {
-                pkg_satisfier = Some(pkg)
-            }
-        }
-        pkg_satisfier
-    }
-
-    fn is_installed<S: AsRef<str>>(&self, pkg: S) -> bool {
-        match self.alpm_handle.localdb().pkg(pkg.as_ref()) {
-            Ok(_) => true,
-            Err(_) => false,
-        }
-    }
-}
 
 fn update_hash_from_pkg(hash: &mut xxh3::Xxh3, pkg: Package<'_>) {
     if let Some(sig) = pkg.base64_sig() {
@@ -192,7 +102,7 @@ impl Depends {
         Ok(())
     }
 
-    pub(super) fn needed_and_hash(
+    pub(crate) fn needed_and_hash(
         &mut self, db_handle: &DbHandle, hash_strategy: &DepHashStrategy
     ) 
         -> Result<(), ()> 
@@ -213,7 +123,7 @@ impl Depends {
         self.needs.retain(|pkg|!db_handle.is_installed(pkg));
     }
 
-    pub(super) fn cache_raw<S: AsRef<OsStr>>(deps: &Vec<String>, dbpath: S) 
+    pub(crate) fn cache_raw<S: AsRef<OsStr>>(deps: &Vec<String>, dbpath: S) 
         -> Result<(), ()> 
     {
         if deps.len() == 0 {
@@ -279,7 +189,7 @@ impl Depends {
         }
     }
 
-    pub(super) fn wants(&self, pkg: &str) -> bool {
+    pub(crate) fn wants(&self, pkg: &str) -> bool {
         for dep in self.deps.iter().chain(self.makedeps.iter()) {
             if dep == pkg {
                 return true

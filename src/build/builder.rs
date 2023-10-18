@@ -1,8 +1,8 @@
 use std::{path::PathBuf, process::{Command, Child}, fs::{remove_dir_all, create_dir_all}, thread::sleep, time::Duration};
 
-use crate::{roots::{OverlayRoot, BootstrappingOverlayRoot}, identity::IdentityActual, filesystem::remove_dir_all_try_best};
+use crate::{roots::{OverlayRoot, BootstrappingOverlayRoot}, identity::IdentityActual, filesystem::remove_dir_all_try_best, pkgbuild::{PKGBUILD, PKGBUILDs}};
 
-use super::{pkgbuild::{PKGBUILD, PKGBUILDs}, dir::BuildDir};
+use super::dir::BuildDir;
 
 enum RootState {
     None,

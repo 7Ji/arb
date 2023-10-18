@@ -1,4 +1,4 @@
-use super::pkgbuild::{PKGBUILD, PKGBUILDs};
+use crate::pkgbuild::{PKGBUILD, PKGBUILDs};
 
 struct DepNode<'a> {
     pkgbuild: &'a PKGBUILD,
@@ -81,7 +81,7 @@ impl<'a> DepNodes<'a>  {
     }
 }
 
-pub(super) fn split_pkgbuilds<'a>(pkgbuilds: &'a PKGBUILDs) 
+pub(crate) fn split_pkgbuilds<'a>(pkgbuilds: &'a PKGBUILDs) 
     -> Result<Vec<Vec<&'a PKGBUILD>>, ()> 
 {
     DepNodes::from_pkgbuilds(pkgbuilds)?.split()

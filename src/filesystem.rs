@@ -1,4 +1,4 @@
-use std::{path::Path, fs::{read_dir, remove_dir, remove_file, remove_dir_all, File}, io::{stdout, Read, Write}};
+use std::{path::{Path, PathBuf}, fs::{read_dir, remove_dir, remove_file, remove_dir_all, File, create_dir_all}, io::{stdout, Read, Write}};
 
 
 // build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
@@ -86,4 +86,20 @@ pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<(), ()> {
             },
         }
     }
+}
+
+pub(crate) fn prepare_updated_latest_dirs() -> Result<(), ()> {
+    let mut bad = false;
+    let dir = PathBuf::from("pkgs");
+    for subdir in ["updated", "latest"] {
+        let dir = dir.join(subdir);
+        if dir.exists() && remove_dir_all_try_best(&dir).is_err(){
+            bad = true
+        }
+        if let Err(e) = create_dir_all(&dir) {
+            eprintln!("Failed to create dir '{}': {}", dir.display(), e);
+            bad = true
+        }
+    }
+    if bad { Err(()) } else { Ok(()) }
 }

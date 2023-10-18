@@ -1,9 +1,9 @@
 // Pacman config parsing
 use std::fmt::{Display, Write};
 
-pub(super) struct Section<'a> {
-    pub(super) name: &'a str,
-    pub(super) lines: Vec<&'a str>,
+pub(crate) struct Section<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) lines: Vec<&'a str>,
 }
 
 impl<'a> Display for Section<'a> {
@@ -17,9 +17,9 @@ impl<'a> Display for Section<'a> {
     }
 }
 
-pub(super) struct Config<'a> {
-    pub(super) options: Section<'a>,
-    pub(super) repos: Vec<Section<'a>>
+pub(crate) struct Config<'a> {
+    pub(crate) options: Section<'a>,
+    pub(crate) repos: Vec<Section<'a>>
 }
 
 impl<'a> Display for Config<'a> {
@@ -33,7 +33,7 @@ impl<'a> Display for Config<'a> {
 }
 
 impl<'a> Config<'a> {
-    pub(super) fn from_pacman_conf_content(content: &'a str) -> Result<Self, ()> {
+    pub(crate) fn from_pacman_conf_content(content: &'a str) -> Result<Self, ()> {
         let mut sections = vec![];
         let mut section = None;
         for mut line in content.lines() {
@@ -59,7 +59,7 @@ impl<'a> Config<'a> {
         })
     }
 
-    pub(super) fn with_cusrepo(&self, name: &str, path: &str) -> String {
+    pub(crate) fn with_cusrepo(&self, name: &str, path: &str) -> String {
         let mut content = self.options.to_string();
         content.push_str(&format!("[{}]\nServer = file://{}\n", name, path));
         for repo in self.repos.iter() {
