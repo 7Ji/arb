@@ -114,7 +114,7 @@ impl<'a> PkgbuildsBorrowed<'a> {
                     b"name" => {
                         let mut pkg = 
                             PackageBorrowed::default();
-                        pkg.name = key;
+                        pkg.name = value;
                         pkgbuild.pkgs.push(pkg);
                     },
                     b"dep" => pkgbuild.deps.push(value),
