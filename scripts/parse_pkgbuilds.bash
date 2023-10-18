@@ -9,13 +9,16 @@ while read -r line; do
   for item in "${pkgname[@]}"; do
     echo "name:${item}"
   done
-  for item in "${depends[@]}"; do
+  declare -n depends_arch=depends_"${CARCH}"
+  for item in "${depends[@]}" "${depends_arch[@]}"; do
     echo "dep:${item}"
   done
-  for item in "${makedepends[@]}"; do
+  declare -n makedepends_arch=makedepends_"${CARCH}"
+  for item in "${makedepends[@]}" "${makedepends_arch[@]}"; do
     echo "makedep:${item}"
   done
-  for item in "${provides[@]}"; do
+  declare -n provides_arch=provides_"${CARCH}"
+  for item in "${provides[@]}" "${provides_arch[@]}"; do
     echo "provide:${item}"
   done
   declare -n source_arch=source_"${CARCH}"
