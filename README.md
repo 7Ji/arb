@@ -2,33 +2,6 @@
 
 A multi-threaded builder to build packages and create a sane folder structure for an Arch repo, written initially for https://github.com/7Ji/archrepo
 
-## Highlights
- - No tainting host: 
-   - All packages are built in their dedicated chroots
-   - Host pacman database is not touched at all
- - No wasting bandwidth: 
-   - All network file sources are cached with their integrity checksums as keys and are only downloaded once.
-   - All git sources are tracked on host against only branches and tags references, and are lazily updated.
-   - All PKGBUILDs track only their specific git branch
-   - All PKGBUILDs from AUR are lazily updated, any local PKGBUILD newer than what AUR API reports is not updated at all
-   - Proxy, if set, is only tried after failed connection without proxy
-   - Supports fetching from a upstream [7Ji/git-mirrorer](https://github.com/7Ji/git-mirrorer) instance first
- - No wasting space:
-   - All sources and PKGBUILDs are stored on host with a Filesystem-As-Database allocation style, duplicated sources only take one times the space.
-   - PKGBUILDs and git sources are stored as bare git repos, they're only checked out when needed.
-   - Build folders only exist during the build.
-   - Chroots only exist during the build, and they're created using overlayfs, only their own depdencies not in the base chroot take space.
-   - Chroot depedency packages are all cached in Host's Pacman cache (not sharing the database, though)
-   - Packages are removed once they're outdated (could be disabled)
-   - Sources are removed once they're outdated (could be disabled)
- - No wasting time
-   - Context-switch is as few as possible, most of the logic run in the executable itself, even source extraction, makepkg and its interpreter Bash only do the building and a few other things
-   - Source caching, chroot bootstrapping, source extraction, building, all run in parallel
- - No indistinguishable packages
-   - All packages are stored with unique key generated from what triggers the build
-   - All latest pacakges are linked into a single folder
-   - All updated package are linked into a single folder
-
 ## Build
 Run the following command inside this folder
 ```
