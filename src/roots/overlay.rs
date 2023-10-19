@@ -1,6 +1,6 @@
 use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all, create_dir}, ffi::OsStr};
 
-use crate::identity::{IdentityActual, ForkedChild, Identity};
+use crate::{identity::{IdentityActual, Identity}, child::ForkedChild};
 
 use super::{mount::{MountedFolder, mount}, common::CommonRoot};
 

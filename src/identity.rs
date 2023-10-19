@@ -15,6 +15,8 @@ use std::{
         }, fmt::Display,
     };
 
+use crate::child::ForkedChild;
+
 #[derive(Clone)]
 struct Environment {
     shell: OsString,
@@ -104,57 +106,6 @@ impl Environment {
             .env("LANG", &self.lang)
             .env("USER", &self.user)
             .env("PATH", &self.path)
-    }
-}
-pub(crate) struct ForkedChild {
-    pid: libc::pid_t
-}
-
-impl ForkedChild {
-    pub(crate) fn wait(&self) -> Result<(), ()> {
-        let mut status: libc::c_int = 0;
-        let waited_pid = unsafe {
-            libc::waitpid(self.pid, &mut status, 0)
-        };
-        if waited_pid <= 0 {
-            eprintln!("Failed to wait for child: {}", 
-                std::io::Error::last_os_error());
-            return Err(())
-        }
-        if waited_pid != self.pid {
-            eprintln!("Waited child {} is not the child {} we forked", 
-                        waited_pid, self.pid);
-            return Err(())
-        }
-        if status != 0 {
-            eprintln!("Child process failed");
-            return Err(())
-        }
-        Ok(())
-    }
-
-    pub(crate) fn wait_noop(&self) -> Result<Option<Result<(), ()>>, ()> {
-        let mut status: libc::c_int = 0;
-        let waited_pid = unsafe {
-            libc::waitpid(self.pid, &mut status, libc::WNOHANG)
-        };
-        if waited_pid < 0 {
-            eprintln!("Failed to wait for child: {}", 
-                std::io::Error::last_os_error());
-            return Err(())
-        } else if waited_pid == 0 {
-            return Ok(None)
-        }
-        if waited_pid != self.pid {
-            eprintln!("Waited child {} is not the child {} we forked", 
-                        waited_pid, self.pid);
-            return Err(())
-        }
-        if status != 0 {
-            eprintln!("Child process failed");
-            return Ok(Some(Err(())))
-        }
-        Ok(Some(Ok(())))
     }
 }
 
