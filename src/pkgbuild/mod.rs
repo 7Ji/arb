@@ -1087,10 +1087,9 @@ impl PKGBUILDs {
                 if let Ok(entry) = entry {
                     let original = rel.join(entry.file_name());
                     let link = latest.join(entry.file_name());
-                    println!("Linking '{}' => '{}'", 
-                            link.display(), original.display());
-                    if let Err(e) = symlink(original, link) {
-                        eprintln!("Failed to link: {}", e);
+                    if let Err(e) = symlink(&original, &link) {
+                        eprintln!("Failed to link '{}' => '{}': {}", 
+                            link.display(), original.display(), e);
                     }
                 }
             }
