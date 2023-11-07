@@ -1,52 +1,70 @@
+use nix::{
+        unistd::Pid,
+        sys::wait::{
+            waitpid,
+            WaitPidFlag,
+            WaitStatus,
+        }
+    };
+
 pub(crate) struct ForkedChild {
-    pub(crate) pid: libc::pid_t
+    pub(crate) pid: Pid
 }
 
 impl ForkedChild {
     pub(crate) fn wait(&self) -> Result<(), ()> {
-        let mut status: libc::c_int = 0;
-        let waited_pid = unsafe {
-            libc::waitpid(self.pid, &mut status, 0)
-        };
-        if waited_pid <= 0 {
-            eprintln!("Failed to wait for child: {}", 
-                std::io::Error::last_os_error());
-            return Err(())
+        match waitpid(self.pid, None) {
+            Ok(status) => match status {
+                WaitStatus::Exited(pid, code) => 
+                    if pid == self.pid {
+                        if code == 0 {
+                            return Ok(())
+                        } else {
+                            eprintln!("Child {} non-zero exit code {}", 
+                                self.pid, code)
+                        }
+                    } else {
+                        eprintln!("Waited {} is not our child {}, its exit code
+                            {}", pid, self.pid, code)
+                    }
+                _ => eprintln!("Child {} did not exit cleanly: {:?}",
+                        self.pid, status)
+            },
+            Err(e) => 
+                eprintln!("Failed to wait for child {}: {}", self.pid, e),
         }
-        if waited_pid != self.pid {
-            eprintln!("Waited child {} is not the child {} we forked", 
-                        waited_pid, self.pid);
-            return Err(())
-        }
-        if status != 0 {
-            eprintln!("Child process failed");
-            return Err(())
-        }
-        Ok(())
+        Err(())
     }
 
     pub(crate) fn wait_noop(&self) -> Result<Option<Result<(), ()>>, ()> {
-        let mut status: libc::c_int = 0;
-        let waited_pid = unsafe {
-            libc::waitpid(self.pid, &mut status, libc::WNOHANG)
-        };
-        if waited_pid < 0 {
-            eprintln!("Failed to wait for child: {}", 
-                std::io::Error::last_os_error());
-            return Err(())
-        } else if waited_pid == 0 {
-            return Ok(None)
+        match waitpid(self.pid, Some(WaitPidFlag::WNOHANG)) {
+            Ok(status) => match status {
+                WaitStatus::StillAlive => Ok(None),
+                WaitStatus::Exited(pid, code) => 
+                    if pid == self.pid {
+                        if code == 0 {
+                            Ok(Some(Ok(())))
+                        } else {
+                            eprintln!("Child {} non-zero exit code {}", 
+                                self.pid, code);
+                            Ok(Some(Err(())))
+                        }
+                    } else {
+                        eprintln!("Waited {} is not our child {}, its exit code
+                            {}", pid, self.pid, code);
+                        Ok(Some(Err(())))
+                    }
+                _ => {
+                    eprintln!("Child {} did not exit cleanly: {:?}",
+                        self.pid, status);
+                    Ok(Some(Err(())))
+                }
+            },
+            Err(e) => {
+                eprintln!("Failed to wait for child {}: {}", self.pid, e);
+                Err(())
+            },
         }
-        if waited_pid != self.pid {
-            eprintln!("Waited child {} is not the child {} we forked", 
-                        waited_pid, self.pid);
-            return Err(())
-        }
-        if status != 0 {
-            eprintln!("Child process failed");
-            return Ok(Some(Err(())))
-        }
-        Ok(Some(Ok(())))
     }
 }
 

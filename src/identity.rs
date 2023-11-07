@@ -227,36 +227,26 @@ pub(crate) trait Identity {
             Err(())
         }
     }
-    // pub(crate) fn chroot_command<P: AsRef<Path>>(
-    //     command: &mut Command, root: P
-    // ) -> Result<(), ()> 
-    // {
-    //     Self::with_chroot(|| {
-    //         let child = match command.exec() {
-    //             Ok(child) => ,
-    //             Err(_) => todo!(),
-    //         }
-    //     }, root)
-    // }
-
+    
     fn fork_and_run_child<F: FnOnce() -> Result<(), ()>,>(f: F)  
         -> Result<ForkedChild, ()>
     {
-        let child = unsafe {
-            libc::fork()
-        };
-        if child == 0 { // I am child
-            if f().is_err() {
-                exit(-1)
-            } else {
-                exit(0)
-            }
-        } else if child < 0 { // Error encountered
-            eprintln!("Failed to fork: {}", std::io::Error::last_os_error());
-            return Err(())
+        match unsafe{ nix::unistd::fork() } {
+            Ok(result) => match result {
+                nix::unistd::ForkResult::Parent { child } => 
+                    Ok(ForkedChild { pid: child }),
+                nix::unistd::ForkResult::Child => 
+                    if f().is_err() {
+                        exit(-1)
+                    } else {
+                        exit(0)
+                    },
+            },
+            Err(e) => {
+                eprintln!("Failed to fork: {}", e);
+                Err(())
+            },
         }
-        // I am parent
-        Ok(ForkedChild{ pid: child })
     }
 
     fn fork_and_run<F: FnOnce() -> Result<(), ()>,>(f: F)  -> Result<(), ()>
