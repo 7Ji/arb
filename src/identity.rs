@@ -1,3 +1,6 @@
+// Todo: drop all of this, use user namespaces, so we can operate fully without
+// jumping back and forth between root and normal user
+
 use std::{
         ffi::OsString,
         os::unix::{

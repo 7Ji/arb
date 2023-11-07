@@ -123,6 +123,8 @@ impl Depends {
         self.needs.retain(|pkg|!db_handle.is_installed(pkg));
     }
 
+    /// Todo: cache package in our own storage, not tainting host, also without
+    /// root permission.
     pub(crate) fn cache_raw<S: AsRef<OsStr>>(deps: &Vec<String>, dbpath: S) 
         -> Result<(), ()> 
     {
