@@ -15,6 +15,8 @@ use std::{
         }, fmt::Display,
     };
 
+use nix::{unistd::{Uid, Gid, getuid, getgid}, errno::Errno};
+
 use crate::child::ForkedChild;
 
 #[derive(Clone)]
@@ -43,7 +45,7 @@ where
 {
     let pw_entry = get_pw_entry_from_uid(uid)?;
     let attribute = f(&pw_entry);
-    let len = unsafe { libc::strlen(attribute) };
+    let len = unsafe { libc::strnlen(attribute, 0x1000) };
     let raw = unsafe {
         std::slice::from_raw_parts(attribute as *const u8, len) };
     Ok(raw.to_vec())
@@ -63,8 +65,8 @@ fn get_home_and_name_raw_from_uid(uid: libc::uid_t)
     let pw_entry = get_pw_entry_from_uid(uid)?;
     let pw_dir = pw_entry.pw_dir;
     let pw_name = pw_entry.pw_name;
-    let len_dir = unsafe { libc::strlen(pw_dir) };
-    let len_name = unsafe { libc::strlen(pw_name) };
+    let len_dir = unsafe { libc::strnlen(pw_dir, 0x1000) };
+    let len_name = unsafe { libc::strnlen(pw_name, 0x1000) };
     let raw_home = unsafe {
         std::slice::from_raw_parts(pw_dir as *const u8, len_dir) };
     let raw_name = unsafe {
@@ -74,9 +76,9 @@ fn get_home_and_name_raw_from_uid(uid: libc::uid_t)
 
 
 impl Environment {
-    fn init(uid: libc::uid_t) -> Result<Self, ()> {
+    fn init(uid: Uid) -> Result<Self, ()> {
         let (home_raw, name_raw) 
-            = get_home_and_name_raw_from_uid(uid)?;
+            = get_home_and_name_raw_from_uid(uid.as_raw())?;
         let cwd = std::env::current_dir().or_else(|e|{
             eprintln!("Failed to get current dir: {}", e);
             Err(())
@@ -111,15 +113,15 @@ impl Environment {
 
 #[derive(Clone)]
 pub(crate) struct IdentityCurrent {
-    uid: libc::uid_t,
-    gid: libc::gid_t,
+    uid: Uid,
+    gid: Gid,
     name: String,
 }
 
 #[derive(Clone)]
 pub(crate) struct IdentityActual {
-    uid: libc::uid_t,
-    gid: libc::gid_t,
+    uid: Uid,
+    gid: Gid,
     name: String,
     env: Environment,
     cwd: PathBuf,
@@ -129,55 +131,35 @@ pub(crate) struct IdentityActual {
 }
 
 pub(crate) trait Identity {
-    fn uid(&self) -> libc::uid_t;
-    fn gid(&self) -> libc::gid_t;
+    fn uid(&self) -> Uid;
+    fn gid(&self) -> Gid;
     fn name(&self) -> &str;
     fn is_root(&self) -> bool {
-        self.uid() == 0 && self.gid() == 0
+        self.uid().is_root()
     }
 
-    fn sete_raw(uid: libc::uid_t, gid: libc::gid_t) 
-        -> Result<(), std::io::Error>
+    fn sete_raw(uid: Uid, gid: Gid) 
+        -> Result<(), Errno>
     {
-        let r = unsafe { libc::setegid(gid) };
-        if r != 0 {
-            eprintln!("Failed to setegid to {}: return {}, errno {}", 
-                gid, r, unsafe {*libc::__errno_location()});
-            return Err(std::io::Error::last_os_error())
-        }
-        let r = unsafe { libc::seteuid(uid) };
-        if r != 0 {
-            eprintln!("Failed to seteuid to {}: return {}, errno {}", 
-                uid, r, unsafe {*libc::__errno_location()});
-            return Err(std::io::Error::last_os_error())
-        }
-        Ok(())
+        nix::unistd::setegid(gid)?;
+        nix::unistd::seteuid(uid)
     }
 
-    fn set_raw(uid: libc::uid_t, gid: libc::gid_t) 
-        -> Result<(), std::io::Error> 
+    fn set_raw(uid: Uid, gid: Gid) 
+        -> Result<(), Errno> 
     {
-        let r = unsafe { libc::setgid(gid) };
-        if r != 0 {
-            eprintln!("Failed to setgid to {}: return {}, errno {}", 
-                gid, r, unsafe {*libc::__errno_location()});
-            return Err(std::io::Error::last_os_error())
-        }
-        let r = unsafe { libc::setuid(uid) };
-        if r != 0 {
-            eprintln!("Failed to setuid to {}: return {}, errno {}", 
-                uid, r, unsafe {*libc::__errno_location()});
-            return Err(std::io::Error::last_os_error())
-        }
-        Ok(())
+        nix::unistd::setgid(gid)?;
+        nix::unistd::setuid(uid)
     }
 
     fn sete(&self) -> Result<(), std::io::Error> {
-        Self::sete_raw(self.uid(), self.gid())
+        Self::sete_raw(self.uid(), self.gid()).map_err(|e|e.into())
     }
 
     fn sete_root() -> Result<(), std::io::Error> {
-        Self::sete_raw(0, 0)
+        Self::sete_raw(
+            Uid::from_raw(0), Gid::from_raw(0))
+                .map_err(|e|e.into())
     }
 
     /// Return to root
@@ -316,11 +298,11 @@ pub(crate) trait Identity {
 }
 
 impl Identity for IdentityCurrent {
-    fn uid(&self) -> u32 {
+    fn uid(&self) -> Uid {
         self.uid
     }
 
-    fn gid(&self) -> u32 {
+    fn gid(&self) -> Gid {
         self.gid
     }
 
@@ -339,22 +321,22 @@ impl Display for IdentityCurrent {
 
 impl IdentityCurrent {
     pub(crate) fn new() -> Result<Self, ()> {
-        let uid = unsafe { libc::getuid() };
-        let name_raw = get_name_raw_from_uid(uid)?;
+        let uid = getuid();
+        let name_raw = get_name_raw_from_uid(uid.as_raw())?;
         Ok(Self {
             uid,
-            gid: unsafe { libc::getgid() },
+            gid: getgid(),
             name: String::from_utf8_lossy(&name_raw).to_string(),
         })
     }
 }
 
 impl Identity for IdentityActual {
-    fn uid(&self) -> u32 {
+    fn uid(&self) -> Uid {
         self.uid
     }
 
-    fn gid(&self) -> u32 {
+    fn gid(&self) -> Gid {
         self.gid
     }
 
@@ -390,7 +372,7 @@ impl IdentityActual {
         &self.home_string
     }
 
-    fn new(uid: u32, gid: u32) -> Result<Self, ()> {
+    fn new(uid: Uid, gid: Gid) -> Result<Self, ()> {
         let env = Environment::init(uid).or_else(|_|{
             println!("Failed to get env for actual user");
             Err(())
@@ -434,7 +416,7 @@ impl IdentityActual {
         };
         if let Ok(uid) = components[0].parse() {
         if let Ok(gid) = components[1].parse() {
-            return Self::new(uid, gid);
+            return Self::new(Uid::from_raw(uid), Gid::from_raw(gid));
         }
         }
         eprintln!("Can not parse ID pair '{}'", id_pair);
@@ -444,10 +426,10 @@ impl IdentityActual {
     fn new_from_sudo() -> Result<Self, ()> {
         if let Some(sudo_uid) = std::env::var_os("SUDO_UID") {
         if let Some(sudo_gid) = std::env::var_os("SUDO_GID") {
-        if let Ok(uid) = sudo_uid.to_string_lossy().parse() {
-        if let Ok(gid) = sudo_gid.to_string_lossy().parse() {
+        if let Ok(uid) = sudo_uid.to_string_lossy().parse(){
+        if let Ok(gid) = sudo_gid.to_string_lossy().parse(){
             return Self::new(
-                uid, gid)
+                Uid::from_raw(uid), Gid::from_raw(gid))
         }}}}
         Err(())
     }
@@ -502,7 +484,8 @@ impl IdentityActual {
         let uid = self.uid;
         let gid = self.gid;
         unsafe {
-            command.pre_exec(move || Self::set_raw(uid, gid));
+            command.pre_exec(move || 
+                Self::set_raw(uid, gid).map_err(|e|e.into()));
         }
         command
     }
