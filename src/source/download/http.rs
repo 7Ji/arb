@@ -1,12 +1,7 @@
-use reqwest::{
-    ClientBuilder, 
-    Proxy,
-};
-
 use std::{
-    fs::File,
-    io::Write,
-    path::Path,
+        fs::File,
+        io::Read,
+        path::Path,
 };
 
 pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) 
@@ -20,107 +15,35 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>)
             return Err(())
         },
     };
-    let future = async {
-        let mut response = match match proxy {
-            Some(proxy) => {
-                let http_proxy = match Proxy::http(proxy) {
-                    Ok(http_proxy) => http_proxy,
-                    Err(e) => {
-                        eprintln!("Failed to create http proxy '{}': {}", 
-                                    proxy, e);
-                        return Err(())
-                    },
-                };
-                let https_proxy = match Proxy::https(proxy) 
-                {
-                    Ok(https_proxy) => https_proxy,
-                    Err(e) => {
-                        eprintln!("Failed to create https proxy '{}': {}", 
-                                    proxy, e);
-                        return Err(())
-                    },
-                };
-                let client_builder = 
-                    ClientBuilder::new()
-                    .proxy(http_proxy)
-                    .proxy(https_proxy);
-                let client = match client_builder.build() {
-                    Ok(client) => client,
-                    Err(e) => {
-                        eprintln!("Failed to build client: {}", e);
-                        return Err(())
-                    },
-                };
-                let request = match client.get(url).build() {
-                    Ok(request) => request,
-                    Err(e) => {
-                        eprintln!("Failed to build request: {}", e);
-                        return Err(())
-                    },
-                };
-                client.execute(request).await
-            },
-            None => {
-                reqwest::get(url).await
-            },
-        } {
-            Ok(response) => response,
-            Err(e) => {
-                eprintln!("Failed to get response from '{}': {}", url, e);
-                return Err(())
-            },
-        };
-        let time_start = tokio::time::Instant::now();
-        let mut total = 0;
-        loop {
-            let chunk = match response.chunk().await {
-                Ok(chunk) => chunk,
-                Err(e) => {
-                    eprintln!(
-                        "Failed to get response chunk from '{}': {}", url, e);
-                    return Err(())
-                },
-            };
-            if let Some(chunk) = chunk {
-                total += chunk.len();
-                match target.write_all(&chunk) {
-                    Ok(_) => (),
-                    Err(e) => {
-                        eprintln!("Failed to write to target file: {}", e);
-                        return Err(())
-                    },
-                }
-                let time_diff = 
-                    (tokio::time::Instant::now() - time_start)
-                        .as_secs_f64();
-                if time_diff <= 0.0 {
-                    continue;
-                }
-                let mut speed = total as f64 / time_diff;
-                let suffixes = "BKMGTPEZY";
-                let mut suffix_actual = ' ';
-                for suffix in suffixes.chars() {
-                    if speed >= 1024.00 {
-                        speed /= 1024.00
-                    } else {
-                        suffix_actual = suffix;
-                        break;
-                    }
-                }
-                print!("Downloading {}: {:.2}{}/s\r", 
-                        url, speed, suffix_actual);
-            } else {
-                break
-            }
+    let response = match proxy {
+        Some(proxy) => {
+            let proxy_opt = ureq::Proxy::new(proxy).map_err(|e|
+                eprintln!("Failed to create proxy from '{}': {}", proxy, e))?;
+            ureq::AgentBuilder::new().proxy(proxy_opt).build().get(url)
+        },
+        None => ureq::get(url),
+    }.call().map_err(
+        |e|eprintln!("Failed to GET url '{}': {}", url, e))?;
+    let len = match response.header("content-length") {
+        Some(len) => len.parse().unwrap(),
+        None => {
+            println!("Warning: response does not have 'content-length', limit \
+                max download size to 4GiB");
+            0x100000000
         }
-        Ok(())
     };
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .or_else(|e|{
-            eprintln!("Failed to build async runner: {}", e);
+    match std::io::copy(
+        &mut response.into_reader().take(len), &mut target) 
+    {
+        Ok(size) => {
+            println!("Downloaded {} bytes from '{}' into '{}'", 
+                size, url, path.display());
+            Ok(())
+        },
+        Err(e) => {
+            eprintln!("Failed to copy download '{}' into '{}': {}", 
+                        url, path.display(), e);
             Err(())
-        })?
-        .block_on(future)
+        },
+    }
 }
