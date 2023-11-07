@@ -2,8 +2,7 @@ use std::{path::{Path, PathBuf}, fs::{create_dir_all, remove_file, copy}, ffi::O
 
 use crate::identity::IdentityActual;
 
-use super::mount::mount;
-
+use nix::mount::{mount, MsFlags};
 
 pub(crate) trait CommonRoot {
     const BUILDER_DIRS: [&'static str; 3] = ["build", "pkgs", "sources"];
@@ -36,39 +35,60 @@ pub(crate) trait CommonRoot {
         mount(Some("proc"),
             &self.path().join("proc"),
             Some("proc"),
-            libc::MS_NOSUID | libc::MS_NOEXEC | libc::MS_NODEV,
-            None)?;
+            MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV,
+            None::<&str>
+        ).map_err(|e|
+            eprintln!("Failed to mount proc for '{}': {}",
+            self.path().display(), e))?;
         mount(Some("sys"),
             &self.path().join("sys"),
             Some("sysfs"),
-            libc::MS_NOSUID | libc::MS_NOEXEC | libc::MS_NODEV | 
-                libc::MS_RDONLY,
-            None)?;
+            MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV | 
+                MsFlags::MS_RDONLY,
+            None::<&str>
+        ).map_err(|e|
+            eprintln!("Failed to mount sys for '{}': {}",
+            self.path().display(), e))?;
         mount(Some("udev"),
             &self.path().join("dev"),
             Some("devtmpfs"),
-            libc::MS_NOSUID,
-            Some("mode=0755"))?;
+            MsFlags::MS_NOSUID,
+            Some("mode=0755")
+        ).map_err(|e|
+            eprintln!("Failed to mount udev for '{}': {}",
+            self.path().display(), e))?;
         mount(Some("devpts"),
             &self.path().join("dev/pts"),
             Some("devpts"),
-            libc::MS_NOSUID | libc::MS_NOEXEC,
-            Some("mode=0620,gid=5"))?;
+            MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
+            Some("mode=0620,gid=5")
+        ).map_err(|e|
+            eprintln!("Failed to mount devpts for '{}': {}",
+            self.path().display(), e))?;
         mount(Some("shm"),
             &self.path().join("dev/shm"),
             Some("tmpfs"),
-            libc::MS_NOSUID | libc::MS_NODEV,
-            Some("mode=1777"))?;
+            MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
+            Some("mode=1777")
+        ).map_err(|e|
+            eprintln!("Failed to mount shm for '{}': {}",
+            self.path().display(), e))?;
         mount(Some("run"),
             &self.path().join("run"),
             Some("tmpfs"),
-            libc::MS_NOSUID | libc::MS_NODEV,
-            Some("mode=0755"))?;
+            MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
+            Some("mode=0755")
+        ).map_err(|e|
+            eprintln!("Failed to mount run for '{}': {}",
+            self.path().display(), e))?;
         mount(Some("tmp"),
             &self.path().join("tmp"),
             Some("tmpfs"),
-            libc::MS_STRICTATIME | libc::MS_NODEV | libc::MS_NOSUID,
-            Some("mode=1777"))?;
+            MsFlags::MS_STRICTATIME | MsFlags::MS_NODEV | MsFlags::MS_NOSUID,
+            Some("mode=1777")
+        ).map_err(|e|
+            eprintln!("Failed to mount tmp for '{}': {}",
+            self.path().display(), e))?;
         Ok(self)
     }
 

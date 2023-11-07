@@ -2,8 +2,9 @@ use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all, create_dir
 
 use crate::{identity::{IdentityActual, Identity}, child::ForkedChild};
 
-use super::{mount::{MountedFolder, mount}, common::CommonRoot};
+use super::{mount::MountedFolder, common::CommonRoot};
 
+use nix::mount::{mount, MsFlags};
 
 pub(crate) struct OverlayRoot {
     parent: PathBuf,
@@ -34,10 +35,14 @@ impl OverlayRoot {
         mount(Some("overlay"),
             &self.merged.0,
             Some("overlay"),
-            0,
-            Some(&format!(
+            MsFlags::empty(),
+            Some(format!(
                 "lowerdir=roots/base,upperdir={},workdir={}", 
-                self.upper.display(), self.work.display())))?;
+                self.upper.display(), 
+                self.work.display()).as_str()))
+            .map_err(|e|
+                eprintln!("Failed to mount overlay at '{}': {}", 
+                    self.merged.0.display(), e))?;
         Ok(self)
     }
 
@@ -46,9 +51,11 @@ impl OverlayRoot {
         for dir in Self::BUILDER_DIRS {
             mount(Some(dir),
                 &builder.join(dir),
-                None,
-                libc::MS_BIND,
-                None)?;
+                None::<&str>,
+                MsFlags::MS_BIND,
+                None::<&str>)
+            .map_err(|e|eprintln!(
+                "Failed to bind mount builder subdir '{}' : {}", dir, e))?;
         }
         Ok(self)
     }
@@ -75,11 +82,13 @@ impl OverlayRoot {
             })?;
             let mut host_dir_string = host_home_string.clone();
             host_dir_string.push_str(dir.as_ref());
-            mount(Some(&host_dir_string),
+            mount(Some(host_dir_string.as_str()),
                 &chroot_dir,
-                None,
-                libc::MS_BIND,
-                None)?;
+                None::<&str>,
+                MsFlags::MS_BIND,
+                None::<&str>)
+            .map_err(|e|eprintln!(
+                "Failed to bind mount homedir '{}' : {}", dir.as_ref(), e))?;
         }
         Ok(self)
     }

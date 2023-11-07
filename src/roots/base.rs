@@ -2,7 +2,9 @@ use std::{path::{Path, PathBuf}, process::Command, fs::{create_dir_all, create_d
 
 use crate::identity::{IdentityActual, Identity};
 
-use super::{mount::{MountedFolder, mount}, common::CommonRoot};
+use super::{mount::MountedFolder, common::CommonRoot};
+
+use nix::mount::{mount, MsFlags};
 
 
 /// The basic root, with bare-minimum packages installed
@@ -19,9 +21,10 @@ impl BaseRoot {
     fn bind_self(&self) -> Result<&Self, ()> {
         mount(Some("roots/base"),
                 self.path(),
-                None,
-                libc::MS_BIND,
-                None)?;
+                None::<&str>,
+                MsFlags::MS_BIND,
+                None::<&str>)
+        .map_err(|e|eprintln!("Failed to mount base root: {}", e))?;
         Ok(self)
     }
 
