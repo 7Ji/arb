@@ -3,6 +3,11 @@
 A multi-threaded builder to build packages and create a sane folder structure for an Arch repo, written initially for https://github.com/7Ji/archrepo
 
 ## Build
+Install necessary dependencies
+```
+sudo pacman -Syu rustup
+rustup default stable
+```
 Run the following command inside this folder
 ```
 cargo build --release
@@ -38,7 +43,9 @@ Options:
   -V, --version                    Print version
 ```
 
-**Note: You must run the builder with sudo as a normal user, the builder would drop back to the normal user you call sudo with. This is for the purpose of unattended chroot deployment, bind-mounting, etc, as it could quickly use setuid and setgid syscalls to return to root. Don't worry, the builder would only run those root stuffs in forked child, not in itself.**
+**Note: The builder requires root permission to operate but not to start. To actually build something, either run it with root and `--drop [uid]:[gid]` argument, or as a normal user with sudo. It will automatically drop to the non-root user by `seteuid()` & `seteguid()`.**
+
+_Currently, the root is required for convenient un-attended chroot setup and package installation inside the containers, without constantly stopping and asking for permission. I would probably rewrite this part to use user namespaces so root permission is not needed at all, but for now, root is still needed._
 
 ## Config
 The `config.yaml` would contain a `pkgbuilds` part with simple lines of `name: url`, e.g.:
