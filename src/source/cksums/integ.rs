@@ -60,7 +60,7 @@ impl IntegFile {
             return false
         }
         if skipint {
-            log::error!("Integrity check skipped for existing '{}'",
+            log::warn!("Integrity check skipped for existing '{}'",
                         self.path.display());
             return true
         }

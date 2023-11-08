@@ -58,7 +58,7 @@ impl BaseRoot {
 
     /// Root is expected
     fn setup(&self, actual_identity: &IdentityActual) -> Result<&Self, ()> {
-        log::error!("Finishing base root setup");
+        log::warn!("Finishing base root setup");
         let builder = self.builder(actual_identity)?;
         self.copy_file_same("etc/passwd")?
             .copy_file_same("etc/group")?
@@ -77,7 +77,7 @@ impl BaseRoot {
                     Err(())
                 })?;
         }
-        log::error!("Finished base root setup");
+        log::warn!("Finished base root setup");
         Ok(self)
     }
 
