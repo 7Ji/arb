@@ -19,9 +19,9 @@ pub(crate) trait CommonRoot {
             "tmp", "var/cache/pacman/pkg", "var/lib/pacman", "var/log"]
         {
             let subdir = self.path().join(subdir);
-            // println!("Creating '{}'...", subdir.display());
+            // log::info!("Creating '{}'...", subdir.display());
             if let Err(e) = create_dir_all(&subdir) {
-                eprintln!("Failed to create dir '{}': {}", 
+                log::error!("Failed to create dir '{}': {}", 
                     subdir.display(), e);
                 return Err(())
             }
@@ -38,7 +38,7 @@ pub(crate) trait CommonRoot {
             MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV,
             None::<&str>
         ).map_err(|e|
-            eprintln!("Failed to mount proc for '{}': {}",
+            log::error!("Failed to mount proc for '{}': {}",
             self.path().display(), e))?;
         mount(Some("sys"),
             &self.path().join("sys"),
@@ -47,7 +47,7 @@ pub(crate) trait CommonRoot {
                 MsFlags::MS_RDONLY,
             None::<&str>
         ).map_err(|e|
-            eprintln!("Failed to mount sys for '{}': {}",
+            log::error!("Failed to mount sys for '{}': {}",
             self.path().display(), e))?;
         mount(Some("udev"),
             &self.path().join("dev"),
@@ -55,7 +55,7 @@ pub(crate) trait CommonRoot {
             MsFlags::MS_NOSUID,
             Some("mode=0755")
         ).map_err(|e|
-            eprintln!("Failed to mount udev for '{}': {}",
+            log::error!("Failed to mount udev for '{}': {}",
             self.path().display(), e))?;
         mount(Some("devpts"),
             &self.path().join("dev/pts"),
@@ -63,7 +63,7 @@ pub(crate) trait CommonRoot {
             MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
             Some("mode=0620,gid=5")
         ).map_err(|e|
-            eprintln!("Failed to mount devpts for '{}': {}",
+            log::error!("Failed to mount devpts for '{}': {}",
             self.path().display(), e))?;
         mount(Some("shm"),
             &self.path().join("dev/shm"),
@@ -71,7 +71,7 @@ pub(crate) trait CommonRoot {
             MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
             Some("mode=1777")
         ).map_err(|e|
-            eprintln!("Failed to mount shm for '{}': {}",
+            log::error!("Failed to mount shm for '{}': {}",
             self.path().display(), e))?;
         mount(Some("run"),
             &self.path().join("run"),
@@ -79,7 +79,7 @@ pub(crate) trait CommonRoot {
             MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
             Some("mode=0755")
         ).map_err(|e|
-            eprintln!("Failed to mount run for '{}': {}",
+            log::error!("Failed to mount run for '{}': {}",
             self.path().display(), e))?;
         mount(Some("tmp"),
             &self.path().join("tmp"),
@@ -87,7 +87,7 @@ pub(crate) trait CommonRoot {
             MsFlags::MS_STRICTATIME | MsFlags::MS_NODEV | MsFlags::MS_NOSUID,
             Some("mode=1777")
         ).map_err(|e|
-            eprintln!("Failed to mount tmp for '{}': {}",
+            log::error!("Failed to mount tmp for '{}': {}",
             self.path().display(), e))?;
         Ok(self)
     }
@@ -104,16 +104,16 @@ pub(crate) trait CommonRoot {
             .stderr(Stdio::inherit())
             .output()
             .or_else(|e| {
-                eprintln!("Failed to spawn child to refresh DB: {}", e);
+                log::error!("Failed to spawn child to refresh DB: {}", e);
                 Err(())
             })?
             .status
             .code()
             .ok_or_else(||{
-                eprintln!("Failed to get code from child to refresh DB");
+                log::error!("Failed to get code from child to refresh DB");
             })?;
         if r != 0 {
-            eprintln!("Failed to execute refresh command, return: {}", r);
+            log::error!("Failed to execute refresh command, return: {}", r);
             return Err(())
         }
         Ok(self)
@@ -144,17 +144,17 @@ pub(crate) trait CommonRoot {
             .stderr(Stdio::inherit())
             .output()
             .or_else(|e|{
-                eprintln!("Failed to spawn child to install pkgs: {}", e);
+                log::error!("Failed to spawn child to install pkgs: {}", e);
                 Err(())
             })?
             .status
             .code()
             .ok_or_else(||{
-                eprintln!(
+                log::error!(
                     "Failed to get return code from child to install pkgs");
             })?;
         if r != 0 {
-            eprintln!("Failed to execute install command, return: {}", r);
+            log::error!("Failed to execute install command, return: {}", r);
             return Err(())
         }
         Ok(self)
@@ -164,7 +164,7 @@ pub(crate) trait CommonRoot {
         let resolv = self.path().join("etc/resolv.conf");
         if resolv.exists() {
             remove_file(&resolv).or_else(|e|{
-                eprintln!("Failed to remove resolv from root: {}", e);
+                log::error!("Failed to remove resolv from root: {}", e);
                 Err(())
             })?;
         }
@@ -178,7 +178,7 @@ pub(crate) trait CommonRoot {
         match copy(&source, &target) {
             Ok(_) => Ok(()),
             Err(e) => {
-                eprintln!("Failed to copy from '{}' to '{}': {}",
+                log::error!("Failed to copy from '{}' to '{}': {}",
                     source.as_ref().display(), target.as_ref().display(), e);
                 Err(())
             },
@@ -196,7 +196,7 @@ pub(crate) trait CommonRoot {
         let home_suffix = actual_identity.home_path()
         .strip_prefix("/").or_else(
             |e| {
-                eprintln!("Failed to strip home prefix: {}", e);
+                log::error!("Failed to strip home prefix: {}", e);
                 Err(())
             })?;
         Ok(self.path().join(home_suffix))
@@ -207,7 +207,7 @@ pub(crate) trait CommonRoot {
     {
         let suffix = actual_identity.cwd().strip_prefix("/").or_else(
             |e|{
-                eprintln!("Failed to strip suffix from cwd: {}", e);
+                log::error!("Failed to strip suffix from cwd: {}", e);
                 Err(())
             })?;
         Ok(root_path.join(suffix))

@@ -15,7 +15,7 @@ impl DbHandle {
         {
             Ok(handle) => handle,
             Err(e) => {
-                eprintln!("Failed to open pacman DB at root '{}': {}",
+                log::error!("Failed to open pacman DB at root '{}': {}",
                 root.as_ref().display(), e);
                 return Err(())
             },
@@ -25,7 +25,7 @@ impl DbHandle {
         {
             Ok(content) => content,
             Err(e) => {
-                eprintln!("Failed to open pacman config: {}", e);
+                log::error!("Failed to open pacman config: {}", e);
                 return Err(())
             },
         };
@@ -34,7 +34,7 @@ impl DbHandle {
         {
             Ok(config) => config,
             Err(_) => {
-                eprintln!("Failed to read pacman config");
+                log::error!("Failed to read pacman config");
                 return Err(())
             },
         };
@@ -46,13 +46,13 @@ impl DbHandle {
             match handle.register_syncdb(repo.name, sig_level) {
                 Ok(_) => (),
                 Err(e) => {
-                    eprintln!("Failed to register repo '{}': {}", repo.name, e);
+                    log::error!("Failed to register repo '{}': {}", repo.name, e);
                     return Err(())
                 },
             }
         }
         if handle.syncdbs().len() == 0 {
-            eprintln!("No DBs defined");
+            log::error!("No DBs defined");
             return Err(())
         }
         Ok(DbHandle { alpm_handle: handle })

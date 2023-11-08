@@ -20,7 +20,7 @@ impl OverlayRoot {
         }
         if self.parent.exists() {
             if let Err(e) = remove_dir_all(&self.parent) {
-                eprintln!("Failed to remove '{}': {}", 
+                log::error!("Failed to remove '{}': {}", 
                             self.parent.display(), e);
                 return Err(())
             }
@@ -41,7 +41,7 @@ impl OverlayRoot {
                 self.upper.display(), 
                 self.work.display()).as_str()))
             .map_err(|e|
-                eprintln!("Failed to mount overlay at '{}': {}", 
+                log::error!("Failed to mount overlay at '{}': {}", 
                     self.merged.0.display(), e))?;
         Ok(self)
     }
@@ -54,7 +54,7 @@ impl OverlayRoot {
                 None::<&str>,
                 MsFlags::MS_BIND,
                 None::<&str>)
-            .map_err(|e|eprintln!(
+            .map_err(|e|log::error!(
                 "Failed to bind mount builder subdir '{}' : {}", dir, e))?;
         }
         Ok(self)
@@ -77,7 +77,7 @@ impl OverlayRoot {
             }
             let chroot_dir = chroot_home.join(dir.as_ref());
             create_dir(&chroot_dir).or_else(|e|{
-                eprintln!("Failed to create chroot dir: {}", e);
+                log::error!("Failed to create chroot dir: {}", e);
                 Err(())
             })?;
             let mut host_dir_string = host_home_string.clone();
@@ -87,7 +87,7 @@ impl OverlayRoot {
                 None::<&str>,
                 MsFlags::MS_BIND,
                 None::<&str>)
-            .map_err(|e|eprintln!(
+            .map_err(|e|log::error!(
                 "Failed to bind mount homedir '{}' : {}", dir.as_ref(), e))?;
         }
         Ok(self)
@@ -116,7 +116,7 @@ impl OverlayRoot {
         I2: IntoIterator<Item = S2>,
         S2: AsRef<str>
     {
-        println!("Creating overlay chroot '{}'", name);
+        log::info!("Creating overlay chroot '{}'", name);
         let root = Self::new_no_init(name);
         let child = IdentityActual::as_root_child(||{
             root.remove()?
@@ -130,7 +130,7 @@ impl OverlayRoot {
             }
             Ok(())
         })?;
-        println!("Forked child to create overlay chroot '{}'", name);
+        log::info!("Forked child to create overlay chroot '{}'", name);
         Ok((root, child))
     }
 
@@ -146,7 +146,7 @@ impl OverlayRoot {
         I2: IntoIterator<Item = S2>,
         S2: AsRef<str>
     {
-        println!("Creating overlay chroot '{}'", name);
+        log::info!("Creating overlay chroot '{}'", name);
         let root = Self::new_no_init(name);
         IdentityActual::as_root(||{
             root.remove()?
@@ -160,7 +160,7 @@ impl OverlayRoot {
             }
             Ok(())
         })?;
-        println!("Created overlay chroot '{}'", name);
+        log::info!("Created overlay chroot '{}'", name);
         Ok(root)
     }
 
@@ -183,7 +183,7 @@ impl Drop for OverlayRoot {
         if IdentityActual::as_root(||{
             self.remove().and(Ok(()))
         }).is_err() {
-            eprintln!("Failed to drop overlay root '{}'", self.parent.display())
+            log::error!("Failed to drop overlay root '{}'", self.parent.display())
         }
     }
 }

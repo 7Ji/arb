@@ -76,13 +76,13 @@ impl <'a> Builder<'a> {
     fn start_extract(&mut self, actual_identity: &IdentityActual) -> Result<(), ()> {
         match self.pkgbuild.extractor_source(actual_identity) {
             Ok(child) => {
-                println!("Start extracting for pkgbuild '{}'", 
+                log::info!("Start extracting for pkgbuild '{}'", 
                     &self.pkgbuild.base);
                 self.build_state = BuildState::Extracting { child };
                 Ok(())
             },
             Err(_) => {
-                eprintln!("Failed to get extractor for pkgbuild\
+                log::error!("Failed to get extractor for pkgbuild\
                  '{}'", &self.pkgbuild.base);
                 Err(())
             },
@@ -104,12 +104,12 @@ impl <'a> Builder<'a> {
                         Some(r) => {
                             *jobs -= 1;
                             if let Some(0) = r.code() {
-                                println!(
+                                log::info!(
                                     "Successfully extracted source for \
                                     pkgbuild '{}'", &self.pkgbuild.base);
                                 self.build_state = BuildState::Extracted;
                             } else {
-                                eprintln!("Failed to extract source for \
+                                log::error!("Failed to extract source for \
                                     pkgbuild '{}'", &self.pkgbuild.base);
                                 return Err(())
                             }
@@ -117,7 +117,7 @@ impl <'a> Builder<'a> {
                         None => (),
                     },
                     Err(e) => {
-                        eprintln!("Failed to wait for extractor: {}", e);
+                        log::error!("Failed to wait for extractor: {}", e);
                         *jobs -= 1;
                         return Err(())
                     },
@@ -130,7 +130,7 @@ impl <'a> Builder<'a> {
                     {
                         Ok(child) => child,
                         Err(e) => {
-                            eprintln!("Failed to spawn builder for '{}': {}", 
+                            log::error!("Failed to spawn builder for '{}': {}", 
                                 &self.pkgbuild.base, e);
                             return Err(())
                         },
@@ -138,7 +138,7 @@ impl <'a> Builder<'a> {
                     self.build_state = BuildState::Building { child };
                     self.tries += 1;
                     *jobs += 1;
-                    println!("Start building '{}', try {} of {}", 
+                    log::info!("Start building '{}', try {} of {}", 
                         &self.pkgbuild.base, self.tries, Self::BUILD_MAX_TRIES);
                     self.builddir.hint_log()
                 },
@@ -147,24 +147,24 @@ impl <'a> Builder<'a> {
                     Ok(r) => match r {
                         Some(r) => {
                             *jobs -= 1;
-                            println!("Log of building '{}':", 
+                            log::info!("Log of building '{}':", 
                                 &self.pkgbuild.base);
                             if self.builddir.read_log().is_err() {
-                                eprintln!("Failed to read log")
+                                log::error!("Failed to read log")
                             }
-                            println!("End of log for building '{}'",
+                            log::info!("End of log for building '{}'",
                                 &self.pkgbuild.base);
                             if let Some(0) = r.code() {
                                 self.pkgbuild.finish_build(actual_identity, 
                                     &self.temp_pkgdir, sign)?;
-                                println!("Successfully built '{}'", 
+                                log::info!("Successfully built '{}'", 
                                     &self.pkgbuild.base);
                                 self.build_state = BuildState::Built;
                             } else {
-                                eprintln!("Failed to build '{}'", 
+                                log::error!("Failed to build '{}'", 
                                     &self.pkgbuild.base);
                                 if self.tries >= Self::BUILD_MAX_TRIES {
-                                    eprintln!("Max retries exceeded for '{}'", 
+                                    log::error!("Max retries exceeded for '{}'", 
                                         &self.pkgbuild.base);
                                     return Err(())
                                 }
@@ -173,7 +173,7 @@ impl <'a> Builder<'a> {
                                 // itself when silently droppped
                                 if remove_dir_all_try_best(
                                     &self.builddir.path).is_err() {
-                                    eprintln!("Failed to remove build dir \
+                                    log::error!("Failed to remove build dir \
                                         after failed build attempt");
                                     return Err(())
                                 }
@@ -188,13 +188,13 @@ impl <'a> Builder<'a> {
                         None => (),
                     },
                     Err(e) => {
-                        eprintln!("Failed to wait for builder: {}", e);
+                        log::error!("Failed to wait for builder: {}", e);
                         *jobs -= 1;
                         return Err(())
                     },
                 }
             BuildState::Built => {
-                eprintln!("Built status should not be met by state machine");
+                log::error!("Built status should not be met by state machine");
                 return Err(())
             },
         }
@@ -210,14 +210,14 @@ impl <'a> Builder<'a> {
                     actual_identity, nonet) 
                 {
                     Ok(bootstrapping_root) => {
-                        println!("Start chroot bootstrapping for pkgbuild '{}'",
+                        log::info!("Start chroot bootstrapping for pkgbuild '{}'",
                             &self.pkgbuild.base);
                         self.root_state = RootState::Boostrapping { 
                             bootstrapping_root };
                         *jobs += 1;
                     },
                     Err(_) => {
-                        eprintln!("Failed to get chroot bootstrapper for \
+                        log::error!("Failed to get chroot bootstrapper for \
                             pkgbuild '{}'", &self.pkgbuild.base);
                         return Err(())
                     },
@@ -240,22 +240,22 @@ impl <'a> Builder<'a> {
                                     Ok(root) => {
                                         self.root_state = 
                                             RootState::Bootstrapped { root };
-                                        println!("Chroot bootstrapped for \
+                                        log::info!("Chroot bootstrapped for \
                                             pkgbuild '{}'", &self.pkgbuild.base);
                                     },
                                     Err(_) => {
-                                        eprintln!("Failed to bootstrap chroot \
+                                        log::error!("Failed to bootstrap chroot \
                                             for pkgbuild '{}'", 
                                             &self.pkgbuild.base);
                                         return Err(())
                                     },
                                 }
                             } else {
-                                eprintln!("Status inconsistent");
+                                log::error!("Status inconsistent");
                                 return Err(())
                             }
                         } else  {
-                            eprintln!("Bootstrapper failed");
+                            log::error!("Bootstrapper failed");
                             return Err(())
                         }
                     },
@@ -279,11 +279,11 @@ fn prepare_pkgdir() -> Result<(), ()> {
     let _ = remove_dir_all("pkgs/updated");
     let _ = remove_dir_all("pkgs/latest");
     if let Err(e) = create_dir_all("pkgs/updated") {
-        eprintln!("Failed to create pkgs/updated: {}", e);
+        log::error!("Failed to create pkgs/updated: {}", e);
         return Err(())
     }
     if let Err(e) = create_dir_all("pkgs/latest") {
-        eprintln!("Failed to create pkgs/latest: {}", e);
+        log::error!("Failed to create pkgs/latest: {}", e);
         return Err(())
     }
     Ok(())
@@ -300,7 +300,7 @@ fn check_heavy_load(jobs: usize, cores: usize) -> bool {
             some.avg10 > 10.00 || some.avg60 > 10.00 || some.avg300 > 10.00
         },
         Err(e) => {
-            eprintln!("Failed to get CPU pressure: {}", e);
+            log::error!("Failed to get CPU pressure: {}", e);
             true
         },
     } {
@@ -314,7 +314,7 @@ fn check_heavy_load(jobs: usize, cores: usize) -> bool {
             load_avg.fifteen >= max_load
         },
         Err(e) => {
-            eprintln!("Failed to get load avg: {}", e);
+            log::error!("Failed to get load avg: {}", e);
             true
         },
     }
@@ -342,7 +342,7 @@ impl<'a> Builders<'a> {
             match Builder::from_pkgbuild(pkgbuild, actual_identity) {
                 Ok(builder) => builders.push(builder),
                 Err(_) => {
-                    eprintln!("Failed to create builder for pkgbuild");
+                    log::error!("Failed to create builder for pkgbuild");
                     return Err(())
                 },
             }
@@ -369,7 +369,7 @@ impl<'a> Builders<'a> {
             match Builder::from_pkgbuild(pkgbuild, actual_identity) {
                 Ok(builder) => builders.push(builder),
                 Err(_) => {
-                    eprintln!("Failed to create builder for pkgbuild");
+                    log::error!("Failed to create builder for pkgbuild");
                     return Err(())
                 },
             }
@@ -385,7 +385,7 @@ impl<'a> Builders<'a> {
     fn work(&mut self)  -> Result<(), ()> 
     {
         let cpuinfo = procfs::CpuInfo::new().or_else(|e|{
-            eprintln!("Failed to get cpuinfo: {}", e);
+            log::error!("Failed to get cpuinfo: {}", e);
             Err(())
         })?;
         let cores = cpuinfo.num_cores();
@@ -416,7 +416,7 @@ impl<'a> Builders<'a> {
             }
             if let Some(id) = finished {
                 let builder = self.builders.swap_remove(id);
-                println!("Finished builder for PKGBUILD '{}'", 
+                log::info!("Finished builder for PKGBUILD '{}'", 
                     &builder.pkgbuild.base);
             }
             if self.builders.is_empty() {
@@ -432,7 +432,7 @@ impl<'a> Builders<'a> {
             // }
         }
         if jobs > 0 {
-            eprintln!("Jobs count is not 0 ({}) at the end", jobs);
+            log::error!("Jobs count is not 0 ({}) at the end", jobs);
         }
         if bad { Err(()) } else { Ok(()) }
     }

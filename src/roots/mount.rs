@@ -9,11 +9,11 @@ impl MountedFolder {
     /// Umount any folder starting from the path.
     /// Root is expected
     pub(super) fn umount_recursive(&self) -> Result<&Self, ()> {
-        println!("Umounting '{}' recursively...", self.0.display());
+        log::info!("Umounting '{}' recursively...", self.0.display());
         let absolute_path = match self.0.canonicalize() {
             Ok(path) => path,
             Err(e) => {
-                eprintln!("Failed to canoicalize path '{}': {}",
+                log::error!("Failed to canoicalize path '{}': {}",
                     self.0.display(), e);
                 return Err(())
             },
@@ -21,7 +21,7 @@ impl MountedFolder {
         let process = match procfs::process::Process::myself() {
             Ok(process) => process,
             Err(e) => {
-                eprintln!("Failed to get myself: {}", e);
+                log::error!("Failed to get myself: {}", e);
                 return Err(())
             },
         };
@@ -30,7 +30,7 @@ impl MountedFolder {
             let mountinfos = match process.mountinfo() {
                 Ok(mountinfos) => mountinfos,
                 Err(e) => {
-                    eprintln!("Failed to get mountinfos: {}", e);
+                    log::error!("Failed to get mountinfos: {}", e);
                     return Err(())
                 },
             };
@@ -40,7 +40,7 @@ impl MountedFolder {
                     if let Err(e) = nix::mount::umount(
                         &mountinfo.mount_point) 
                     {
-                        eprintln!("Failed to umount '{}': {}", 
+                        log::error!("Failed to umount '{}': {}", 
                             mountinfo.mount_point.display(), e);
                         return Err(())
                     }
@@ -55,10 +55,10 @@ impl MountedFolder {
     /// Root is expected
     pub(super) fn remove(&self) -> Result<&Self, ()> {
         if self.0.exists() {
-            println!("Removing '{}'...", self.0.display());
+            log::info!("Removing '{}'...", self.0.display());
             self.umount_recursive()?;
             if let Err(e) = remove_dir_all(&self.0) {
-                eprintln!("Failed to remove '{}': {}", 
+                log::error!("Failed to remove '{}': {}", 
                             self.0.display(), e);
                 return Err(())
             }
@@ -77,7 +77,7 @@ impl Drop for MountedFolder {
         if IdentityActual::as_root(||{
             self.remove().and(Ok(()))
         }).is_err() {
-            eprintln!("Failed to drop mounted folder '{}'", self.0.display());
+            log::error!("Failed to drop mounted folder '{}'", self.0.display());
         }
     }
 }

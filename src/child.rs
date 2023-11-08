@@ -20,18 +20,18 @@ impl ForkedChild {
                         if code == 0 {
                             return Ok(())
                         } else {
-                            eprintln!("Child {} non-zero exit code {}", 
+                            log::error!("Child {} non-zero exit code {}", 
                                 self.pid, code)
                         }
                     } else {
-                        eprintln!("Waited {} is not our child {}, its exit code
+                        log::error!("Waited {} is not our child {}, its exit code
                             {}", pid, self.pid, code)
                     }
-                _ => eprintln!("Child {} did not exit cleanly: {:?}",
+                _ => log::error!("Child {} did not exit cleanly: {:?}",
                         self.pid, status)
             },
             Err(e) => 
-                eprintln!("Failed to wait for child {}: {}", self.pid, e),
+                log::error!("Failed to wait for child {}: {}", self.pid, e),
         }
         Err(())
     }
@@ -45,23 +45,23 @@ impl ForkedChild {
                         if code == 0 {
                             Ok(Some(Ok(())))
                         } else {
-                            eprintln!("Child {} non-zero exit code {}", 
+                            log::error!("Child {} non-zero exit code {}", 
                                 self.pid, code);
                             Ok(Some(Err(())))
                         }
                     } else {
-                        eprintln!("Waited {} is not our child {}, its exit code
+                        log::error!("Waited {} is not our child {}, its exit code
                             {}", pid, self.pid, code);
                         Ok(Some(Err(())))
                     }
                 _ => {
-                    eprintln!("Child {} did not exit cleanly: {:?}",
+                    log::error!("Child {} did not exit cleanly: {:?}",
                         self.pid, status);
                     Ok(Some(Err(())))
                 }
             },
             Err(e) => {
-                eprintln!("Failed to wait for child {}: {}", self.pid, e);
+                log::error!("Failed to wait for child {}: {}", self.pid, e);
                 Err(())
             },
         }
@@ -83,17 +83,17 @@ pub(crate) fn output_and_check(command: &mut std::process::Command, job: &str)
                     if code == 0 {
                         Ok(())
                     } else {
-                        eprintln!("Child {} bad return {}", &job, code);
+                        log::error!("Child {} bad return {}", &job, code);
                         Err(())
                     },
                 None => {
-                    eprintln!("Failed to get return code of child {}", &job);
+                    log::error!("Failed to get return code of child {}", &job);
                     Err(())
                 },
             }
         },
         Err(e) => {
-            eprintln!("Failed to spawn child to {}: {}", &job, e);
+            log::error!("Failed to spawn child to {}: {}", &job, e);
             Err(())
         },
     }

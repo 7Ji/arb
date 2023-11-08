@@ -15,11 +15,11 @@ pub(crate) fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
             match remove_dir(&path) {
                 Ok(_) => (),
                 Err(e) => {
-                    eprintln!(
+                    log::error!(
                         "Failed to remove subdir '{}' recursively: {}", 
                         path.display(), e);
                     if let Err(e) = er {
-                        eprintln!("Subdir failure: {}", e)
+                        log::error!("Subdir failure: {}", e)
                     }
                     return Err(e);
                 },
@@ -35,25 +35,25 @@ pub(crate) fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
 pub(crate) fn remove_dir_all_try_best<P: AsRef<Path>>(dir: P) 
     -> Result<(), ()>
 {
-    println!("Removing dir '{}' recursively...", dir.as_ref().display());
+    log::info!("Removing dir '{}' recursively...", dir.as_ref().display());
     match remove_dir_all(&dir) {
         Ok(_) => return Ok(()),
         Err(e) => {
-            eprintln!("Failed to remove dir '{}' recursively naively: {}", 
+            log::error!("Failed to remove dir '{}' recursively naively: {}", 
                 dir.as_ref().display(), e);
         },
     }
     remove_dir_recursively(&dir).or_else(|e|{
-        eprintln!("Failed to remove dir '{}' recursively: {}", 
+        log::error!("Failed to remove dir '{}' recursively: {}", 
             dir.as_ref().display(), e);
         Err(())
     })?;
     remove_dir(&dir).or_else(|e|{
-        eprintln!("Failed to remove dir '{}' itself: {}",
+        log::error!("Failed to remove dir '{}' itself: {}",
             dir.as_ref().display(), e);
         Err(())
     })?;
-    println!("Removed dir '{}' recursively", dir.as_ref().display());
+    log::info!("Removed dir '{}' recursively", dir.as_ref().display());
     Ok(())
 
 }
@@ -63,7 +63,7 @@ pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<(), ()> {
     let mut file = match File::open(&file) {
         Ok(file) => file,
         Err(e) => {
-            eprintln!("Failed to open '{}': {}", file_p.display(), e);
+            log::error!("Failed to open '{}': {}", file_p.display(), e);
             return Err(())
         },
     };
@@ -76,12 +76,12 @@ pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<(), ()> {
                 }
                 if let Err(e) = stdout().write_all(&buffer[0..size]) 
                 {
-                    eprintln!("Failed to write log content to stdout: {}", e);
+                    log::error!("Failed to write log content to stdout: {}", e);
                     return Err(())
                 }
             },
             Err(e) => {
-                eprintln!("Failed to read from '{}': {}", file_p.display(), e);
+                log::error!("Failed to read from '{}': {}", file_p.display(), e);
                 return Err(())
             },
         }
@@ -97,7 +97,7 @@ pub(crate) fn prepare_updated_latest_dirs() -> Result<(), ()> {
             bad = true
         }
         if let Err(e) = create_dir_all(&dir) {
-            eprintln!("Failed to create dir '{}': {}", dir.display(), e);
+            log::error!("Failed to create dir '{}': {}", dir.display(), e);
             bad = true
         }
     }

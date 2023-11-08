@@ -45,7 +45,7 @@ impl Protocol {
             "svn" => Self::Vcs { protocol: VcsProtocol::Svn },
             "local" => Self::Local,
             &_ => {
-                eprintln!("Unknown protocol {}", value);
+                log::error!("Unknown protocol {}", value);
                 return None
             },
         };
@@ -66,7 +66,7 @@ impl Protocol {
             b"svn" => Self::Vcs { protocol: VcsProtocol::Svn },
             b"local" => Self::Local,
             &_ => {
-                eprintln!("Unknown protocol {}", 
+                log::error!("Unknown protocol {}", 
                     String::from_utf8_lossy(value));
                 return None
             },

@@ -24,7 +24,7 @@ impl BaseRoot {
                 None::<&str>,
                 MsFlags::MS_BIND,
                 None::<&str>)
-        .map_err(|e|eprintln!("Failed to mount base root: {}", e))?;
+        .map_err(|e|log::error!("Failed to mount base root: {}", e))?;
         Ok(self)
     }
 
@@ -58,7 +58,7 @@ impl BaseRoot {
 
     /// Root is expected
     fn setup(&self, actual_identity: &IdentityActual) -> Result<&Self, ()> {
-        eprintln!("Finishing base root setup");
+        log::error!("Finishing base root setup");
         let builder = self.builder(actual_identity)?;
         self.copy_file_same("etc/passwd")?
             .copy_file_same("etc/group")?
@@ -67,23 +67,23 @@ impl BaseRoot {
             .create_home(actual_identity)?;
         create_dir_all(&builder)
             .or_else(|e|{
-                eprintln!("Failed to create chroot builder dir: {}", e);
+                log::error!("Failed to create chroot builder dir: {}", e);
                 Err(())
             })?;
         for dir in Self::BUILDER_DIRS {
             create_dir(builder.join(dir))
                 .or_else(|e|{
-                    eprintln!("Failed to create chroot builder dir: {}", e);
+                    log::error!("Failed to create chroot builder dir: {}", e);
                     Err(())
                 })?;
         }
-        eprintln!("Finished base root setup");
+        log::error!("Finished base root setup");
         Ok(self)
     }
 
     pub(crate) fn db_only() -> Result<Self, ()> {
         IdentityActual::as_root(||MountedFolder::remove_all())?;
-        println!("Creating base chroot (DB only)");
+        log::info!("Creating base chroot (DB only)");
         let root = Self(MountedFolder(PathBuf::from("roots/base")));
         IdentityActual::as_root(||{
             root.remove()?
@@ -93,7 +93,7 @@ impl BaseRoot {
                 .refresh_dbs()?;
             Ok(())
         })?;
-        println!("Created base chroot (DB only)");
+        log::info!("Created base chroot (DB only)");
         Ok(root)
     }
 
@@ -106,7 +106,7 @@ impl BaseRoot {
         S: AsRef<OsStr>
     {
         IdentityActual::as_root(||MountedFolder::remove_all())?;
-        println!("Creating base chroot");
+        log::info!("Creating base chroot");
         let root = Self(MountedFolder(PathBuf::from("roots/base")));
         IdentityActual::as_root(||{
             root.remove()?
@@ -119,7 +119,7 @@ impl BaseRoot {
                 .umount_recursive()?;
             Ok(())
         })?;
-        println!("Created base chroot");
+        log::info!("Created base chroot");
         Ok(root)
     }
 
@@ -130,14 +130,14 @@ impl BaseRoot {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>
     {
-        println!("Finishing base chroot");
+        log::info!("Finishing base chroot");
         IdentityActual::as_root(||{
             self.install_pkgs(pkgs)?
                 .setup(actual_identity)?
                 .umount_recursive()?;
             Ok(())
         })?;
-        println!("Finish base chroot");
+        log::info!("Finish base chroot");
         Ok(self)
     }
 }

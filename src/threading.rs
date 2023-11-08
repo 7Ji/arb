@@ -15,7 +15,7 @@ pub(crate) fn wait_if_too_busy(
 {
     if threads.len() >= max_threads {
         if max_threads > 1 {
-            println!("Waiting for any one of {} threads {} ...", 
+            log::info!("Waiting for any one of {} threads {} ...", 
                     threads.len(), job);
         }
         let mut thread_id_finished = None;
@@ -36,7 +36,7 @@ pub(crate) fn wait_if_too_busy(
         }
         if let Some(thread_id_finished) = thread_id_finished {
             if max_threads > 1 {
-                println!("One of {} threads {} ended", threads.len(), job);
+                log::info!("One of {} threads {} ended", threads.len(), job);
             }
             match threads
                         .swap_remove(thread_id_finished)
@@ -44,12 +44,12 @@ pub(crate) fn wait_if_too_busy(
             {
                 Ok(r) => return r,
                 Err(e) => {
-                    eprintln!("Failed to join finished thread: {:?}", e);
+                    log::error!("Failed to join finished thread: {:?}", e);
                     return Err(())
                 },
             }
         } else {
-            eprintln!("Failed to get finished thread ID");
+            log::error!("Failed to get finished thread ID");
             return Err(())
         }
     }
@@ -67,7 +67,7 @@ pub(crate) fn wait_remaining(
     let mut bad_threads = 0;
     while threads.len() > 0 {
         if changed {
-            println!("Waiting for {} threads {} ...", threads.len(), job);
+            log::info!("Waiting for {} threads {} ...", threads.len(), job);
         }
         changed = false;
         let mut thread_id_finished = None;
@@ -81,7 +81,7 @@ pub(crate) fn wait_remaining(
         }
         match thread_id_finished {
             Some(thread_id) => {
-                println!("One of {} threads {} ended", threads.len(), job);
+                log::info!("One of {} threads {} ended", threads.len(), job);
                 match threads
                     .swap_remove(thread_id)
                     .join() 
@@ -91,7 +91,7 @@ pub(crate) fn wait_remaining(
                         Err(_) => bad_threads += 1,
                     },
                     Err(e) => {
-                        eprintln!(
+                        log::error!(
                             "Failed to join finished thread: {:?}", e);
                         bad_threads += 1;
                     },
@@ -101,9 +101,9 @@ pub(crate) fn wait_remaining(
             None => sleep(Duration::from_millis(10)),
         }
     }
-    println!("Finished waiting for all threads {}", job);
+    log::info!("Finished waiting for all threads {}", job);
     if bad_threads > 0 {
-        eprintln!("{} threads {} has bad return", bad_threads, job);
+        log::error!("{} threads {} has bad return", bad_threads, job);
         Err(())
     } else {
         Ok(())
@@ -131,7 +131,7 @@ pub(crate) fn wait_thread_map<T>(
             }
             match thread_id_finished {
                 Some(thread_id) => {
-                    println!("One of {} threads {} ended", threads.len(), job);
+                    log::info!("One of {} threads {} ended", threads.len(), job);
                     match threads
                         .swap_remove(thread_id)
                         .join() 
@@ -141,7 +141,7 @@ pub(crate) fn wait_thread_map<T>(
                             Err(_) => bad = true,
                         },
                         Err(e) => {
-                            eprintln!(
+                            log::error!(
                                 "Failed to join finished thread: {:?}", e);
                             bad = true;
                         },

@@ -42,7 +42,7 @@ fn generic_sum<T: Digest + OutputSizeUser>(file: &mut File)
         let size_chunk = match file.read(&mut buffer) {
             Ok(size) => size,
             Err(e) => {
-                eprintln!("Failed to read file: {}", e);
+                log::error!("Failed to read file: {}", e);
                 return None
             },
         };

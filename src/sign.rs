@@ -17,12 +17,12 @@ fn sign_pkg(actual_identity: &IdentityActual, file: &Path, key: &str)
         .output() {
             Ok(output) => output,
             Err(e) => {
-                eprintln!("Failed to spawn child to sign pkg: {}", e);
+                log::error!("Failed to spawn child to sign pkg: {}", e);
                 return Err(())
             },
         };
     if Some(0) != output.status.code() {
-        eprintln!("Bad return from gpg");
+        log::error!("Bad return from gpg");
         Err(())
     } else {
         Ok(())
@@ -35,7 +35,7 @@ pub(crate) fn sign_pkgs(actual_identity: &IdentityActual, dir: &Path, key: &str)
     let reader = match read_dir(dir) {
         Ok(reader) => reader,
         Err(e) => {
-            eprintln!("Failed to read temp pkgdir: {}", e);
+            log::error!("Failed to read temp pkgdir: {}", e);
             return Err(())
         },
     };
@@ -44,7 +44,7 @@ pub(crate) fn sign_pkgs(actual_identity: &IdentityActual, dir: &Path, key: &str)
         let entry = match entry {
             Ok(entry) => entry,
             Err(e) => {
-                eprintln!("Failed to read entry from temp pkgdir: {}", e);
+                log::error!("Failed to read entry from temp pkgdir: {}", e);
                 bad = true;
                 continue
             },

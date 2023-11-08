@@ -33,12 +33,12 @@ pub(crate) fn remove_unused<P: AsRef<Path>>(dir: P, used: &Vec<String>) {
                     Err(_) => (),
                 }
                 if metadata.is_dir() {
-                    println!("Removing '{}' not used any more",
+                    log::info!("Removing '{}' not used any more",
                         entry.path().display());
                     let _ = remove_dir_all(entry.path());
                 }
                 if metadata.is_file() || metadata.is_symlink() {
-                    println!("Removing '{}' not used any more",
+                    log::info!("Removing '{}' not used any more",
                         entry.path().display());
                     let _ = remove_file(entry.path());
                 }

@@ -22,7 +22,7 @@ impl<'a> DepNodes<'a>  {
                 }
                 if let Some(dep) = pkgbuild.wants(pkgbuild_target) {
                     if deps.contains(&dep) {
-                        eprintln!("'{}' is provided by multiple PKGBUILDs",dep);
+                        log::error!("'{}' is provided by multiple PKGBUILDs",dep);
                         return Err(())
                     } else {
                         wants.push(pkgbuild_target);
@@ -43,7 +43,7 @@ impl<'a> DepNodes<'a>  {
         let mut layers: Vec<Vec<DepNode>> = vec![];
         while ! self.nodes.is_empty() {
             if let Some(layer) = layers.last() {
-                println!("Removing deps in last layer");
+                log::info!("Removing deps in last layer");
                 for node in self.nodes.iter_mut() {
                     for node_old in layer.iter() {
                         node.wants.retain(|pkgbuild|
@@ -56,25 +56,26 @@ impl<'a> DepNodes<'a>  {
                 = self.nodes.into_iter().partition(
                     |node|node.wants.is_empty());
             if layer.is_empty() {
-                eprintln!("Failed to split dep layers more, current layer is \
+                log::error!("Failed to split dep layers more, current layer is \
                     empty, remaining nodes: {}", nodes.len());
                 return Err(())
             }
             self.nodes = nodes;
             layers.push(layer);
         }
-        println!("Split PKGBUILDs into {} layers:", layers.len());
+        log::info!("Split PKGBUILDs into {} layers:", layers.len());
         let mut pkgbuild_layers = vec![];
         for (layer_id, layer) in 
             layers.iter().enumerate() 
         {
             let mut pkgbuild_layer = vec![];
-            print!("Layer {}:", layer_id);
+            let mut line = format!("Layer {}:", layer_id);
             for node in layer.iter() {
-                print!(" '{}'", &node.pkgbuild.base);
+                line.push_str(format!(" '{}'", &node.pkgbuild.base).as_str());
                 pkgbuild_layer.push(node.pkgbuild);
             }
-            println!();
+            line.push('\n');
+            log::info!("{}", line);
             pkgbuild_layers.push(pkgbuild_layer)
         }
         Ok(pkgbuild_layers)

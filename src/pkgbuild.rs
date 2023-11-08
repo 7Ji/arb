@@ -198,7 +198,7 @@ impl PKGBUILD {
         let repo = git::Repo::open_bare(
             &self.git, &self.url, None).or_else(|_|
         {
-            eprintln!("Failed to open or init bare repo {}",
+            log::error!("Failed to open or init bare repo {}",
                 self.git.display());
             Err(())
         })?;
@@ -206,14 +206,14 @@ impl PKGBUILD {
             &self.branch, self.subtree.as_deref()
         )?;
         match &self.subtree {
-            Some(_) => println!("PKGBUILD '{}' at tree '{}'", 
+            Some(_) => log::info!("PKGBUILD '{}' at tree '{}'", 
                         self.base, commit),
-            None => println!("PKGBUILD '{}' at commit '{}'", self.base, commit),
+            None => log::info!("PKGBUILD '{}' at commit '{}'", self.base, commit),
         }
         repo.get_pkgbuild_blob(&self.branch, 
                 self.subtree.as_deref())
             .or_else(|_|{
-                eprintln!("Failed to get PKGBUILD blob");
+                log::error!("Failed to get PKGBUILD blob");
                 Err(())
             })?;
         Ok(commit)
@@ -288,7 +288,7 @@ impl PKGBUILD {
     {
         const SCRIPT: &str = include_str!("../scripts/extract_sources.bash");
         if let Err(e) = create_dir_all(&self.build) {
-            eprintln!("Failed to create build dir: {}", e);
+            log::error!("Failed to create build dir: {}", e);
             return Err(());
         }
         let repo = git::Repo::open_bare(
@@ -299,7 +299,7 @@ impl PKGBUILD {
         source::extract(&self.build, &self.sources);
         let pkgbuild_dir = self.build.canonicalize().or_else(
         |e|{
-            eprintln!("Failed to canoicalize build dir path: {}", e);
+            log::error!("Failed to canoicalize build dir path: {}", e);
             Err(())
         })?;
         let mut arg0 = OsString::from("[EXTRACTOR/");
@@ -316,7 +316,7 @@ impl PKGBUILD {
         {
             Ok(child) => Ok(child),
             Err(e) => {
-                eprintln!("Faiiled to spawn extractor: {}", e);
+                log::error!("Faiiled to spawn extractor: {}", e);
                 Err(())
             },
         }
@@ -324,15 +324,15 @@ impl PKGBUILD {
 
     fn _extract_source(&self, actual_identity: &IdentityActual) -> Result<(), ()> {
         if self.extractor_source(actual_identity).or_else(|_|{
-            eprintln!("Failed to spawn child to extract source");
+            log::error!("Failed to spawn child to extract source");
             Err(())
         })?
             .wait().or_else(|e|{
-                eprintln!("Failed to wait for extractor: {}", e);
+                log::error!("Failed to wait for extractor: {}", e);
                 Err(())
             })?
             .code().ok_or_else(||{
-                eprintln!("Failed to get extractor return code");
+                log::error!("Failed to get extractor return code");
             })? == 0 {
                 Ok(())
             } else {
@@ -354,7 +354,7 @@ impl PKGBUILD {
         }
         self.pkgdir.push(&pkgid);
         self.pkgid = pkgid;
-        println!("PKGBUILD '{}' pkgid is '{}'", self.base, self.pkgid);
+        log::info!("PKGBUILD '{}' pkgid is '{}'", self.base, self.pkgid);
     }
 
     pub(crate) fn get_temp_pkgdir(&self) -> Result<PathBuf, ()> {
@@ -365,7 +365,7 @@ impl PKGBUILD {
         match create_dir_all(&temp_pkgdir) {
             Ok(_) => Ok(temp_pkgdir),
             Err(e) => {
-                eprintln!("Failed to create temp pkgdir: {}", e);
+                log::error!("Failed to create temp pkgdir: {}", e);
                 Err(())
             },
         }
@@ -419,14 +419,14 @@ impl PKGBUILD {
         let mut bad = false;
         for entry in
             self.pkgdir.read_dir().or_else(|e|{
-                eprintln!("Failed to read pkg dir: {}", e);
+                log::error!("Failed to read pkg dir: {}", e);
                 Err(())
             })?
         {
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(e) => {
-                    eprintln!("Failed to read entry from pkg dir: {}", e);
+                    log::error!("Failed to read entry from pkg dir: {}", e);
                     bad = true;
                     continue
                 },
@@ -434,7 +434,7 @@ impl PKGBUILD {
             let original = rel.join(entry.file_name());
             let link = updated.join(entry.file_name());
             if let Err(e) = symlink(&original, &link) {
-                eprintln!("Failed to symlink '{}' => '{}': {}", 
+                log::error!("Failed to symlink '{}' => '{}': {}", 
                     link.display(), original.display(), e);
                 bad = true
             }
@@ -447,10 +447,10 @@ impl PKGBUILD {
     ) 
         -> Result<(), ()> 
     {
-        println!("Finishing building '{}'", &self.pkgid);
+        log::info!("Finishing building '{}'", &self.pkgid);
         if self.pkgdir.exists() {
             if let Err(e) = remove_dir_all(&self.pkgdir) {
-                eprintln!("Failed to remove existing pkgdir: {}", e);
+                log::error!("Failed to remove existing pkgdir: {}", e);
                 return Err(())
             }
         }
@@ -458,12 +458,12 @@ impl PKGBUILD {
             sign_pkgs(actual_identity, temp_pkgdir, key)?;
         }
         if let Err(e) = rename(&temp_pkgdir, &self.pkgdir) {
-            eprintln!("Failed to rename temp pkgdir '{}' to persistent pkgdir \
+            log::error!("Failed to rename temp pkgdir '{}' to persistent pkgdir \
                 '{}': {}", temp_pkgdir.display(), self.pkgdir.display(), e);
             return Err(())
         }
         self.link_pkgs()?;
-        println!("Finished building '{}'", &self.pkgid);
+        log::info!("Finished building '{}'", &self.pkgid);
         Ok(())
     }
 
@@ -557,7 +557,7 @@ impl PKGBUILDs {
         {
             Ok(repos_map) => repos_map,
             Err(_) => {
-                eprintln!("Failed to convert to repos map");
+                log::error!("Failed to convert to repos map");
                 return Err(())
             },
         };
@@ -581,11 +581,11 @@ impl PKGBUILDs {
         let mut pkgbuilds = Self::from_config(config)?;
         let update_pkg = if hold {
             if pkgbuilds.healthy_set_commit(){
-                println!(
+                log::info!(
                     "Holdpkg set and all PKGBUILDs healthy, no need to update");
                 false
             } else {
-                eprintln!("Warning: holdpkg set, but PKGBUILDs unhealthy, \
+                log::error!("Warning: holdpkg set, but PKGBUILDs unhealthy, \
                            need update");
                 true
             }
@@ -604,11 +604,11 @@ impl PKGBUILDs {
         };
         if update_pkg {
             if pkgbuilds.sync(hold, proxy, gmr).is_err() {
-                eprintln!("Failed to sync PKGBUILDs");
+                log::error!("Failed to sync PKGBUILDs");
                 return Err(())
             }
             if ! pkgbuilds.healthy_set_commit() {
-                eprintln!("Updating broke some of our PKGBUILDs");
+                log::error!("Updating broke some of our PKGBUILDs");
                 return Err(())
             }
         }
@@ -625,7 +625,7 @@ impl PKGBUILDs {
         for pkgbuild in self.0.iter() {
             let target = dir.join(&pkgbuild.base);
             if pkgbuild.dump(&target).is_err() {
-                eprintln!("Failed to dump PKGBUILD '{}' to '{}'",
+                log::error!("Failed to dump PKGBUILD '{}' to '{}'",
                     pkgbuild.base, target.display());
                 bad = true
             }
@@ -644,7 +644,7 @@ impl PKGBUILDs {
             match pkgbuild.dep_reader(actual_identity, &dir) {
                 Ok(child) => children.push(child),
                 Err(e) => {
-                    eprintln!(
+                    log::error!(
                         "Failed to spawn dep reader for PKGBUILD '{}': {}",
                         pkgbuild.base, e);
                     bad = true
@@ -654,7 +654,7 @@ impl PKGBUILDs {
         if bad {
             for mut child in children {
                 if let Err(e) = child.kill() {
-                    eprintln!("Failed to kill child: {}", e)
+                    log::error!("Failed to kill child: {}", e)
                 }
             }
             return Err(())
@@ -689,10 +689,10 @@ impl PKGBUILDs {
             {
                 Ok(_) => {
                     if let DepHashStrategy::None = dephash_strategy {
-                        println!("PKGBUILD '{}' needed dependencies: {:?}", 
+                        log::info!("PKGBUILD '{}' needed dependencies: {:?}", 
                                 &pkgbuild.base, &pkgbuild.depends.needs);
                     } else {
-                        println!("PKGBUILD '{}' dephash {:016x}, \
+                        log::info!("PKGBUILD '{}' dephash {:016x}, \
                                 needed dependencies: {:?}", 
                                 &pkgbuild.base, pkgbuild.depends.hash, 
                                 &pkgbuild.depends.needs);
@@ -702,7 +702,7 @@ impl PKGBUILDs {
                     // }
                 },
                 Err(_) => {
-                    eprintln!("Failed to get needed deps for package '{}'",
+                    log::error!("Failed to get needed deps for package '{}'",
                             &pkgbuild.base);
                     bad = true
                 },
@@ -731,7 +731,7 @@ impl PKGBUILDs {
         let mut bad = false;
         for pkgbuild in self.0.iter_mut() {
             if pkgbuild.get_sources(&dir).is_err() {
-                eprintln!("Failed to get sources for PKGBUILD '{}'", 
+                log::error!("Failed to get sources for PKGBUILD '{}'", 
                     pkgbuild.base);
                 bad = true
             } else {
@@ -778,14 +778,14 @@ impl PKGBUILDs {
         {
             Ok(child) => child,
             Err(e) => {
-                eprintln!("Failed to spawn child to read pkgver types: {}", e);
+                log::error!("Failed to spawn child to read pkgver types: {}", e);
                 return Err(())
             },
         };
         let mut child_in = match child.stdin.take() {
             Some(stdin) => stdin,
             None => {
-                eprintln!("Failed to open stdin");
+                log::error!("Failed to open stdin");
                 child.kill().expect("Failed to kill child");
                 return Err(())
             },
@@ -793,7 +793,7 @@ impl PKGBUILDs {
         let mut child_out = match child.stdout.take() {
             Some(stdout) => stdout,
             None => {
-                eprintln!("Failed to open stdin");
+                log::error!("Failed to open stdin");
                 child.kill().expect("Failed to kill child");
                 return Err(())
             },
@@ -810,7 +810,7 @@ impl PKGBUILDs {
             match child_in.write(&buffer[written..end]) {
                 Ok(written_this) => written += written_this,
                 Err(e) => {
-                    eprintln!("Failed to write buffer to child: {}", e);
+                    log::error!("Failed to write buffer to child: {}", e);
                     child.kill().expect("Failed to kill child");
                     return Err(())
                 },
@@ -819,7 +819,7 @@ impl PKGBUILDs {
                 Ok(read_this) => 
                     output.extend_from_slice(&output_buffer[0..read_this]),
                 Err(e) => {
-                    eprintln!("Failed to read stdout child: {}", e);
+                    log::error!("Failed to read stdout child: {}", e);
                     child.kill().expect("Failed to kill child");
                     return Err(())
                 },
@@ -829,7 +829,7 @@ impl PKGBUILDs {
         match child_out.read_to_end(&mut output) {
             Ok(_) => (),
             Err(e) => {
-                eprintln!("Failed to read stdout child: {}", e);
+                log::error!("Failed to read stdout child: {}", e);
                 child.kill().expect("Failed to kill child");
                 return Err(())
             },
@@ -837,16 +837,16 @@ impl PKGBUILDs {
         if child
             .wait()
             .or_else(|e|{
-                eprintln!(
+                log::error!(
                     "Failed to wait for child reading pkgver type: {}", e);
                 Err(())
             })?
             .code()
             .ok_or_else(||{
-                eprintln!("Failed to get return code from child reading \
+                log::error!("Failed to get return code from child reading \
                         pkgver type")
             })? != 0 {
-                eprintln!("Reader bad return");
+                log::error!("Reader bad return");
                 return Err(())
             }
         let types: Vec<&[u8]> = 
@@ -897,7 +897,7 @@ impl PKGBUILDs {
         Self::extract_sources_many(actual_identity, &mut pkgbuilds)?;
         let children: Vec<Child> = pkgbuilds.iter().map(
         |pkgbuild| {
-            println!("Executing pkgver() for '{}'...", &pkgbuild.base);
+            log::info!("Executing pkgver() for '{}'...", &pkgbuild.base);
             actual_identity.set_root_drop_command(
                 Command::new("/bin/bash")
                     .arg("-ec")
@@ -917,7 +917,7 @@ impl PKGBUILDs {
                 .expect("Failed to wait for child");
             let pkgver = String::from_utf8_lossy(&output.stdout)
                 .trim().to_string();
-            println!("PKGBUILD '{}' pkgver is '{}'", &pkgbuild.base, &pkgver);
+            log::info!("PKGBUILD '{}' pkgver is '{}'", &pkgbuild.base, &pkgver);
             pkgbuild.pkgver = Pkgver::Func { pkgver };
             pkgbuild.extracted = true
         }
@@ -945,7 +945,7 @@ impl PKGBUILDs {
             }
             if built { // Does not need build
                 pkgbuild.need_build = false;
-                println!("Skipped already built '{}'",
+                log::info!("Skipped already built '{}'",
                     pkgbuild.pkgdir.display());
                 if pkgbuild.extracted {
                     pkgbuild.extracted = false;
@@ -986,7 +986,7 @@ impl PKGBUILDs {
     {
 
         let dir = tempfile::tempdir().or_else(|e| {
-            eprintln!("Failed to create temp dir to dump PKGBUILDs: {}", e);
+            log::error!("Failed to create temp dir to dump PKGBUILDs: {}", e);
             Err(())
         })?;
         let cleaner = match 
@@ -1005,7 +1005,7 @@ impl PKGBUILDs {
             cleaner.join()
                 .expect("Failed to join build dir cleaner thread")
                 .or_else(|_| {
-                    eprintln!("Build dir cleaner thread panicked");
+                    log::error!("Build dir cleaner thread panicked");
                     Err(())
                 })?;
         }
@@ -1077,7 +1077,7 @@ impl PKGBUILDs {
             let dirent = match pkgbuild.pkgdir.read_dir() {
                 Ok(dirent) => dirent,
                 Err(e) => {
-                    eprintln!("Failed to read dir '{}': {}", 
+                    log::error!("Failed to read dir '{}': {}", 
                         pkgbuild.pkgdir.display(), e);
                     continue
                 },
@@ -1088,7 +1088,7 @@ impl PKGBUILDs {
                     let original = rel.join(entry.file_name());
                     let link = latest.join(entry.file_name());
                     if let Err(e) = symlink(&original, &link) {
-                        eprintln!("Failed to link '{}' => '{}': {}", 
+                        log::error!("Failed to link '{}' => '{}': {}", 
                             link.display(), original.display(), e);
                     }
                 }

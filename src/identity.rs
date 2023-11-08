@@ -35,7 +35,7 @@ struct Environment {
 fn get_pw_entry_from_uid(uid: libc::uid_t) -> Result<libc::passwd, ()> {
     let pw_entry = unsafe { libc::getpwuid(uid) };
     if pw_entry.is_null() {
-        eprintln!("getpwuid() call failed: {}", 
+        log::error!("getpwuid() call failed: {}", 
             std::io::Error::last_os_error());
         return Err(())
     }
@@ -83,11 +83,11 @@ impl Environment {
         let (home_raw, name_raw) 
             = get_home_and_name_raw_from_uid(uid.as_raw())?;
         let cwd = std::env::current_dir().or_else(|e|{
-            eprintln!("Failed to get current dir: {}", e);
+            log::error!("Failed to get current dir: {}", e);
             Err(())
         })?.as_os_str().to_os_string();
         let path = std::env::var_os("PATH").ok_or_else(||{
-            eprintln!("Failed to get PATH from env");
+            log::error!("Failed to get PATH from env");
         })?;
         Ok(Self {
             shell: OsString::from("/bin/bash"),
@@ -194,21 +194,21 @@ pub(crate) trait Identity {
         let r = Self::set_chroot_command(command, root)
             .output()
             .or_else(|e|{
-                eprintln!("Failed to spawn chroot command {:?}: {}", 
+                log::error!("Failed to spawn chroot command {:?}: {}", 
                     command, e);
                 Err(())
             })?
             .status
             .code()
             .ok_or_else(||{
-                eprintln!("Failed to get exit code for chroot command {:?}",
+                log::error!("Failed to get exit code for chroot command {:?}",
                             command);
                 ()
             })?;
         if r == 0 {
             Ok(())
         } else {
-            eprintln!("Bad return {} from chroot command {:?}", r, command);
+            log::error!("Bad return {} from chroot command {:?}", r, command);
             Err(())
         }
     }
@@ -228,7 +228,7 @@ pub(crate) trait Identity {
                     },
             },
             Err(e) => {
-                eprintln!("Failed to fork: {}", e);
+                log::error!("Failed to fork: {}", e);
                 Err(())
             },
         }
@@ -248,12 +248,12 @@ pub(crate) trait Identity {
     {
         Self::fork_and_run(||{
             if let Err(e) = chroot(root.as_ref()) {
-                eprintln!("Child: Failed to chroot to '{}': {}", 
+                log::error!("Child: Failed to chroot to '{}': {}", 
                     root.as_ref().display(), e);
                 return Err(())
             }
             if Self::sete_root().is_err() {
-                eprintln!("Child: Failed to seteuid back to root");
+                log::error!("Child: Failed to seteuid back to root");
                 return Err(())
             }
             f()
@@ -264,7 +264,7 @@ pub(crate) trait Identity {
     {
         Self::fork_and_run(||{
             if Self::sete_root().is_err() {
-                eprintln!("Child: Failed to seteuid back to root");
+                log::error!("Child: Failed to seteuid back to root");
                 return Err(())
             }
             f()
@@ -276,7 +276,7 @@ pub(crate) trait Identity {
     {
         Self::fork_and_run_child(||{
             if Self::sete_root().is_err() {
-                eprintln!("Child: Failed to seteuid back to root");
+                log::error!("Child: Failed to seteuid back to root");
                 return Err(())
             }
             f()
@@ -291,7 +291,7 @@ pub(crate) trait Identity {
     {
         Self::fork_and_run(||{
             if let Err(e) = chroot(root.as_ref()) {
-                eprintln!("Child: Failed to chroot to '{}': {}", 
+                log::error!("Child: Failed to chroot to '{}': {}", 
                     root.as_ref().display(), e);
                 return Err(())
             }
@@ -377,13 +377,13 @@ impl IdentityActual {
 
     fn new(uid: Uid, gid: Gid) -> Result<Self, ()> {
         let env = Environment::init(uid).or_else(|_|{
-            println!("Failed to get env for actual user");
+            log::info!("Failed to get env for actual user");
             Err(())
         })?;     
         let cwd = PathBuf::from(&env.cwd);
         let cwd_no_root = cwd.strip_prefix("/").or_else(
         |e|{
-            eprintln!("Failed to strip leading / from cwd: {}", e);
+            log::error!("Failed to strip leading / from cwd: {}", e);
             Err(())
         })?.to_path_buf();
         let name = env.user.to_string_lossy().to_string();
@@ -407,13 +407,13 @@ impl IdentityActual {
             .splitn(2, ':')
             .collect();
         if components.len() != 2 {
-            eprintln!("ID pair '{}' syntax incorrect", id_pair);
+            log::error!("ID pair '{}' syntax incorrect", id_pair);
             return Err(())
         }
         let components: [&str; 2] = match components.try_into() {
             Ok(components) => components,
             Err(_) => {
-                eprintln!("Failed to convert identity components to array");
+                log::error!("Failed to convert identity components to array");
                 return Err(())
             },
         };
@@ -422,7 +422,7 @@ impl IdentityActual {
             return Self::new(Uid::from_raw(uid), Gid::from_raw(gid));
         }
         }
-        eprintln!("Can not parse ID pair '{}'", id_pair);
+        log::error!("Can not parse ID pair '{}'", id_pair);
         Err(())
     }
 
@@ -440,20 +440,20 @@ impl IdentityActual {
     pub(crate) fn drop(&self) -> Result<&Self, ()> {
         let current = IdentityCurrent::new();
         if ! current?.is_root() {
-            eprintln!("Current user is not root, please run builder with sudo");
+            log::error!("Current user is not root, please run builder with sudo");
             return Err(())
         }
         if self.is_root() {
-            eprintln!("Actual user is root, please run builder with sudo");
+            log::error!("Actual user is root, please run builder with sudo");
             return Err(())
         }
         match self.sete() {
             Ok(_) => {
-                println!("Dropped from root to {}", self);
+                log::info!("Dropped from root to {}", self);
                 Ok(self)
             },
             Err(_) => {
-                eprintln!("Failed to drop from root to {}", self);
+                log::error!("Failed to drop from root to {}", self);
                 Err(())
             },
         }
@@ -467,7 +467,7 @@ impl IdentityActual {
         } {
             Ok(identity) => identity,
             Err(_) => {
-                eprintln!("Failed to get actual identity, did you start the \
+                log::error!("Failed to get actual identity, did you start the \
                     builder with sudo as a non-root user?");
                 return Err(())
             },

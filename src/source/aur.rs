@@ -32,21 +32,21 @@ impl AurResult {
             url.push_str(pkg.as_ref());
         }
         for i in 0..AUR_MAX_TRIES {
-            println!("Requesting AUR, try {} of {}", i + 1, AUR_MAX_TRIES);
-            println!("Requesting URL '{}'", url);
+            log::info!("Requesting AUR, try {} of {}", i + 1, AUR_MAX_TRIES);
+            log::info!("Requesting URL '{}'", url);
             let response = match ureq::get(&url).call() {
                 Ok(response) => response,
                 Err(e) => {
-                    eprintln!("Failed to call AUR: {}", e);
+                    log::error!("Failed to call AUR: {}", e);
                     continue
                 },
             };
             match response.into_json() {
                 Ok(result) => return Ok(result),
-                Err(e) => eprintln!("Failed to parse response: {}", e),
+                Err(e) => log::error!("Failed to parse response: {}", e),
             }
         }
-        eprintln!("Failed to get AUR result after all tries");
+        log::error!("Failed to get AUR result after all tries");
         Err(())
     }
 }

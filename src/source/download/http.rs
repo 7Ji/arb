@@ -10,7 +10,7 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>)
     let mut target = match File::create(path) {
         Ok(target) => target,
         Err(e) => {
-            eprintln!("Failed to open {} as write-only: {}",
+            log::error!("Failed to open {} as write-only: {}",
                         path.display(), e);
             return Err(())
         },
@@ -18,16 +18,16 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>)
     let response = match proxy {
         Some(proxy) => {
             let proxy_opt = ureq::Proxy::new(proxy).map_err(|e|
-                eprintln!("Failed to create proxy from '{}': {}", proxy, e))?;
+                log::error!("Failed to create proxy from '{}': {}", proxy, e))?;
             ureq::AgentBuilder::new().proxy(proxy_opt).build().get(url)
         },
         None => ureq::get(url),
     }.call().map_err(
-        |e|eprintln!("Failed to GET url '{}': {}", url, e))?;
+        |e|log::error!("Failed to GET url '{}': {}", url, e))?;
     let len = match response.header("content-length") {
         Some(len) => len.parse().unwrap(),
         None => {
-            println!("Warning: response does not have 'content-length', limit \
+            log::info!("Warning: response does not have 'content-length', limit \
                 max download size to 4GiB");
             0x100000000
         }
@@ -36,12 +36,12 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>)
         &mut response.into_reader().take(len), &mut target) 
     {
         Ok(size) => {
-            println!("Downloaded {} bytes from '{}' into '{}'", 
+            log::info!("Downloaded {} bytes from '{}' into '{}'", 
                 size, url, path.display());
             Ok(())
         },
         Err(e) => {
-            eprintln!("Failed to copy download '{}' into '{}': {}", 
+            log::error!("Failed to copy download '{}' into '{}': {}", 
                         url, path.display(), e);
             Err(())
         },

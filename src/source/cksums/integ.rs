@@ -56,11 +56,11 @@ impl IntegFile {
 
     pub(crate) fn valid(&self, skipint: bool) -> bool {
         if ! self.path.exists() {
-            eprintln!("Integ file '{}' does not exist", self.path.display());
+            log::error!("Integ file '{}' does not exist", self.path.display());
             return false
         }
         if skipint {
-            eprintln!("Integrity check skipped for existing '{}'",
+            log::error!("Integrity check skipped for existing '{}'",
                         self.path.display());
             return true
         }
@@ -87,7 +87,7 @@ impl IntegFile {
                 }
             },
             Err(e) => {
-                eprintln!("Failed to open file '{}': {}",
+                log::error!("Failed to open file '{}': {}",
                             self.path.display(), e);
                 false
             },
@@ -96,7 +96,7 @@ impl IntegFile {
             match std::fs::remove_file(&self.path) {
                 Ok(_) => (),
                 Err(e) => {
-                    eprintln!(
+                    log::error!(
                         "Failed to remove bad file '{}': {}",
                               self.path.display(), e);
                 },
@@ -109,7 +109,7 @@ impl IntegFile {
         if let Err(e) = super::super::download::clone_file(
             &source.path, &self.path) 
         {
-            eprintln!("Failed to clone '{}' from '{}': {}", 
+            log::error!("Failed to clone '{}' from '{}': {}", 
                         self.path.display(),
                         source.path.display(),
                         e);
@@ -118,7 +118,7 @@ impl IntegFile {
         if self.valid(false) {
             Ok(())
         } else {
-            eprintln!("Cloned integ file not healthy");
+            log::error!("Cloned integ file not healthy");
             Err(())
         }
     }
@@ -126,7 +126,7 @@ impl IntegFile {
     pub(crate) fn absorb(&self, source: Self) -> Result<(), Self> {
         if self.path.exists() {
             if let Err(e) = remove_file(&self.path) {
-                eprintln!("Failed to remove existing '{}': {}", 
+                log::error!("Failed to remove existing '{}': {}", 
                     self.path.display(), e);
                 return Err(source)
             }
@@ -134,18 +134,18 @@ impl IntegFile {
         match rename(&source.path, &self.path) {
             Ok(()) => return Ok(()),
             Err(e) => {
-                eprintln!("Failed to move '{}' to '{}': {}", 
+                log::error!("Failed to move '{}' to '{}': {}", 
                     source.path.display(), self.path.display(), e);
             },
         }
         // Failed to move, then do light copy (hard link) or read+write copy
         if self.clone_file_from(&source).is_err() {
-            eprintln!("Failed to clone '{}' from '{}'", 
+            log::error!("Failed to clone '{}' from '{}'", 
                 self.path.display(), source.path.display(),);
             return Err(source)
         }
         if let Err(e) = remove_file(&source.path) {
-            eprintln!("Failed to remove source file '{}': {}", 
+            log::error!("Failed to remove source file '{}': {}", 
                 source.path.display(), e);
             return Err(source)
         }
@@ -192,7 +192,7 @@ impl IntegFile {
 
     pub(crate) fn temp(&self) -> Result<Self, ()> {
         let mut name = self.path.file_name().ok_or_else(||{
-            eprintln!("Path has no ending name")
+            log::error!("Path has no ending name")
         })?.to_owned();
         name.push(".temp");
         Ok(Self {

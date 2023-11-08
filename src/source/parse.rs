@@ -70,7 +70,7 @@ fn push_source(
             }
         }
     };
-    eprintln!("Unfinished source definition");
+    log::error!("Unfinished source definition");
     Err(())
 }
 
@@ -156,7 +156,7 @@ where
             b"sha512sum" => sha512 = Sha512sum::from_hex(value),
             b"b2sum" => b2 = B2sum::from_hex(value),
             &_ => {
-                eprintln!("Unexpected line: {}", String::from_utf8_lossy(line));
+                log::error!("Unexpected line: {}", String::from_utf8_lossy(line));
                 return None
             }
         }

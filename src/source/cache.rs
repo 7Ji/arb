@@ -21,7 +21,7 @@ fn get_domain_threads_map<T>(orig_map: &HashMap<u64, Vec<T>>)
     for key in orig_map.keys() {
         match map.insert(*key, vec![]) {
             Some(_) => {
-                eprintln!("Duplicated domain for thread: {:x}", key);
+                log::error!("Duplicated domain for thread: {:x}", key);
                 return None
             },
             None => (),
@@ -38,7 +38,7 @@ fn get_domain_threads_from_map<'a>(
     match map.get_mut(domain) {
         Some(threads) => Some(threads),
         None => {
-            println!(
+            log::info!(
                 "Domain {:x} has no threads, which should not happen", domain);
             None
         },
@@ -64,7 +64,7 @@ pub(crate) fn cache_sources_mt(
         match get_domain_threads_map(&netfile_sources_map) {
             Some(map) => map,
             None => {
-                eprintln!("Failed to get netfile threads map");
+                log::error!("Failed to get netfile threads map");
                 return Err(())
             },
         };
@@ -72,7 +72,7 @@ pub(crate) fn cache_sources_mt(
         match get_domain_threads_map(&git_sources_map) {
             Some(map) => map,
             None => {
-                eprintln!("Failed to get git threads map");
+                log::error!("Failed to get git threads map");
                 return Err(())
             },
         };
@@ -80,7 +80,7 @@ pub(crate) fn cache_sources_mt(
         match Source::to_repos_map(git_sources_map, "sources/git", gmr) {
             Ok(git_repos_map) => git_repos_map,
             Err(_) => {
-                eprintln!("Failed to get git repos map");
+                log::error!("Failed to get git repos map");
                 return Err(())
             },
         };
@@ -169,7 +169,7 @@ pub(crate) fn cache_sources_mt(
         Ok(_) => (),
         Err(_) => bad = true,
     }
-    println!("Finished multi-threading caching sources");
+    log::info!("Finished multi-threading caching sources");
     if bad {
         Err(())
     } else {

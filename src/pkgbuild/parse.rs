@@ -49,7 +49,7 @@ impl<'a> PkgbuildBorrowed<'a> {
                 break
             }
         }
-        pkg.ok_or_else(||eprintln!("Failed to find pkg {}",
+        pkg.ok_or_else(||log::error!("Failed to find pkg {}",
             String::from_utf8_lossy(name)))
     }
     fn push_pkg_dep(&'a mut self, pkg_name: &[u8], dep: &'a [u8])
@@ -106,9 +106,9 @@ impl<'a> PkgbuildsBorrowed<'a> {
                 let mut it =
                     line.splitn(2, |byte| byte == &b':');
                 let key = it.next().ok_or_else(
-                    ||eprintln!("Failed to get key"))?;
+                    ||log::error!("Failed to get key"))?;
                 let value = it.next().ok_or_else(
-                    ||eprintln!("Failed to get value"))?;
+                    ||log::error!("Failed to get value"))?;
                 match key {
                     b"base" => pkgbuild.base = value,
                     b"name" => {
@@ -133,7 +133,7 @@ impl<'a> PkgbuildsBorrowed<'a> {
                         b"y" => pkgbuild.pkgver_func = true,
                         b"n" => pkgbuild.pkgver_func = false,
                         _ => {
-                            eprintln!("Unexpected value: {}", 
+                            log::error!("Unexpected value: {}", 
                                 String::from_utf8_lossy(value));
                             return Err(())
                         }
@@ -143,7 +143,7 @@ impl<'a> PkgbuildsBorrowed<'a> {
                         if key.starts_with(b"dep_") {(4, true)}
                         else if key.starts_with(b"provide_") {(8, false)}
                         else {
-                            eprintln!("Unexpected line: {}", 
+                            log::error!("Unexpected line: {}", 
                                 String::from_utf8_lossy(line));
                             return Err(())
                         };
@@ -158,7 +158,7 @@ impl<'a> PkgbuildsBorrowed<'a> {
                             }
                         }
                         let pkg = pkg.ok_or_else(
-                            ||eprintln!("Failed to find pkg {}",
+                            ||log::error!("Failed to find pkg {}",
                             String::from_utf8_lossy(name)))?;
                         if is_dep {
                             pkg.deps.push(value)
@@ -175,7 +175,7 @@ impl<'a> PkgbuildsBorrowed<'a> {
                     started = true
                 }
             } else {
-                eprintln!("Illegal line: {}", String::from_utf8_lossy(line));
+                log::error!("Illegal line: {}", String::from_utf8_lossy(line));
                 return Err(())
             }
         }
@@ -290,14 +290,14 @@ impl PkgbuildsOwned {
         {
             Ok(child) => child,
             Err(e) => {
-                eprintln!("Failed to spawn child to parse pkgbuilds: {}", e);
+                log::error!("Failed to spawn child to parse pkgbuilds: {}", e);
                 return Err(())
             },
         };
         let mut child_in = match child.stdin.take() {
             Some(stdin) => stdin,
             None => {
-                eprintln!("Failed to open stdin");
+                log::error!("Failed to open stdin");
                 child.kill().expect("Failed to kill child");
                 return Err(())
             },
@@ -305,7 +305,7 @@ impl PkgbuildsOwned {
         let mut child_out = match child.stdout.take() {
             Some(stdout) => stdout,
             None => {
-                eprintln!("Failed to open stdin");
+                log::error!("Failed to open stdin");
                 child.kill().expect("Failed to kill child");
                 return Err(())
             },
@@ -322,7 +322,7 @@ impl PkgbuildsOwned {
             match child_in.write(&write_buffer[written..end]) {
                 Ok(written_this) => written += written_this,
                 Err(e) => {
-                    eprintln!("Failed to write buffer to child: {}", e);
+                    log::error!("Failed to write buffer to child: {}", e);
                     child.kill().expect("Failed to kill child");
                     return Err(())
                 },
@@ -331,7 +331,7 @@ impl PkgbuildsOwned {
                 Ok(read_this) => 
                     output.extend_from_slice(&output_buffer[0..read_this]),
                 Err(e) => {
-                    eprintln!("Failed to read stdout child: {}", e);
+                    log::error!("Failed to read stdout child: {}", e);
                     child.kill().expect("Failed to kill child");
                     return Err(())
                 },
@@ -341,7 +341,7 @@ impl PkgbuildsOwned {
         match child_out.read_to_end(&mut output) {
             Ok(_) => (),
             Err(e) => {
-                eprintln!("Failed to read stdout child: {}", e);
+                log::error!("Failed to read stdout child: {}", e);
                 child.kill().expect("Failed to kill child");
                 return Err(())
             },
@@ -349,16 +349,16 @@ impl PkgbuildsOwned {
         if child
             .wait()
             .or_else(|e|{
-                eprintln!(
+                log::error!(
                     "Failed to wait for child parsing PKGBUILDs: {}", e);
                 Err(())
             })?
             .code()
             .ok_or_else(||{
-                eprintln!("Failed to get return code from child parsing \
+                log::error!("Failed to get return code from child parsing \
                         PKGBUILD type")
             })? != 0 {
-                eprintln!("Reader bad return");
+                log::error!("Reader bad return");
                 return Err(())
             }
         Ok(Self::from_borrowed(PkgbuildsBorrowed::from_parser_output(&output)?))

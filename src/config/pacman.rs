@@ -50,7 +50,7 @@ impl<'a> Config<'a> {
         }
         let (mut options, repos): (Vec<Section>, _) = sections.into_iter().partition(|section|section.name == "options");
         if options.len() != 1 {
-            eprintln!("Failed to find options section");
+            log::error!("Failed to find options section");
             return Err(())
         }
         Ok(Self {

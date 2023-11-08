@@ -47,7 +47,7 @@ impl Depends {
             let dep = match db_handle.find_satisfier(dep) {
                 Some(dep) => dep,
                 None => {
-                    eprintln!("Warning: dep {} not found", dep);
+                    log::error!("Warning: dep {} not found", dep);
                     return Err(())
                 },
             };
@@ -66,7 +66,7 @@ impl Depends {
             let dep = match db_handle.find_satisfier(dep) {
                 Some(dep) => dep,
                 None => {
-                    eprintln!("Warning: dep {} not found", dep);
+                    log::error!("Warning: dep {} not found", dep);
                     return Err(())
                 },
             };
@@ -77,7 +77,7 @@ impl Depends {
             let dep = match db_handle.find_satisfier(dep) {
                 Some(dep) => dep,
                 None => {
-                    eprintln!("Warning: dep {} not found", dep);
+                    log::error!("Warning: dep {} not found", dep);
                     return Err(())
                 },
             };
@@ -92,7 +92,7 @@ impl Depends {
             let dep = match db_handle.find_satisfier(dep) {
                 Some(dep) => dep,
                 None => {
-                    eprintln!("Warning: dep {} not found", dep);
+                    log::error!("Warning: dep {} not found", dep);
                     return Err(())
                 },
             };
@@ -131,7 +131,7 @@ impl Depends {
         if deps.len() == 0 {
             return Ok(())
         }
-        println!("Caching the following dependencies on host: {:?}", deps);
+        log::info!("Caching the following dependencies on host: {:?}", deps);
         let mut command = Command::new("/usr/bin/pacman");
         IdentityActual::set_root_command(
             &mut command
@@ -150,7 +150,7 @@ impl Depends {
         {
             Ok(output) => output,
             Err(e) => {
-                eprintln!("Failed to spawn child: {}", e);
+                log::error!("Failed to spawn child: {}", e);
                 return Err(());
             },
         };
@@ -158,34 +158,34 @@ impl Depends {
             Some(code) => match code {
                 0 => Ok(()),
                 1 => {
-                    eprintln!(
+                    log::error!(
                         "Download-only command failed to execute correctly, \
                         bad return 1, maybe due to broken packages? Retrying");
                     let output = match command.output()
                     {
                         Ok(output) => output,
                         Err(e) => {
-                            eprintln!("Failed to spawn child: {}", e);
+                            log::error!("Failed to spawn child: {}", e);
                             return Err(());
                         },
                     };
                     if let Some(0) = output.status.code() {
                         Ok(())
                     } else {
-                        eprintln!("Download-only command failed to execute \
+                        log::error!("Download-only command failed to execute \
                                     correctly");
                         Err(())
                     }
                 },
                 _ => {
-                    eprintln!(
+                    log::error!(
                         "Download-only command failed to execute correctly, \
                         bad return {}", code);
                     Err(())
                 }
             },
             None => {
-                eprintln!("Download-only command failed to execute correctly");
+                log::error!("Download-only command failed to execute correctly");
                 Err(())
             },
         }

@@ -20,7 +20,7 @@ pub(super) fn ensure_parents() -> Result<(), ()>
         match dir_builder.create(&folder) {
             Ok(_) => (),
             Err(e) => {
-                eprintln!("Failed to create folder '{}': {}", &folder, e);
+                log::error!("Failed to create folder '{}': {}", &folder, e);
                 return Err(())
             },
         }
@@ -34,7 +34,7 @@ fn optional_equal<C:PartialEq + std::fmt::Display>(a: &Option<C>, b: &Option<C>)
     if let Some(a) = a {
         if let Some(b) = b {
             if a == b {
-                println!("Duplicated integrity checksum: '{}' == '{}'", a, b);
+                log::info!("Duplicated integrity checksum: '{}' == '{}'", a, b);
                 return true
             }
         }
@@ -49,7 +49,7 @@ fn optional_update<C>(target: &mut Option<C>, source: &Option<C>)
     if let Some(target) = target {
         if let Some(source) = source {
             if target != source {
-                eprintln!("Source target mismatch {} != {}", source, target);
+                log::error!("Source target mismatch {} != {}", source, target);
                 return Err(());
             }
         }
@@ -122,7 +122,7 @@ pub(super) fn download_source(
         if let Protocol::Netfile{protocol} = &source.protocol {
             protocol
         } else {
-            eprintln!("Non-netfile source encountered by netfile cacher");
+            log::error!("Non-netfile source encountered by netfile cacher");
             return Err(())
         };
     let url = source.url.as_str();
@@ -137,12 +137,12 @@ pub(super) fn download_source(
     for i in 0..max_tries {
         if i == enable_proxy_at {
             if i > 0 {
-                println!("Failed to download for {} times, using proxy", i);
+                log::info!("Failed to download for {} times, using proxy", i);
             }
             proxy_actual = proxy.and_then(
                 |proxy|Some(proxy.url.as_str()));
         }
-        println!("Downloading '{}' to '{}', try {} of {}",
+        log::info!("Downloading '{}' to '{}', try {} of {}",
             source.url, integ_file_temp.path.display(), i + 1, max_tries);
         if match &protocol {
             NetfileProtocol::File => 
@@ -167,7 +167,7 @@ pub(super) fn download_source(
             }
         }
     }
-    eprintln!("Failed to download netfile source '{}'", source.url);
+    log::error!("Failed to download netfile source '{}'", source.url);
     return Err(())
 }
 
@@ -183,7 +183,7 @@ pub(super) fn cache_source(
     let mut good_files = vec![];
     let mut bad_files = vec![];
     for integ_file in integ_files.iter() {
-        println!("Caching '{}' to '{}'",
+        log::info!("Caching '{}' to '{}'",
             source.url,
             integ_file.get_path().display());
         if integ_file.valid(skipint) {
@@ -194,10 +194,10 @@ pub(super) fn cache_source(
     }
     let bad_count = bad_files.len();
     if bad_count > 0 {
-        println!("Missing integ files for '{}': {}",
+        log::info!("Missing integ files for '{}': {}",
                 source.url, bad_count);
     } else {
-        println!("All integ files healthy for '{}'", source.url);
+        log::info!("All integ files healthy for '{}'", source.url);
         return Ok(())
     }
     let mut bad_count = 0;
@@ -214,7 +214,7 @@ pub(super) fn cache_source(
         }
     }
     if bad_count > 0 {
-        eprintln!("Bad files still existing after download for '{}' ({})",
+        log::error!("Bad files still existing after download for '{}' ({})",
                     source.url, bad_count);
         Err(())
     } else {
