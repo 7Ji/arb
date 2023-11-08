@@ -32,7 +32,16 @@ struct Settings {
     sign: Option<String>
 }
 
+fn log_setup() {
+    env_logger::Builder::from_env(
+        env_logger::Env::default().filter_or(
+            "ARB_LOG_LEVEL", "info")
+        ).target(env_logger::Target::Stdout)
+         .init();
+}
+
 fn prepare() -> Result<Settings, &'static str> {
+    log_setup();
     let arg = Arg::parse();
     let actual_identity = 
     identity::IdentityActual::new_and_drop(arg.drop.as_deref())
@@ -41,16 +50,16 @@ fn prepare() -> Result<Settings, &'static str> {
     })?;
     let file = std::fs::File::open(&arg.config).or_else(
     |e|{
-        eprintln!("Failed to open config file '{}': {}", arg.config, e);
+        log::error!("Failed to open config file '{}': {}", arg.config, e);
         Err("Failed to open config file")
     })?;
     let mut config: Config = serde_yaml::from_reader(file).or_else(
     |e|{
-        eprintln!("Failed to parse YAML: {}", e);
+        log::error!("Failed to parse YAML: {}", e);
         Err("Failed to parse YAML config")
     })?;
     if ! arg.pkgs.is_empty() {
-        println!("Only build the following packages: {:?}", arg.pkgs);
+        log::warn!("Only build the following packages: {:?}", arg.pkgs);
         config.pkgbuilds.retain(|name, _|arg.pkgs.contains(name));
     }
     let proxy = source::Proxy::from_str_usize(
