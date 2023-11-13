@@ -124,6 +124,37 @@ Addtionally, the following aliases are supported for URLs:
   - `GITHUB/*` => `format!("https://github.com/{}.git", &url[7..])`
     - e.g. `chromium: GITHUB/archlinuxarm/PKGBUILDs` would expand to `chromium: https://github.com/archlinuxarm/PKGBUILDs.git`
 
+## Layout
+All built packages are stored under `pkgs/[pkgname]-[tree id]-[dephash]`, in which `[tree id]` is the Git object ID of the tree-like where the `PKGBUILD` is checked out from: either the commit or the subtree of the commit if it's set; and `[dephash]` is either empty or calculated according to the `dephash_strategy` setting:
+```
+pkgs/
+├── v4l-utils-mpp-74b9b566b63ee2a22dc9eaefadf996d1a68324f1-0159fa3fcaa1afc6
+│   ├── v4l-utils-mpp-1.24.1-1-aarch64.pkg.tar.zst
+│   └── v4l-utils-mpp-1.24.1-1-aarch64.pkg.tar.zst.sig
+├── v4l-utils-mpp-74b9b566b63ee2a22dc9eaefadf996d1a68324f1-68d5c3b1958dddac
+│   ├── v4l-utils-mpp-1.24.1-1-aarch64.pkg.tar.zst
+│   └── v4l-utils-mpp-1.24.1-1-aarch64.pkg.tar.zst.sig
+├── v4l-utils-mpp-74b9b566b63ee2a22dc9eaefadf996d1a68324f1-9f83bd553598de64
+    ├── v4l-utils-mpp-1.24.1-1-aarch64.pkg.tar.zst
+    └── v4l-utils-mpp-1.24.1-1-aarch64.pkg.tar.zst.sig
+```
+In the above example, there are 3 builds or `v4l-utils-mpp`, all built from the same commit of `https://aur.archlinux.org/v4l-utils-mpp.git`, but each of them has different dephash as they're built against different dependencies.
+
+Folder `pkgs/latest` is populated with symlinks pointing to the lastest version of each packages, useful for full update:
+```
+pkgs/
+├── latest
+    ├── v4l-utils-mpp-1.24.1-1-aarch64.pkg.tar.zst -> ../v4l-utils-mpp-74b9b566b63ee2a22dc9eaefadf996d1a68324f1-0159fa3fcaa1afc6/v4l-utils-mpp-1.24.1-1-aarch64.pkg.tar.zst
+    └── v4l-utils-mpp-1.24.1-1-aarch64.pkg.tar.zst.sig -> ../v4l-utils-mpp-74b9b566b63ee2a22dc9eaefadf996d1a68324f1-0159fa3fcaa1afc6/v4l-utils-mpp-1.24.1-1-aarch64.pkg.tar.zst
+```
+Folder `pkgs/updated` is populated with symlinks pointing to thost that are updated during the most recent run, useful for partial update:
+```
+pkgs/
+├── updated
+    ├── v4l-utils-mpp-1.24.1-1-aarch64.pkg.tar.zst -> ../v4l-utils-mpp-74b9b566b63ee2a22dc9eaefadf996d1a68324f1-0159fa3fcaa1afc6/v4l-utils-mpp-1.24.1-1-aarch64.pkg.tar.zst
+    └── v4l-utils-mpp-1.24.1-1-aarch64.pkg.tar.zst.sig -> ../v4l-utils-mpp-74b9b566b63ee2a22dc9eaefadf996d1a68324f1-0159fa3fcaa1afc6/v4l-utils-mpp-1.24.1-1-aarch64.pkg.tar.zst
+```
+
 ## TODO
  - [ ] Resolve inter-dependencies if necessary, to trigger builds if some of our pacakges changed which are deps of other pacakges
    - doing this would also mean splitting builds into multiple steps (build -> install -> build)
