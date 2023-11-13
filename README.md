@@ -1,6 +1,15 @@
 # Arch Repository Builder
 
-A multi-threaded builder to build packages and create a sane folder structure for an Arch repo, written initially for https://github.com/7Ji/archrepo
+A naive builder to build Arch packages, mainly those from AUR, and create a sane folder structure for repo, written initially for https://github.com/7Ji/archrepo
+
+## Features
+ - Every PKGBUILD is built in their dedicated yet lightweight chroot, _disk-space-friendly and IO-friendly yet secure_.
+ - All sources are hashed and downloaded lazily threaded. _poor-network-friendly yet fast_
+ - Full offline build is easy and helps you catch bad-behaving PKGBUILDs that want to access network during build
+ - Every built package is stored in its hashed folder, easy to look up historical packages
+ - Folders of symlinks providing you both the latest and updated packages so you can do either full update or partial update to remote server
+ - Multi-threaded downloading, bootstrapping, bulding and cleaning
+ - RAII for build folders and chroot folders, they only take space when you are actually building them.
 
 ## Build
 Install necessary dependencies
@@ -147,13 +156,14 @@ We maintain a series of different folders `sources/file-[integ]` to store networ
   - For one netfile source, if it has multiple integrity checksums, it would only need to be downloaded once, as long as the other integrity checksums passed the remaining alternatives are just hard-linked.
   - This automatically avoids the case where upstream PKGBUILD maintainer updates a source but kept the file name. Because network files are not tracked by their name nor URL, but only their integrity checksums.
 
-### No network build
-There're some bad-behaving packages that acessses the network during their `build()` function, which adds break points to `build()` that not even should be there. This also violates our designing principle that download, extraction and building should happen each in their seperate stages.
-
-The argument `--nonet` could be set to catch such packages, it is achieved by two recursive `unshare` calls, one to unshare the host network namespace while mapping the host non-root user into the container root so a new lo interface could be set up, another recursive one to map the container root back to the host non-root user. 
-
 ### Git-mirrorer
 It is possible to set the builder to fetch from a [7Ji/git-mirrorer](https://github.com/7Ji/git-mirrorer) instance hosted in local LAN before the actual remote. This can further save the bandwidth usage. And it is highly recommended that you set this up if you're building a lot. Do note that PKGBUILDs won't be fetched from git-mirrorer, as the main source is considered to be AUR, and no PKGBUILD repo should be huge enough to be a problem to update frequently from AUR.
 
 ### Chroot
 The builder utilizes `chroot()` syscall to run building in dedicated chroots, each package having its own chroot mounted using overlay. There is also an addtional base chroot, which is always populated before even calculating the pkgids, the base chroot serves the addtional purpose that clean repo DBs could be looked up instead of from root, and without breaking the host dependency.
+
+
+### No network build
+There're some bad-behaving packages that acessses the network during their `build()` function, which adds break points to `build()` that not even should be there. This also violates our designing principle that download, extraction and building should happen each in their seperate stages.
+
+The argument `--nonet` could be set to catch such packages, in this case no network would be available inside the chroot.
