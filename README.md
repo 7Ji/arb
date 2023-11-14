@@ -123,6 +123,7 @@ Addtionally, the following aliases are supported for URLs:
     - e.g. `yaopenvfd: GITHUB/7Ji-PKGBUILDs/` would expand to `yaopenvfd: https://github.com/7Ji-PKGBUILDs/yaopenvfd.git`
   - `GITHUB/*` => `format!("https://github.com/{}.git", &url[7..])`
     - e.g. `chromium: GITHUB/archlinuxarm/PKGBUILDs` would expand to `chromium: https://github.com/archlinuxarm/PKGBUILDs.git`
+  - `GH/*/` and `GH/*` are shorthands for the above two rules
 
 ## Layout
 All built packages are stored under `pkgs/[pkgname]-[tree id]-[dephash]`, in which `[tree id]` is the Git object ID of the tree-like where the `PKGBUILD` is checked out from: either the commit or the subtree of the commit if it's set; and `[dephash]` is either empty or calculated according to the `dephash_strategy` setting:

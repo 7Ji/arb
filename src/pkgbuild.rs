@@ -132,6 +132,12 @@ impl PKGBUILD {
             } else {
                 format!("https://github.com/{}.git", &url[7..])
             }
+        } else if url.starts_with("GH/") {
+            if url.ends_with('/') {
+                format!("https://github.com/{}{}.git", &url[3..], name)
+            } else {
+                format!("https://github.com/{}.git", &url[3..])
+            }
         } else {
             url.to_string()
         };
