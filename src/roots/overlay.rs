@@ -1,4 +1,4 @@
-use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all, create_dir}, ffi::OsStr};
+use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all}, ffi::OsStr};
 
 use crate::{identity::{IdentityActual, Identity}, child::ForkedChild};
 
@@ -76,7 +76,7 @@ impl OverlayRoot {
                 continue
             }
             let chroot_dir = chroot_home.join(dir.as_ref());
-            create_dir(&chroot_dir).or_else(|e|{
+            create_dir_all(&chroot_dir).or_else(|e|{
                 log::error!("Failed to create chroot dir: {}", e);
                 Err(())
             })?;
