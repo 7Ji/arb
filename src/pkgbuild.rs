@@ -544,7 +544,7 @@ impl PKGBUILDs {
                 PkgbuildConfig::Simple(url) => PKGBUILD::new(
                     name, url, &build_parent, &git_parent, 
                     None, None, None, None, 
-                    None, &vec![]
+                    None, home_binds_global
                 ),
                 PkgbuildConfig::Complex { url, branch,
                     subtree, deps, 
