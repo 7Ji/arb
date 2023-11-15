@@ -30,13 +30,13 @@ strip target/release/arch_repo_builder -o output/path
 
 ## Usage
 ```
-Usage: arch_repo_builder [OPTIONS] [CONFIG] [PKGS]...
+Usage: arch_repo_builder [OPTIONS] [CONFIG]
 
 Arguments:
-  [CONFIG]   Optional config.yaml file [default: config.yaml]
-  [PKGS]...  Optional packages to only build them
+  [CONFIG]  Optional config.yaml file [default: config.yaml]
 
 Options:
+  -b, --build <BUILD>              Optional packages to only build them, implies --noclean
   -p, --proxy <PROXY>              HTTP proxy to retry for git updating and http(s) netfiles if attempt without proxy failed
       --proxy-after <PROXY_AFTER>  Attempt without proxy for this amount of tries before actually using the proxy, to save bandwidth
   -P, --holdpkg                    Hold versions of PKGBUILDs, do not update them
@@ -77,6 +77,7 @@ Non-CLI options include:
 ```
 basepkgs: [base-devel, distcc]
 dephash_strategy: none
+home_binds: []
 ```
 These are left out of CLI options as you shouldn't change them often:
  - `basepkgs` defines a list of packages that should be installed into the base chroot.
@@ -87,6 +88,7 @@ These are left out of CLI options as you shouldn't change them often:
    - `strict`: consider both deps and makedeps when calculating the dephash, this will result in the most rebuilds, due to possible fake-positive.
    - `loose`: consider only deps when calculating the dephash, fake-positive is less in this case.
    - `none`(default): consider no dep, leave the dephash as 0, and do not consider it when calculating pkgid. This will result in fake-negative, as updates of underlying packages that should trigger rebuilds cannot be found.
+ - `home_binds` defines a list of `home_binds` globally, which will be appended to all PKGBUILDs, see below for more details. An example case is to bind `.cache/ccache` when you enable `ccache` globally
 
 The PKGBUILDs could also be defined with advanced options:
 ```

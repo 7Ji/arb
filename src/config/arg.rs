@@ -8,8 +8,9 @@ pub(crate) struct Arg {
     #[arg(default_value_t = String::from("config.yaml"))]
     pub(crate) config: String,
 
-    /// Optional packages to only build them
-    pub(crate) pkgs: Vec<String>,
+    /// Optional packages to only build them, implies --noclean
+    #[arg(short, long)]
+    pub(crate) build: Vec<String>,
 
     /// HTTP proxy to retry for git updating and http(s)
     /// netfiles if attempt without proxy failed

@@ -29,15 +29,15 @@ struct Settings {
     nonet: bool,
     gmr: Option<String>,
     dephash_strategy: DepHashStrategy,
-    sign: Option<String>
+    sign: Option<String>,
+    home_binds: Vec<String>,
 }
 
 fn log_setup() {
     env_logger::Builder::from_env(
         env_logger::Env::default().filter_or(
             "ARB_LOG_LEVEL", "info")
-        ).target(env_logger::Target::Stdout)
-         .init();
+        ).target(env_logger::Target::Stdout).init();
 }
 
 fn prepare() -> Result<Settings, &'static str> {
@@ -45,22 +45,21 @@ fn prepare() -> Result<Settings, &'static str> {
     let arg = Arg::parse();
     let actual_identity = 
     identity::IdentityActual::new_and_drop(arg.drop.as_deref())
-    .or_else(|_|{
-        Err("Failed to get actual identity")
-    })?;
-    let file = std::fs::File::open(&arg.config).or_else(
-    |e|{
-        log::error!("Failed to open config file '{}': {}", arg.config, e);
-        Err("Failed to open config file")
-    })?;
-    let mut config: Config = serde_yaml::from_reader(file).or_else(
+        .or_else(|_|Err("Failed to get actual identity"))?;
+    let mut config: Config = serde_yaml::from_reader(
+        std::fs::File::open(&arg.config).or_else(
+        |e|{
+            log::error!("Failed to open config file '{}': {}", arg.config, e);
+            Err("Failed to open config file")
+        })?)
+    .or_else(
     |e|{
         log::error!("Failed to parse YAML: {}", e);
         Err("Failed to parse YAML config")
     })?;
-    if ! arg.pkgs.is_empty() {
-        log::warn!("Only build the following packages: {:?}", arg.pkgs);
-        config.pkgbuilds.retain(|name, _|arg.pkgs.contains(name));
+    if ! arg.build.is_empty() {
+        log::warn!("Only build the following packages: {:?}", arg.build);
+        config.pkgbuilds.retain(|name, _|arg.build.contains(name));
     }
     let proxy = source::Proxy::from_str_usize(
         arg.proxy.as_deref().or(config.proxy.as_deref()), 
@@ -82,11 +81,12 @@ fn prepare() -> Result<Settings, &'static str> {
         holdgit: arg.holdgit || config.holdgit,
         skipint: arg.skipint || config.skipint,
         nobuild: arg.nobuild || config.nobuild,
-        noclean: arg.noclean || config.noclean,
+        noclean: !arg.build.is_empty() || arg.noclean || config.noclean,
         nonet: arg.nonet || config.nonet,
         gmr: arg.gmr.or(config.gmr),
         dephash_strategy: config.dephash_strategy,
         sign: arg.sign.or(config.sign),
+        home_binds: config.home_binds
     })
 }
 
@@ -97,7 +97,7 @@ fn work(settings: Settings) -> Result<(), &'static str> {
         pkgbuild::PKGBUILDs::from_config_healthy(
             &settings.pkgbuilds_config, settings.holdpkg, 
             settings.noclean, settings.proxy.as_ref(), 
-            gmr.as_ref()
+            gmr.as_ref(), &settings.home_binds
         ).or_else(|_|Err("Failed to prepare PKGBUILDs list"))?;
     let root = pkgbuilds.prepare_sources(
         &settings.actual_identity, &settings.basepkgs, settings.holdgit, 

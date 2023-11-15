@@ -54,6 +54,7 @@ pub(crate) struct Config {
     #[serde(default)]
     pub(crate) dephash_strategy: DepHashStrategy,
     pub(crate) pkgbuilds: std::collections::HashMap<String, Pkgbuild>,
+    pub(crate) home_binds: Vec<String>,
 }
 
 fn default_basepkgs() -> Vec<String> {

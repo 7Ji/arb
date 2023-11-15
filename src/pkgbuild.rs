@@ -121,7 +121,8 @@ impl PKGBUILD {
     fn new(
         name: &str, url: &str, build_parent: &Path, git_parent: &Path,
         branch: Option<&str>, subtree: Option<&str>, deps: Option<&Vec<String>>,
-        makedeps: Option<&Vec<String>>, home_binds: Option<&Vec<String>>
+        makedeps: Option<&Vec<String>>, home_binds: Option<&Vec<String>>,
+        home_binds_global: &Vec<String>
     ) -> Self
     {
         let url = if url == "AUR" {
@@ -170,9 +171,15 @@ impl PKGBUILD {
             extracted: false,
             git: git_parent.join(
                 format!("{:016x}",xxh3_64(url.as_bytes()))),
-            home_binds: match home_binds {
-                Some(home_binds) => home_binds.clone(),
-                None => vec![],
+            home_binds: {
+                let mut home_binds = match home_binds {
+                    Some(home_binds) => home_binds.clone(),
+                    None => vec![],
+                };
+                for home_bind in home_binds_global.iter() {
+                    home_binds.push(home_bind.clone())
+                }
+                home_binds
             },
             names: vec![],
             need_build: false,
@@ -523,7 +530,9 @@ impl PKGBUILD {
 pub(crate) struct PKGBUILDs (pub(crate) Vec<PKGBUILD>);
 
 impl PKGBUILDs {
-    pub(crate) fn from_config(config: &HashMap<String, PkgbuildConfig>) 
+    pub(crate) fn from_config(
+        config: &HashMap<String, PkgbuildConfig>, home_binds_global: &Vec<String>
+    ) 
         -> Result<Self, ()> 
     {
         let build_parent = PathBuf::from("build");
@@ -535,7 +544,7 @@ impl PKGBUILDs {
                 PkgbuildConfig::Simple(url) => PKGBUILD::new(
                     name, url, &build_parent, &git_parent, 
                     None, None, None, None, 
-                    None
+                    None, &vec![]
                 ),
                 PkgbuildConfig::Complex { url, branch,
                     subtree, deps, 
@@ -544,7 +553,7 @@ impl PKGBUILDs {
                 } => PKGBUILD::new(
                     name, url, &build_parent, &git_parent,
                     branch.as_deref(), subtree.as_deref(), 
-                    deps.as_ref(), makedeps.as_ref(), home_binds.as_ref())
+                    deps.as_ref(), makedeps.as_ref(), home_binds.as_ref(), home_binds_global)
             }
         }).collect();
         pkgbuilds.sort_unstable_by(
@@ -581,10 +590,11 @@ impl PKGBUILDs {
 
     pub(crate) fn from_config_healthy(
         config: &HashMap<String, PkgbuildConfig>, 
-        hold: bool, noclean: bool, proxy: Option<&Proxy>, gmr: Option<&Gmr>
+        hold: bool, noclean: bool, proxy: Option<&Proxy>, gmr: Option<&Gmr>,
+        home_binds: &Vec<String>,
     ) -> Result<Self, ()>
     {
-        let mut pkgbuilds = Self::from_config(config)?;
+        let mut pkgbuilds = Self::from_config(config, home_binds)?;
         let update_pkg = if hold {
             if pkgbuilds.healthy_set_commit(){
                 log::info!(
