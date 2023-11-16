@@ -130,7 +130,7 @@ pub(crate) struct IdentityActual {
     cwd: PathBuf,
     cwd_no_root: PathBuf,
     home_path: PathBuf,
-    home_string: String
+    _home_string: String
 }
 
 pub(crate) trait Identity {
@@ -371,8 +371,8 @@ impl IdentityActual {
     pub(crate) fn home_path(&self) -> &Path {
         &self.home_path
     }
-    pub(crate) fn home_str(&self) -> &str {
-        &self.home_string
+    pub(crate) fn _home_str(&self) -> &str {
+        &self._home_string
     }
 
     fn new(uid: Uid, gid: Gid) -> Result<Self, ()> {
@@ -388,7 +388,7 @@ impl IdentityActual {
         })?.to_path_buf();
         let name = env.user.to_string_lossy().to_string();
         let home_path = PathBuf::from(&env.home);
-        let home_string = env.home.to_string_lossy().to_string();
+        let _home_string = env.home.to_string_lossy().to_string();
         Ok(Self {
             uid,
             gid,
@@ -397,7 +397,7 @@ impl IdentityActual {
             cwd,
             cwd_no_root,
             home_path,
-            home_string
+            _home_string
         })
 
     }

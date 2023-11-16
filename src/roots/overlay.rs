@@ -1,4 +1,4 @@
-use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all}, ffi::OsStr, os::unix::fs::chown};
+use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all}, ffi::OsStr};
 
 use crate::{identity::{IdentityActual, Identity}, child::ForkedChild, filesystem::create_dir_all_under_owned_by};
 
@@ -48,7 +48,7 @@ impl OverlayRoot {
 
     fn create_home(&self, actual_identity: &IdentityActual) -> Result<&Self, ()> {
         create_dir_all(self.home(actual_identity)?).map_err(
-            |e|log::error!("Failed to pre-create home"))?;
+            |e|log::error!("Failed to pre-create home: {}", e))?;
         Ok(self)
     }
 
