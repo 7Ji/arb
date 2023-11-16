@@ -1,6 +1,6 @@
-use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all}, ffi::OsStr};
+use std::{path::{PathBuf, Path}, fs::{remove_dir_all, create_dir_all}, ffi::OsStr, os::unix::fs::chown};
 
-use crate::{identity::{IdentityActual, Identity}, child::ForkedChild};
+use crate::{identity::{IdentityActual, Identity}, child::ForkedChild, filesystem::create_dir_all_under_owned_by};
 
 use super::{mount::MountedFolder, common::CommonRoot};
 
@@ -46,6 +46,12 @@ impl OverlayRoot {
         Ok(self)
     }
 
+    fn create_home(&self, actual_identity: &IdentityActual) -> Result<&Self, ()> {
+        create_dir_all(self.home(actual_identity)?).map_err(
+            |e|log::error!("Failed to pre-create home"))?;
+        Ok(self)
+    }
+
     fn bind_builder(&self, actual_identity: &IdentityActual) -> Result<&Self, ()> {
         let builder = self.builder(actual_identity)?;
         for dir in Self::BUILDER_DIRS {
@@ -66,24 +72,20 @@ impl OverlayRoot {
         I: IntoIterator<Item = S>,
         S: AsRef<str>
     {
-        let host_home_path = actual_identity.home_path();
-        let mut host_home_string = actual_identity.home_str().to_string();
-        host_home_string.push('/');
+        let host_home = actual_identity.home_path();
         let chroot_home = self.home(actual_identity)?;
+        let uid = actual_identity.uid().into();
+        let gid = actual_identity.gid().into();
         for dir in home_dirs {
-            let host_dir = host_home_path.join(dir.as_ref());
+            let host_dir = host_home.join(dir.as_ref());
             if ! host_dir.exists() {
-                continue
+                create_dir_all_under_owned_by(dir.as_ref(), 
+                    host_home, uid, gid)?;
             }
-            let chroot_dir = chroot_home.join(dir.as_ref());
-            create_dir_all(&chroot_dir).or_else(|e|{
-                log::error!("Failed to create chroot dir: {}", e);
-                Err(())
-            })?;
-            let mut host_dir_string = host_home_string.clone();
-            host_dir_string.push_str(dir.as_ref());
-            mount(Some(host_dir_string.as_str()),
-                &chroot_dir,
+            create_dir_all_under_owned_by(dir.as_ref(), 
+                &chroot_home, uid, gid)?;
+            mount(Some(&host_dir),
+                &chroot_home.join(dir.as_ref()),
                 None::<&str>,
                 MsFlags::MS_BIND,
                 None::<&str>)
@@ -123,6 +125,7 @@ impl OverlayRoot {
                 .overlay()?
                 .base_mounts()?
                 .install_pkgs(pkgs)?
+                .create_home(actual_identity)?
                 .bind_builder(actual_identity)?
                 .bind_homedirs(actual_identity, home_dirs)?;
             if ! nonet {
@@ -153,6 +156,7 @@ impl OverlayRoot {
                 .overlay()?
                 .base_mounts()?
                 .install_pkgs(pkgs)?
+                .create_home(actual_identity)?
                 .bind_builder(actual_identity)?
                 .bind_homedirs(actual_identity, home_dirs)?;
             if ! nonet {

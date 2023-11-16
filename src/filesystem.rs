@@ -1,4 +1,4 @@
-use std::{path::{Path, PathBuf}, fs::{read_dir, remove_dir, remove_file, remove_dir_all, File, create_dir_all}, io::{stdout, Read, Write}};
+use std::{path::{Path, PathBuf}, fs::{read_dir, remove_dir, remove_file, remove_dir_all, File, create_dir_all, create_dir}, io::{stdout, Read, Write}, os::unix::fs::chown};
 
 
 // build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
@@ -102,4 +102,26 @@ pub(crate) fn prepare_updated_latest_dirs() -> Result<(), ()> {
         }
     }
     if bad { Err(()) } else { Ok(()) }
+}
+
+pub(crate) fn create_dir_all_under_owned_by<P, Q>(
+    path: P, parent: Q, uid: u32, gid: u32
+) -> Result<(), ()> 
+where
+    P: AsRef<Path>, 
+    Q: AsRef<Path>
+{
+    let mut path_buffer = parent.as_ref().to_owned();
+    for component in path.as_ref().components() {
+        path_buffer.push(component);
+        if ! path_buffer.exists() {
+            create_dir(&path_buffer).map_err(|e|
+                log::error!("Failed to create dir '{}': {}", 
+                path_buffer.display(), e))?;
+        }
+        chown(&path_buffer, Some(uid), Some(gid)).map_err(
+            |e|log::error!("Failed to chown '{}' to {}:{}: {}",
+            path_buffer.display(), uid, gid, e))?;
+    }
+    Ok(())
 }
