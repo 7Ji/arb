@@ -165,6 +165,7 @@ pkgs/
  - [ ] Resolve inter-dependencies if necessary, to trigger builds if some of our pacakges changed which are deps of other pacakges
    - doing this would also mean splitting builds into multiple steps (build -> install -> build)
  - [ ] Remove all explicit panics introduced in early prototype stage
+ - [ ] Use `gitoxide` instead of `git2-rs`, for memory safety
 
 ## Internal
 The builder does the following to save a great chunk of build time and resource:

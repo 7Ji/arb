@@ -1,3 +1,5 @@
+// Todo: use `gitoxide` instead of `git2-rs`, for memory safety
+
 use crate::threading;
 use git2::{
         Blob,
