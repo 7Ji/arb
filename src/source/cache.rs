@@ -52,7 +52,8 @@ pub(crate) fn cache_sources_mt(
     holdgit: bool,
     skipint: bool,
     proxy: Option<&Proxy>,
-    gmr: Option<&super::git::Gmr>
+    gmr: Option<&super::git::Gmr>,
+    terminal: bool
 ) -> Result<(), ()> 
 {
     netfile::ensure_parents()?;
@@ -137,7 +138,7 @@ pub(crate) fn cache_sources_mt(
                 let proxy_thread = proxy
                     .map(|proxy|proxy.to_owned());
                 let git_thread = thread::spawn(
-                move || git_repo.sync(proxy_thread.as_ref()));
+                move || git_repo.sync(proxy_thread.as_ref(), terminal));
                 git_threads.push(git_thread);
             }
         }

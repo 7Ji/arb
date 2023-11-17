@@ -31,6 +31,7 @@ struct Settings {
     dephash_strategy: DepHashStrategy,
     sign: Option<String>,
     home_binds: Vec<String>,
+    terminal: bool
 }
 
 fn log_setup() {
@@ -86,7 +87,8 @@ fn prepare() -> Result<Settings, &'static str> {
         gmr: arg.gmr.or(config.gmr),
         dephash_strategy: config.dephash_strategy,
         sign: arg.sign.or(config.sign),
-        home_binds: config.home_binds
+        home_binds: config.home_binds,
+        terminal: is_terminal::is_terminal(std::io::stdout())
     })
 }
 
@@ -97,12 +99,12 @@ fn work(settings: Settings) -> Result<(), &'static str> {
         pkgbuild::PKGBUILDs::from_config_healthy(
             &settings.pkgbuilds_config, settings.holdpkg, 
             settings.noclean, settings.proxy.as_ref(), 
-            gmr.as_ref(), &settings.home_binds
+            gmr.as_ref(), &settings.home_binds, settings.terminal
         ).or_else(|_|Err("Failed to prepare PKGBUILDs list"))?;
     let root = pkgbuilds.prepare_sources(
         &settings.actual_identity, &settings.basepkgs, settings.holdgit, 
         settings.skipint, settings.noclean, settings.proxy.as_ref(),
-        gmr.as_ref(), &settings.dephash_strategy
+        gmr.as_ref(), &settings.dephash_strategy, settings.terminal
         ).or_else(|_|Err("Failed to prepare sources"))?;
     let r = build::maybe_build(&pkgbuilds,
         root, &settings.actual_identity, settings.nobuild, settings.nonet,

@@ -561,7 +561,7 @@ impl PKGBUILDs {
         Ok(Self(pkgbuilds))
     }
 
-    fn sync(&self, hold: bool, proxy: Option<&Proxy>, gmr: Option<&Gmr>) 
+    fn sync(&self, hold: bool, proxy: Option<&Proxy>, gmr: Option<&Gmr>, terminal: bool) 
         -> Result<(), ()> 
     {
         let map =
@@ -576,7 +576,7 @@ impl PKGBUILDs {
                 return Err(())
             },
         };
-        git::Repo::sync_mt(repos_map, hold, proxy)
+        git::Repo::sync_mt(repos_map, hold, proxy, terminal)
     }
 
     fn healthy_set_commit(&mut self) -> bool {
@@ -591,7 +591,7 @@ impl PKGBUILDs {
     pub(crate) fn from_config_healthy(
         config: &HashMap<String, PkgbuildConfig>, 
         hold: bool, noclean: bool, proxy: Option<&Proxy>, gmr: Option<&Gmr>,
-        home_binds: &Vec<String>,
+        home_binds: &Vec<String>, terminal: bool
     ) -> Result<Self, ()>
     {
         let mut pkgbuilds = Self::from_config(config, home_binds)?;
@@ -619,7 +619,7 @@ impl PKGBUILDs {
                         source::remove_unused("sources/PKGBUILD", &used))),
         };
         if update_pkg {
-            if pkgbuilds.sync(hold, proxy, gmr).is_err() {
+            if pkgbuilds.sync(hold, proxy, gmr, terminal).is_err() {
                 log::error!("Failed to sync PKGBUILDs");
                 return Err(())
             }
@@ -998,6 +998,7 @@ impl PKGBUILDs {
         proxy: Option<&Proxy>,
         gmr: Option<&git::Gmr>,
         dephash_strategy: &DepHashStrategy,
+        terminal: bool
     ) -> Result<Option<BaseRoot>, ()> 
     {
 
@@ -1016,7 +1017,7 @@ impl PKGBUILDs {
             = self.get_all_sources(&dir).ok_or(())?;
         source::cache_sources_mt(
             &netfile_sources, &git_sources, actual_identity,
-            holdgit, skipint, proxy, gmr)?;
+            holdgit, skipint, proxy, gmr, terminal)?;
         if let Some(cleaner) = cleaner {
             cleaner.join()
                 .expect("Failed to join build dir cleaner thread")

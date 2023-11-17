@@ -239,13 +239,15 @@ fn gcb_transfer_progress(progress: Progress<'_>) -> bool {
     true
 }
 
-fn fetch_opts_init<'a>() -> FetchOptions<'a> {
+fn fetch_opts_init<'a>(terminal: bool) -> FetchOptions<'a> {
     let mut cbs = RemoteCallbacks::new();
-    cbs.sideband_progress(|log| {
-            print!("Remote: {}", String::from_utf8_lossy(log));
-            true
-        });
-    cbs.transfer_progress(gcb_transfer_progress);
+    if terminal {
+        cbs.sideband_progress(|log| {
+                print!("Remote: {}", String::from_utf8_lossy(log));
+                true
+            });
+        cbs.transfer_progress(gcb_transfer_progress);
+    }
     let mut fetch_opts =
         FetchOptions::new();
     fetch_opts.download_tags(AutotagOption::All)
@@ -418,18 +420,18 @@ impl Repo {
 
     fn sync_raw(
         repo: &Repository, url: &str, proxy: Option<&Proxy>, refspecs: &[&str], 
-        tries: usize
+        tries: usize, terminal: bool
     ) -> Result<(), ()> 
     {
         let mut remote =
             repo.remote_anonymous(url).or(Err(()))?;
-        let mut fetch_opts = fetch_opts_init();
+        let mut fetch_opts = fetch_opts_init(terminal);
         fetch_remote(&mut remote, &mut fetch_opts, proxy, refspecs, tries)?;
         Self::update_head_raw(repo, &mut remote)?;
         Ok(())
     }
 
-    pub(crate) fn sync(&self, proxy: Option<&Proxy>)
+    pub(crate) fn sync(&self, proxy: Option<&Proxy>, terminal: bool)
         -> Result<(), ()>
     {
         let mut refspecs_dynamic = vec![];
@@ -449,14 +451,14 @@ impl Repo {
             log::info!("Syncing repo '{}' with gmr '{}' before actual remote",
                         &self.path.display(), &mirror);
             if let Ok(_) = Self::sync_raw(
-                &self.repo, &mirror, None, refspecs, 1
+                &self.repo, &mirror, None, refspecs, 1, terminal
             ) {
                 return Ok(())
             }
         }
         log::info!("Syncing repo '{}' with '{}' ", 
             &self.path.display(), &self.url);
-        Self::sync_raw(&self.repo, &self.url, proxy, refspecs, 3)
+        Self::sync_raw(&self.repo, &self.url, proxy, refspecs, 3, terminal)
     }
 
     fn get_branch<'a>(&'a self, branch: &str) -> Result<Branch<'a>, ()> {
@@ -622,7 +624,8 @@ impl Repo {
         repos: Vec<Self>,
         max_threads: usize,
         hold: bool,
-        proxy: Option<&Proxy>
+        proxy: Option<&Proxy>,
+        terminal: bool
     ) -> Result<(), ()>
     {
         // let proxy = proxy.and_then(
@@ -648,7 +651,7 @@ impl Repo {
                 bad = true;
             }
             threads.push(thread::spawn(move ||{
-                repo.sync(proxy_thread.as_ref())
+                repo.sync(proxy_thread.as_ref(), terminal)
             }));
         }
         if let Err(_) = threading::wait_remaining(threads, &job) {
@@ -664,7 +667,8 @@ impl Repo {
     fn sync_for_domain_st(
         repos: Vec<Self>,
         hold: bool,
-        proxy: Option<&Proxy>
+        proxy: Option<&Proxy>,
+        terminal: bool
     ) -> Result<(), ()>
     {
         let mut bad = false;
@@ -678,7 +682,7 @@ impl Repo {
                         repo.path.display());
                 }
             }
-            if repo.sync(proxy).is_err() {
+            if repo.sync(proxy, terminal).is_err() {
                 log::error!("Failed to sync repo '{}'", &repo.url);
                 bad = true
             }
@@ -694,20 +698,22 @@ impl Repo {
         repos: Vec<Self>,
         max_threads: usize,
         hold: bool,
-        proxy: Option<&Proxy>
+        proxy: Option<&Proxy>,
+        terminal: bool
     ) -> Result<(), ()>
     {
         if max_threads >= 2 && repos.len() >= 2 {
-            Self::sync_for_domain_mt(repos, max_threads, hold, proxy)
+            Self::sync_for_domain_mt(repos, max_threads, hold, proxy, terminal)
         } else {
-            Self::sync_for_domain_st(repos, hold, proxy)
+            Self::sync_for_domain_st(repos, hold, proxy, terminal)
         }
     }
 
     fn sync_for_aur(
         mut repos: Vec<Self>,
         hold: bool,
-        proxy: Option<&Proxy>
+        proxy: Option<&Proxy>,
+        terminal: bool
     ) -> Result<(), ()>
     {
         if Self::filter_aur(&mut repos).is_err() {
@@ -716,7 +722,7 @@ impl Repo {
         if repos.is_empty() {
             return Ok(())
         }
-        Self::sync_for_domain(repos, 1, hold, proxy)
+        Self::sync_for_domain(repos, 1, hold, proxy, terminal)
     }
 
     fn last_fetch(&self) -> i64 {
@@ -843,7 +849,8 @@ impl Repo {
     pub(crate) fn sync_mt(
         repos_map: HashMap<u64, Vec<Self>>,
         hold: bool,
-        proxy: Option<&Proxy>
+        proxy: Option<&Proxy>,
+        terminal: bool
     ) -> Result<(), ()>
     {
         log::info!("Syncing repos with {} groups", repos_map.len());
@@ -854,13 +861,13 @@ impl Repo {
             if domain == 0xb463cbdec08d6265 {
                 threads.push(thread::spawn(move || {
                     Self::sync_for_aur(
-                        repos, hold, proxy_thread.as_ref())}))
+                        repos, hold, proxy_thread.as_ref(), terminal)}))
 
             } else {
                 threads.push(thread::spawn(move || {
                     Self::sync_for_domain(
                         repos, 10, hold,
-                        proxy_thread.as_ref())}))
+                        proxy_thread.as_ref(), terminal)}))
             }
         }
         threading::wait_remaining(threads, "syncing git repo groups")
