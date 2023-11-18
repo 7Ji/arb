@@ -36,7 +36,7 @@ const REFSPECS_HEADS_TAGS: &[&str] = &[
     "+refs/tags/*:refs/tags/*"
 ];
 
-const _REFSPECS_MASTER_ONLY: &[&str] = 
+const _REFSPECS_MASTER_ONLY: &[&str] =
     &["+refs/heads/master:refs/heads/master"];
 
 // #[derive(Clone)]
@@ -95,8 +95,8 @@ pub(crate) trait ToReposMap {
     fn url(&self) -> &str;
     fn hash_url(&self) -> u64;
     fn path(&self) -> Option<&Path>;
-    fn to_repo(&self, parent: &str, gmr: Option<&Gmr>, branch: Option<String>) 
-        -> Result<Repo, ()> 
+    fn to_repo(&self, parent: &str, gmr: Option<&Gmr>, branch: Option<String>)
+        -> Result<Repo, ()>
     {
         let url = self.url();
         let repo = match self.path() {
@@ -141,7 +141,7 @@ pub(crate) trait ToReposMap {
                 }
                 let new_branch = source.branch();
                 if let Some(existing) = existing {
-                    let existing_branches = 
+                    let existing_branches =
                         &mut existing.branches;
                     if existing_branches.len() == 0 {
                         continue
@@ -186,7 +186,7 @@ pub(crate) trait ToReposMap {
 }
 
 impl ToReposMap for super::Source {
-    
+
     fn url(&self) -> &str {
         self.url.as_str()
     }
@@ -272,7 +272,7 @@ fn fetch_remote(
     proxy: Option<&Proxy>,
     refspecs: &[&str],
     tries: usize
-) -> Result<(), ()> 
+) -> Result<(), ()>
 {
     let (tries_without_proxy, tries_with_proxy) = match proxy {
         Some(proxy) => (proxy.after, tries),
@@ -284,7 +284,7 @@ fn fetch_remote(
         ) {
             Ok(_) => return Ok(()),
             Err(e) => {
-                log::error!("Failed to fetch from remote '{}': {}", 
+                log::error!("Failed to fetch from remote '{}': {}",
                     remote_safe_url(&remote), e);
             },
         }
@@ -315,7 +315,7 @@ fn fetch_remote(
             },
         }
     };
-    log::error!("Failed to fetch from remote '{}' even with proxy", 
+    log::error!("Failed to fetch from remote '{}' even with proxy",
         remote_safe_url(&remote));
     Err(())
 }
@@ -334,7 +334,7 @@ impl Repo {
     }
 
     fn init_bare<P: AsRef<Path>>(path: P, url: &str, gmr: Option<&Gmr>)
-        -> Result<Self, ()> 
+        -> Result<Self, ()>
     {
         match Repository::init_bare(&path) {
             Ok(repo) => {
@@ -387,14 +387,14 @@ impl Repo {
         self.mirror = gmr.get_mirror_url(&self.url)
     }
 
-    fn update_head_raw(repo: &Repository, remote: &mut Remote) 
-        -> Result<(), ()> 
+    fn update_head_raw(repo: &Repository, remote: &mut Remote)
+        -> Result<(), ()>
     {
         let url = remote_safe_url(remote);
         let heads = match remote.list() {
             Ok(heads) => heads,
             Err(e) => {
-                log::error!("Failed to list remote '{}' for repo '{}': {}", 
+                log::error!("Failed to list remote '{}' for repo '{}': {}",
                     url, repo.path().display(), e);
                 return Err(())
             },
@@ -405,7 +405,7 @@ impl Repo {
                     match repo.set_head(target) {
                         Ok(_) => return Ok(()),
                         Err(e) => {
-                            log::error!("Failed to set head for '{}': {}", 
+                            log::error!("Failed to set head for '{}': {}",
                                         url, e);
                         },
                     }
@@ -421,9 +421,9 @@ impl Repo {
     }
 
     fn sync_raw(
-        repo: &Repository, url: &str, proxy: Option<&Proxy>, refspecs: &[&str], 
+        repo: &Repository, url: &str, proxy: Option<&Proxy>, refspecs: &[&str],
         tries: usize, terminal: bool
-    ) -> Result<(), ()> 
+    ) -> Result<(), ()>
     {
         let mut remote =
             repo.remote_anonymous(url).or(Err(()))?;
@@ -458,7 +458,7 @@ impl Repo {
                 return Ok(())
             }
         }
-        log::info!("Syncing repo '{}' with '{}' ", 
+        log::info!("Syncing repo '{}' with '{}' ",
             &self.path.display(), &self.url);
         Self::sync_raw(&self.repo, &self.url, proxy, refspecs, 3, terminal)
     }
@@ -489,7 +489,7 @@ impl Repo {
     }
 
     fn get_commit_tree<'a>(&'a self, commit: &Commit<'a>, subtree: Option<&Path>
-    )   -> Result<Tree<'a>, ()> 
+    )   -> Result<Tree<'a>, ()>
     {
         let tree = commit.tree().or_else(|e| {
             log::error!("Failed to get tree pointed by commit: {}", e);
@@ -516,16 +516,16 @@ impl Repo {
         .to_owned())
     }
 
-    fn get_branch_tree<'a>(&'a self, branch: &str, subtree: Option<&Path>) 
-        -> Result<Tree<'a>, ()> 
+    fn get_branch_tree<'a>(&'a self, branch: &str, subtree: Option<&Path>)
+        -> Result<Tree<'a>, ()>
     {
         let commit = self.get_branch_commit(branch)?;
         self.get_commit_tree(&commit, subtree)
     }
 
-    pub(crate) fn get_branch_commit_or_subtree_id(&self, 
+    pub(crate) fn get_branch_commit_or_subtree_id(&self,
         branch: &str, subtree: Option<&Path>
-    ) -> Result<Oid, ()> 
+    ) -> Result<Oid, ()>
     {
         let commit = self.get_branch_commit(branch)?;
         if let None = subtree {
@@ -563,7 +563,7 @@ impl Repo {
         }
     }
 
-    pub(crate) fn get_branch_entry_blob<'a>(&'a self, 
+    pub(crate) fn get_branch_entry_blob<'a>(&'a self,
         branch: &str, subtree: Option<&Path>, name: &str
     )
         -> Result<Blob<'a>, ()>
@@ -572,8 +572,8 @@ impl Repo {
         self.get_tree_entry_blob(&tree, name)
     }
 
-    pub(crate) fn get_pkgbuild_blob(&self, branch: &str, subtree: Option<&Path>) 
-        -> Result<Blob, ()> 
+    pub(crate) fn get_pkgbuild_blob(&self, branch: &str, subtree: Option<&Path>)
+        -> Result<Blob, ()>
     {
         self.get_branch_entry_blob(branch, subtree, "PKGBUILD")
     }
@@ -633,7 +633,7 @@ impl Repo {
         // let proxy = proxy.and_then(
         //     |proxy|Some(proxy.clone()));
         let mut threads = vec![];
-        let job = format!("syncing git repos from domain '{}'", 
+        let job = format!("syncing git repos from domain '{}'",
             repos.last().ok_or(())?.get_domain());
         let mut bad = false;
         for repo in repos {
@@ -648,7 +648,7 @@ impl Repo {
             }
             let proxy_thread = proxy.and_then(
                 |proxy|Some(proxy.to_owned()));
-            if let Err(_) = 
+            if let Err(_) =
                 threading::wait_if_too_busy(&mut threads, max_threads, &job) {
                 bad = true;
             }
@@ -790,14 +790,14 @@ impl Repo {
                     repos.swap_remove(i);
                     aur_result.results.swap_remove(i);
                 } else {
-                    log::info!("Repo '{}' needs update from AUR", 
+                    log::info!("Repo '{}' needs update from AUR",
                         &repo.url);
                     i += 1
                 }
             }
         } else {
             aur_result.results.sort_unstable_by(
-                |result_a, result_b| 
+                |result_a, result_b|
                     result_a.name.cmp(&result_b.name));
             let mut i = 0;
             while i < repos.len() {
@@ -816,10 +816,10 @@ impl Repo {
                     },
                 };
                 if let Ok(j) = aur_result.results.binary_search_by(
-                    |result|result.name.cmp(pkg)) 
+                    |result|result.name.cmp(pkg))
                 {
-                    let result = match 
-                        aur_result.results.get(j) 
+                    let result = match
+                        aur_result.results.get(j)
                     {
                         Some(result) => result,
                         None => {
@@ -833,12 +833,12 @@ impl Repo {
                         repos.swap_remove(i);
                         pkgs.swap_remove(i);
                     } else {
-                        log::info!("Repo '{}' needs update from AUR", 
+                        log::info!("Repo '{}' needs update from AUR",
                             &repo.url);
                         i += 1
                     }
                 } else { // Can not find
-                    log::info!("Repo '{}' not found, needs update from AUR", 
+                    log::info!("Repo '{}' not found, needs update from AUR",
                         &repo.url);
                     i += 1
                 }

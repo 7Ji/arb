@@ -15,12 +15,12 @@ impl ForkedChild {
     pub(crate) fn wait(&self) -> Result<(), ()> {
         match waitpid(self.pid, None) {
             Ok(status) => match status {
-                WaitStatus::Exited(pid, code) => 
+                WaitStatus::Exited(pid, code) =>
                     if pid == self.pid {
                         if code == 0 {
                             return Ok(())
                         } else {
-                            log::error!("Child {} non-zero exit code {}", 
+                            log::error!("Child {} non-zero exit code {}",
                                 self.pid, code)
                         }
                     } else {
@@ -30,7 +30,7 @@ impl ForkedChild {
                 _ => log::error!("Child {} did not exit cleanly: {:?}",
                         self.pid, status)
             },
-            Err(e) => 
+            Err(e) =>
                 log::error!("Failed to wait for child {}: {}", self.pid, e),
         }
         Err(())
@@ -40,12 +40,12 @@ impl ForkedChild {
         match waitpid(self.pid, Some(WaitPidFlag::WNOHANG)) {
             Ok(status) => match status {
                 WaitStatus::StillAlive => Ok(None),
-                WaitStatus::Exited(pid, code) => 
+                WaitStatus::Exited(pid, code) =>
                     if pid == self.pid {
                         if code == 0 {
                             Ok(Some(Ok(())))
                         } else {
-                            log::error!("Child {} non-zero exit code {}", 
+                            log::error!("Child {} non-zero exit code {}",
                                 self.pid, code);
                             Ok(Some(Err(())))
                         }
@@ -75,11 +75,11 @@ pub(crate) fn output_and_check(command: &mut std::process::Command, job: &str)
 {
     match command.stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .output() 
+        .output()
     {
         Ok(output) => {
             match output.status.code() {
-                Some(code) => 
+                Some(code) =>
                     if code == 0 {
                         Ok(())
                     } else {

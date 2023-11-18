@@ -43,14 +43,14 @@ struct Environment {
 fn get_pw_entry_from_uid(uid: libc::uid_t) -> Result<libc::passwd, ()> {
     let pw_entry = unsafe { libc::getpwuid(uid) };
     if pw_entry.is_null() {
-        log::error!("getpwuid() call failed: {}", 
+        log::error!("getpwuid() call failed: {}",
             std::io::Error::last_os_error());
         return Err(())
     }
     Ok(unsafe { pw_entry.read() })
 }
 
-fn get_something_raw_from_uid<F>(uid: libc::uid_t, f: F) -> Result<Vec<u8>, ()> 
+fn get_something_raw_from_uid<F>(uid: libc::uid_t, f: F) -> Result<Vec<u8>, ()>
 where
     F: FnOnce(&libc::passwd) -> *mut libc::c_char
 {
@@ -70,7 +70,7 @@ fn get_name_raw_from_uid(uid: libc::uid_t) -> Result<Vec<u8>, ()> {
     get_something_raw_from_uid(uid, |passwd|passwd.pw_name)
 }
 
-fn get_home_and_name_raw_from_uid(uid: libc::uid_t) 
+fn get_home_and_name_raw_from_uid(uid: libc::uid_t)
     -> Result<(Vec<u8>, Vec<u8>), ()>
 {
     let pw_entry = get_pw_entry_from_uid(uid)?;
@@ -88,7 +88,7 @@ fn get_home_and_name_raw_from_uid(uid: libc::uid_t)
 
 impl Environment {
     fn init(uid: Uid) -> Result<Self, ()> {
-        let (home_raw, name_raw) 
+        let (home_raw, name_raw)
             = get_home_and_name_raw_from_uid(uid.as_raw())?;
         let cwd = std::env::current_dir().or_else(|e|{
             log::error!("Failed to get current dir: {}", e);
@@ -149,15 +149,15 @@ pub(crate) trait Identity {
         self.uid().is_root()
     }
 
-    fn sete_raw(uid: Uid, gid: Gid) 
+    fn sete_raw(uid: Uid, gid: Gid)
         -> Result<(), Errno>
     {
         nix::unistd::setegid(gid)?;
         nix::unistd::seteuid(uid)
     }
 
-    fn set_raw(uid: Uid, gid: Gid) 
-        -> Result<(), Errno> 
+    fn set_raw(uid: Uid, gid: Gid)
+        -> Result<(), Errno>
     {
         nix::unistd::setgid(gid)?;
         nix::unistd::setuid(uid)
@@ -202,7 +202,7 @@ pub(crate) trait Identity {
         let r = Self::set_chroot_command(command, root)
             .output()
             .or_else(|e|{
-                log::error!("Failed to spawn chroot command {:?}: {}", 
+                log::error!("Failed to spawn chroot command {:?}: {}",
                     command, e);
                 Err(())
             })?
@@ -220,15 +220,15 @@ pub(crate) trait Identity {
             Err(())
         }
     }
-    
-    fn fork_and_run_child<F: FnOnce() -> Result<(), ()>,>(f: F)  
+
+    fn fork_and_run_child<F: FnOnce() -> Result<(), ()>,>(f: F)
         -> Result<ForkedChild, ()>
     {
         match unsafe{ nix::unistd::fork() } {
             Ok(result) => match result {
-                nix::unistd::ForkResult::Parent { child } => 
+                nix::unistd::ForkResult::Parent { child } =>
                     Ok(ForkedChild { pid: child }),
-                nix::unistd::ForkResult::Child => 
+                nix::unistd::ForkResult::Child =>
                     if f().is_err() {
                         exit(-1)
                     } else {
@@ -248,15 +248,15 @@ pub(crate) trait Identity {
     }
 
     /// Run a block as root in a forked child
-    fn _as_root_with_chroot<F, P>(f: F, root: P) 
+    fn _as_root_with_chroot<F, P>(f: F, root: P)
         -> Result<(), ()>
-    where 
+    where
         F: FnOnce() -> Result<(), ()>,
         P: AsRef<Path>
     {
         Self::fork_and_run(||{
             if let Err(e) = chroot(root.as_ref()) {
-                log::error!("Child: Failed to chroot to '{}': {}", 
+                log::error!("Child: Failed to chroot to '{}': {}",
                     root.as_ref().display(), e);
                 return Err(())
             }
@@ -279,7 +279,7 @@ pub(crate) trait Identity {
         })
     }
 
-    fn as_root_child<F: FnOnce() -> Result<(), ()>>(f: F) 
+    fn as_root_child<F: FnOnce() -> Result<(), ()>>(f: F)
         -> Result<ForkedChild, ()>
     {
         Self::fork_and_run_child(||{
@@ -291,15 +291,15 @@ pub(crate) trait Identity {
         })
     }
 
-    fn _with_chroot<F, P>(f: F, root: P) 
+    fn _with_chroot<F, P>(f: F, root: P)
         -> Result<(), ()>
-    where 
+    where
         F: FnOnce() -> Result<(), ()>,
         P: AsRef<Path>
     {
         Self::fork_and_run(||{
             if let Err(e) = chroot(root.as_ref()) {
-                log::error!("Child: Failed to chroot to '{}': {}", 
+                log::error!("Child: Failed to chroot to '{}': {}",
                     root.as_ref().display(), e);
                 return Err(())
             }
@@ -387,7 +387,7 @@ impl IdentityActual {
         let env = Environment::init(uid).or_else(|_|{
             log::info!("Failed to get env for actual user");
             Err(())
-        })?;     
+        })?;
         let cwd = PathBuf::from(&env.cwd);
         let cwd_no_root = cwd.strip_prefix("/").or_else(
         |e|{
@@ -469,7 +469,7 @@ impl IdentityActual {
 
     pub(crate) fn new_and_drop(id_pair: Option<&str>) -> Result<Self, ()> {
         let identity = match match id_pair {
-            Some(id_pair) => 
+            Some(id_pair) =>
                 Self::new_from_id_pair(id_pair),
             None => Self::new_from_sudo(),
         } {
@@ -485,25 +485,25 @@ impl IdentityActual {
             Err(_) => Err(()),
         }
     }
-    
+
     /// Drop to the identity, as this uses setuid/setgid, you need to return
     /// to root first
-    pub(crate) fn set_drop_command<'a>(&self, command: &'a mut Command) 
-        -> &'a mut Command 
+    pub(crate) fn set_drop_command<'a>(&self, command: &'a mut Command)
+        -> &'a mut Command
     {
         self.env.set_command(command);
         let uid = self.uid;
         let gid = self.gid;
         unsafe {
-            command.pre_exec(move || 
+            command.pre_exec(move ||
                 Self::set_raw(uid, gid).map_err(|e|e.into()));
         }
         command
     }
 
     /// Return to root then drop
-    pub(crate) fn set_root_drop_command<'a>(&self, command: &'a mut Command) 
-        -> &'a mut Command 
+    pub(crate) fn set_root_drop_command<'a>(&self, command: &'a mut Command)
+        -> &'a mut Command
     {
         self.env.set_command(command);
         Self::set_root_command(command);

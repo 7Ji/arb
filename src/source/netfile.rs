@@ -62,7 +62,7 @@ fn optional_update<C>(target: &mut Option<C>, source: &Option<C>)
 
 pub(super) fn push_source(
     sources: &mut Vec<Source>, source: &Source
-) -> Result<(), ()> 
+) -> Result<(), ()>
 {
     let mut existing = None;
     for source_cmp in sources.iter_mut() {
@@ -116,10 +116,10 @@ pub(super) fn download_source(
     actual_identity: &crate::identity::IdentityActual,
     skipint: bool,
     proxy: Option<&Proxy>
-) -> Result<(), ()> 
+) -> Result<(), ()>
 {
     const MAX_TRIES: usize = 3;
-    let protocol = 
+    let protocol =
         if let Protocol::Netfile{protocol} = &source.protocol {
             protocol
         } else {
@@ -146,24 +146,24 @@ pub(super) fn download_source(
         log::info!("Downloading '{}' to '{}', try {} of {}",
             source.url, integ_file_temp.path.display(), i + 1, max_tries);
         if match &protocol {
-            NetfileProtocol::File => 
+            NetfileProtocol::File =>
                 download::file(url, &integ_file_temp.path),
-            NetfileProtocol::Ftp => 
+            NetfileProtocol::Ftp =>
                 download::ftp(actual_identity, url, &integ_file_temp.path),
-            NetfileProtocol::Http => 
+            NetfileProtocol::Http =>
                 download::http(url, &integ_file_temp.path, proxy_actual),
-            NetfileProtocol::Https => 
+            NetfileProtocol::Https =>
                 download::http(url, &integ_file_temp.path, proxy_actual),
-            NetfileProtocol::Rsync => 
+            NetfileProtocol::Rsync =>
                 download::rsync(actual_identity, url, &integ_file_temp.path),
-            NetfileProtocol::Scp => 
+            NetfileProtocol::Scp =>
                 download::scp(actual_identity, url, &integ_file_temp.path),
-        }.is_ok() && 
-            integ_file_temp.valid(skipint) 
+        }.is_ok() &&
+            integ_file_temp.valid(skipint)
         {
             match integ_file.absorb(integ_file_temp) {
                 Ok(_) => return Ok(()),
-                Err(integ_file_not_absorbed) => 
+                Err(integ_file_not_absorbed) =>
                     integ_file_temp = integ_file_not_absorbed,
             }
         }
@@ -178,7 +178,7 @@ pub(super) fn cache_source(
     actual_identity: &crate::identity::IdentityActual,
     skipint: bool,
     proxy: Option<&Proxy>
-) -> Result<(), ()> 
+) -> Result<(), ()>
 {
     assert!(integ_files.len() > 0, "No integ files");
     let mut good_files = vec![];

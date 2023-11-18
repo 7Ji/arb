@@ -1,6 +1,6 @@
 // Pacman config parsing
 use std::fmt::{
-        Display, 
+        Display,
         Write,
     };
 
@@ -36,8 +36,8 @@ impl<'a> Display for Config<'a> {
 }
 
 impl<'a> Config<'a> {
-    pub(crate) fn from_pacman_conf_content(content: &'a str) 
-        -> Result<Self, ()> 
+    pub(crate) fn from_pacman_conf_content(content: &'a str)
+        -> Result<Self, ()>
     {
         let mut sections = vec![];
         let mut section = None;
@@ -54,7 +54,7 @@ impl<'a> Config<'a> {
             }
         }
         let (mut options, repos)
-            : (Vec<Section>, _) 
+            : (Vec<Section>, _)
                 = sections.into_iter().partition(
                     |section|section.name == "options");
         if options.len() != 1 {

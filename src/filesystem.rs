@@ -1,18 +1,18 @@
 use std::{
         fs::{
             create_dir,
-            create_dir_all, 
-            File, 
-            read_dir, 
-            remove_dir, 
-            remove_dir_all, 
+            create_dir_all,
+            File,
+            read_dir,
+            remove_dir,
+            remove_dir_all,
             remove_file,
-        }, 
+        },
         io::{
             Read,
-            stdout, 
+            stdout,
             Write
-        }, 
+        },
         os::unix::fs::chown,
         path::{
             Path,
@@ -22,20 +22,20 @@ use std::{
 
 // build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
 // we use our own implementation
-pub(crate) fn remove_dir_recursively<P: AsRef<Path>>(dir: P) 
+pub(crate) fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
     -> Result<(), std::io::Error>
 {
     for entry in read_dir(&dir)? {
         let entry = entry?;
         let path = entry.path();
         if !path.is_symlink() && path.is_dir() {
-            let er = 
+            let er =
                 remove_dir_recursively(&path);
             match remove_dir(&path) {
                 Ok(_) => (),
                 Err(e) => {
                     log::error!(
-                        "Failed to remove subdir '{}' recursively: {}", 
+                        "Failed to remove subdir '{}' recursively: {}",
                         path.display(), e);
                     if let Err(e) = er {
                         log::error!("Subdir failure: {}", e)
@@ -51,19 +51,19 @@ pub(crate) fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
 }
 
 
-pub(crate) fn remove_dir_all_try_best<P: AsRef<Path>>(dir: P) 
+pub(crate) fn remove_dir_all_try_best<P: AsRef<Path>>(dir: P)
     -> Result<(), ()>
 {
     log::info!("Removing dir '{}' recursively...", dir.as_ref().display());
     match remove_dir_all(&dir) {
         Ok(_) => return Ok(()),
         Err(e) => {
-            log::error!("Failed to remove dir '{}' recursively naively: {}", 
+            log::error!("Failed to remove dir '{}' recursively naively: {}",
                 dir.as_ref().display(), e);
         },
     }
     remove_dir_recursively(&dir).or_else(|e|{
-        log::error!("Failed to remove dir '{}' recursively: {}", 
+        log::error!("Failed to remove dir '{}' recursively: {}",
             dir.as_ref().display(), e);
         Err(())
     })?;
@@ -93,7 +93,7 @@ pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<(), ()> {
                 if size == 0 {
                     return Ok(())
                 }
-                if let Err(e) = stdout().write_all(&buffer[0..size]) 
+                if let Err(e) = stdout().write_all(&buffer[0..size])
                 {
                     log::error!("Failed to write log content to stdout: {}", e);
                     return Err(())
@@ -125,9 +125,9 @@ pub(crate) fn prepare_updated_latest_dirs() -> Result<(), ()> {
 
 pub(crate) fn create_dir_all_under_owned_by<P, Q>(
     path: P, parent: Q, uid: u32, gid: u32
-) -> Result<(), ()> 
+) -> Result<(), ()>
 where
-    P: AsRef<Path>, 
+    P: AsRef<Path>,
     Q: AsRef<Path>
 {
     let mut path_buffer = parent.as_ref().to_owned();
@@ -135,7 +135,7 @@ where
         path_buffer.push(component);
         if ! path_buffer.exists() {
             create_dir(&path_buffer).map_err(|e|
-                log::error!("Failed to create dir '{}': {}", 
+                log::error!("Failed to create dir '{}': {}",
                 path_buffer.display(), e))?;
         }
         chown(&path_buffer, Some(uid), Some(gid)).map_err(

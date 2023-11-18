@@ -1,8 +1,8 @@
 pub(crate) fn rsync(
     actual_identity: &crate::identity::IdentityActual,
-    url: &str, 
+    url: &str,
     path: &std::path::Path
-) -> Result<(), ()> 
+) -> Result<(), ()>
 {
     let job = format!("download rsync source from '{}' to '{}'",
                                 url, path.display());

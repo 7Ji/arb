@@ -45,8 +45,8 @@ impl BaseRoot {
     }
 
     /// Root is expected
-    fn create_home(&self, actual_identity: &IdentityActual) 
-        -> Result<&Self, ()> 
+    fn create_home(&self, actual_identity: &IdentityActual)
+        -> Result<&Self, ()>
     {
         // std::thread::sleep(std::time::Duration::from_secs(100));
         IdentityActual::run_chroot_command(
@@ -99,8 +99,8 @@ impl BaseRoot {
 
     /// Create a base rootfs containing the minimum packages and user setup
     /// This should not be used directly for building packages
-    pub(crate) fn _new<I, S>(actual_identity: &IdentityActual, pkgs: I) 
-        -> Result<Self, ()> 
+    pub(crate) fn _new<I, S>(actual_identity: &IdentityActual, pkgs: I)
+        -> Result<Self, ()>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>
@@ -124,8 +124,8 @@ impl BaseRoot {
     }
 
     /// Finish a DB-only base root
-    pub(crate) fn finish<I, S>(&self, actual_identity: &IdentityActual, pkgs: I) 
-        -> Result<&Self, ()> 
+    pub(crate) fn finish<I, S>(&self, actual_identity: &IdentityActual, pkgs: I)
+        -> Result<&Self, ()>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>

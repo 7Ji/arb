@@ -8,14 +8,14 @@ use std::{
     };
 
 pub(crate) fn wait_if_too_busy(
-    threads: &mut Vec<JoinHandle<Result<(), ()>>>, 
-    max_threads: usize, 
+    threads: &mut Vec<JoinHandle<Result<(), ()>>>,
+    max_threads: usize,
     job: &str,
 ) -> Result<(), ()>
 {
     if threads.len() >= max_threads {
         if max_threads > 1 {
-            log::info!("Waiting for any one of {} threads {} ...", 
+            log::info!("Waiting for any one of {} threads {} ...",
                     threads.len(), job);
         }
         let mut thread_id_finished = None;
@@ -40,7 +40,7 @@ pub(crate) fn wait_if_too_busy(
             }
             match threads
                         .swap_remove(thread_id_finished)
-                        .join() 
+                        .join()
             {
                 Ok(r) => return r,
                 Err(e) => {
@@ -84,7 +84,7 @@ pub(crate) fn wait_remaining(
                 log::info!("One of {} threads {} ended", threads.len(), job);
                 match threads
                     .swap_remove(thread_id)
-                    .join() 
+                    .join()
                 {
                     Ok(r) => match r {
                         Ok(_) => (),
@@ -134,7 +134,7 @@ pub(crate) fn wait_thread_map<T>(
                     log::info!("One of {} threads {} ended", threads.len(), job);
                     match threads
                         .swap_remove(thread_id)
-                        .join() 
+                        .join()
                     {
                         Ok(r) => match r {
                             Ok(_) => (),

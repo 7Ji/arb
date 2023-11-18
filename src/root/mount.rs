@@ -44,9 +44,9 @@ impl MountedFolder {
             for mountinfo in mountinfos.iter().rev() {
                 if mountinfo.mount_point.starts_with(&absolute_path) {
                     if let Err(e) = nix::mount::umount(
-                        &mountinfo.mount_point) 
+                        &mountinfo.mount_point)
                     {
-                        log::error!("Failed to umount '{}': {}", 
+                        log::error!("Failed to umount '{}': {}",
                             mountinfo.mount_point.display(), e);
                         return Err(())
                     }
@@ -64,7 +64,7 @@ impl MountedFolder {
             log::info!("Removing '{}'...", self.0.display());
             self.umount_recursive()?;
             if let Err(e) = remove_dir_all(&self.0) {
-                log::error!("Failed to remove '{}': {}", 
+                log::error!("Failed to remove '{}': {}",
                             self.0.display(), e);
                 return Err(())
             }

@@ -13,7 +13,7 @@ pub(crate) struct AurResult {
 }
 
 impl AurResult {
-    pub(crate) fn from_pkgs<I, S>(pkgs: I) -> Result<Self, ()> 
+    pub(crate) fn from_pkgs<I, S>(pkgs: I) -> Result<Self, ()>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>

@@ -14,8 +14,8 @@ use std::{
         },
     };
 
-pub(crate) fn clone_file(source: &Path, target: &Path) 
-    -> Result<(), std::io::Error> 
+pub(crate) fn clone_file(source: &Path, target: &Path)
+    -> Result<(), std::io::Error>
 {
     if target.exists() {
         if let Err(e) = remove_file(&target) {
@@ -26,7 +26,7 @@ pub(crate) fn clone_file(source: &Path, target: &Path)
     }
     match hard_link(&source, &target) {
         Ok(_) => return Ok(()),
-        Err(e) => 
+        Err(e) =>
             log::error!("Failed to link {} to {}: {}, trying heavy copy",
                         target.display(), source.display(), e),
     }

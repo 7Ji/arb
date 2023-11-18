@@ -2,7 +2,7 @@ pub(crate) fn ftp(
     actual_identity: &crate::identity::IdentityActual,
     url: &str,
     path: &std::path::Path
-) -> Result<(), ()> 
+) -> Result<(), ()>
 {
     let job = format!(
         "download FTP source from '{}' to '{}'", url, path.display());

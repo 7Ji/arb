@@ -39,7 +39,7 @@ impl IntegFile {
     pub(crate) fn get_path(&self) -> &Path {
         self.path.as_path()
     }
-    
+
     pub(crate) fn from_integ(parent: &str, integ: Integ) -> Self {
         let name = match &integ {
             Integ::CK ( sum ) => sum.to_string(),
@@ -68,21 +68,21 @@ impl IntegFile {
             Ok(mut file) => {
                 let file = &mut file;
                 match &self.integ {
-                    Integ::CK ( sum ) => 
+                    Integ::CK ( sum ) =>
                         Cksum::sum(file).as_ref() == Some(sum),
-                    Integ::MD5 ( sum ) => 
+                    Integ::MD5 ( sum ) =>
                         Md5sum::sum(file).as_ref() == Some(sum),
-                    Integ::SHA1 ( sum ) => 
+                    Integ::SHA1 ( sum ) =>
                         Sha1sum::sum(file).as_ref() == Some(sum),
-                    Integ::SHA224 ( sum ) => 
+                    Integ::SHA224 ( sum ) =>
                         Sha224sum::sum(file).as_ref() == Some(sum),
-                    Integ::SHA256 ( sum ) => 
+                    Integ::SHA256 ( sum ) =>
                         Sha256sum::sum(file).as_ref() == Some(sum),
-                    Integ::SHA384 ( sum ) => 
+                    Integ::SHA384 ( sum ) =>
                         Sha384sum::sum(file).as_ref() == Some(sum),
-                    Integ::SHA512 ( sum ) => 
+                    Integ::SHA512 ( sum ) =>
                         Sha512sum::sum(file).as_ref() == Some(sum),
-                    Integ::B2 ( sum ) => 
+                    Integ::B2 ( sum ) =>
                         B2sum::sum(file).as_ref() == Some(sum),
                 }
             },
@@ -107,9 +107,9 @@ impl IntegFile {
 
     pub(crate) fn clone_file_from(&self, source: &Self) -> Result<(), ()> {
         if let Err(e) = super::super::download::clone_file(
-            &source.path, &self.path) 
+            &source.path, &self.path)
         {
-            log::error!("Failed to clone '{}' from '{}': {}", 
+            log::error!("Failed to clone '{}' from '{}': {}",
                         self.path.display(),
                         source.path.display(),
                         e);
@@ -126,7 +126,7 @@ impl IntegFile {
     pub(crate) fn absorb(&self, source: Self) -> Result<(), Self> {
         if self.path.exists() {
             if let Err(e) = remove_file(&self.path) {
-                log::error!("Failed to remove existing '{}': {}", 
+                log::error!("Failed to remove existing '{}': {}",
                     self.path.display(), e);
                 return Err(source)
             }
@@ -134,18 +134,18 @@ impl IntegFile {
         match rename(&source.path, &self.path) {
             Ok(()) => return Ok(()),
             Err(e) => {
-                log::error!("Failed to move '{}' to '{}': {}", 
+                log::error!("Failed to move '{}' to '{}': {}",
                     source.path.display(), self.path.display(), e);
             },
         }
         // Failed to move, then do light copy (hard link) or read+write copy
         if self.clone_file_from(&source).is_err() {
-            log::error!("Failed to clone '{}' from '{}'", 
+            log::error!("Failed to clone '{}' from '{}'",
                 self.path.display(), source.path.display(),);
             return Err(source)
         }
         if let Err(e) = remove_file(&source.path) {
-            log::error!("Failed to remove source file '{}': {}", 
+            log::error!("Failed to remove source file '{}': {}",
                 source.path.display(), e);
             return Err(source)
         }

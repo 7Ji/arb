@@ -4,7 +4,7 @@ use std::{
             copy,
             create_dir_all,
             remove_file,
-        }, 
+        },
         path::{
             Path,
             PathBuf
@@ -33,13 +33,13 @@ pub(crate) trait CommonRoot {
     /// Root is expected
     fn base_layout(&self) -> Result<&Self, ()> {
         for subdir in [
-            "boot", "dev/pts", "dev/shm", "etc/pacman.d", "proc", "run", "sys", 
+            "boot", "dev/pts", "dev/shm", "etc/pacman.d", "proc", "run", "sys",
             "tmp", "var/cache/pacman/pkg", "var/lib/pacman", "var/log"]
         {
             let subdir = self.path().join(subdir);
             // log::info!("Creating '{}'...", subdir.display());
             if let Err(e) = create_dir_all(&subdir) {
-                log::error!("Failed to create dir '{}': {}", 
+                log::error!("Failed to create dir '{}': {}",
                     subdir.display(), e);
                 return Err(())
             }
@@ -48,7 +48,7 @@ pub(crate) trait CommonRoot {
     }
 
     /// The minimum mounts needed for execution, like how it's done by pacstrap.
-    /// Root is expected. 
+    /// Root is expected.
     fn base_mounts(&self) -> Result<&Self, ()> {
         mount(Some("proc"),
             &self.path().join("proc"),
@@ -61,7 +61,7 @@ pub(crate) trait CommonRoot {
         mount(Some("sys"),
             &self.path().join("sys"),
             Some("sysfs"),
-            MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV | 
+            MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV |
                 MsFlags::MS_RDONLY,
             None::<&str>
         ).map_err(|e|
@@ -137,8 +137,8 @@ pub(crate) trait CommonRoot {
         Ok(self)
     }
 
-    fn install_pkgs<I, S>(&self, pkgs: I) 
-        -> Result<&Self, ()> 
+    fn install_pkgs<I, S>(&self, pkgs: I)
+        -> Result<&Self, ()>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
@@ -190,8 +190,8 @@ pub(crate) trait CommonRoot {
         Ok(self)
     }
 
-    fn copy_file<P: AsRef<Path>, Q: AsRef<Path>>(source: P, target: Q) 
-        -> Result<(), ()> 
+    fn copy_file<P: AsRef<Path>, Q: AsRef<Path>>(source: P, target: Q)
+        -> Result<(), ()>
     {
         match copy(&source, &target) {
             Ok(_) => Ok(()),
@@ -220,8 +220,8 @@ pub(crate) trait CommonRoot {
         Ok(self.path().join(home_suffix))
     }
 
-    fn builder_raw(root_path: &Path, actual_identity: &IdentityActual) 
-        -> Result<PathBuf, ()> 
+    fn builder_raw(root_path: &Path, actual_identity: &IdentityActual)
+        -> Result<PathBuf, ()>
     {
         let suffix = actual_identity.cwd().strip_prefix("/").or_else(
             |e|{

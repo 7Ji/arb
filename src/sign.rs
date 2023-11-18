@@ -10,8 +10,8 @@ use std::{
 
 use crate::identity::IdentityActual;
 
-fn sign_pkg(actual_identity: &IdentityActual, file: &Path, key: &str) 
-    -> Result<(), ()> 
+fn sign_pkg(actual_identity: &IdentityActual, file: &Path, key: &str)
+    -> Result<(), ()>
 {
     let output = match actual_identity.set_root_drop_command(
         Command::new("/usr/bin/gpg")
@@ -37,8 +37,8 @@ fn sign_pkg(actual_identity: &IdentityActual, file: &Path, key: &str)
     }
 }
 
-pub(crate) fn sign_pkgs(actual_identity: &IdentityActual, dir: &Path, key: &str) 
-    -> Result<(), ()> 
+pub(crate) fn sign_pkgs(actual_identity: &IdentityActual, dir: &Path, key: &str)
+    -> Result<(), ()>
 {
     let reader = match read_dir(dir) {
         Ok(reader) => reader,

@@ -14,7 +14,7 @@ use crate::source::{
         MapByDomain, Proxy
     };
 
-fn get_domain_threads_map<T>(orig_map: &HashMap<u64, Vec<T>>) 
+fn get_domain_threads_map<T>(orig_map: &HashMap<u64, Vec<T>>)
     -> Option<HashMap<u64, Vec<JoinHandle<Result<(), ()>>>>>
 {
     let mut map = HashMap::new();
@@ -31,7 +31,7 @@ fn get_domain_threads_map<T>(orig_map: &HashMap<u64, Vec<T>>)
 }
 
 fn get_domain_threads_from_map<'a>(
-    domain: &u64, 
+    domain: &u64,
     map: &'a mut HashMap<u64, Vec<JoinHandle<Result<(), ()>>>>
 ) -> Option<&'a mut Vec<JoinHandle<Result<(), ()>>>>
 {
@@ -54,14 +54,14 @@ pub(crate) fn cache_sources_mt(
     proxy: Option<&Proxy>,
     gmr: Option<&super::git::Gmr>,
     terminal: bool
-) -> Result<(), ()> 
+) -> Result<(), ()>
 {
     netfile::ensure_parents()?;
     let mut netfile_sources_map =
         Source::map_by_domain(netfile_sources);
     let git_sources_map =
         Source::map_by_domain(git_sources);
-    let mut netfile_threads_map = 
+    let mut netfile_threads_map =
         match get_domain_threads_map(&netfile_sources_map) {
             Some(map) => map,
             None => {
@@ -69,7 +69,7 @@ pub(crate) fn cache_sources_mt(
                 return Err(())
             },
         };
-    let mut git_threads_map = 
+    let mut git_threads_map =
         match get_domain_threads_map(&git_sources_map) {
             Some(map) => map,
             None => {
@@ -77,7 +77,7 @@ pub(crate) fn cache_sources_mt(
                 return Err(())
             },
         };
-    let mut git_repos_map = 
+    let mut git_repos_map =
         match Source::to_repos_map(git_sources_map, "sources/git", gmr) {
             Ok(git_repos_map) => git_repos_map,
             Err(_) => {
@@ -88,22 +88,22 @@ pub(crate) fn cache_sources_mt(
     const MAX_THREADS: usize = 10;
     let mut bad = false;
     while netfile_sources_map.len() > 0 || git_repos_map.len() > 0 {
-        for (domain, netfile_sources) in 
-            netfile_sources_map.iter_mut() 
+        for (domain, netfile_sources) in
+            netfile_sources_map.iter_mut()
         {
             let netfile_threads = match
-                get_domain_threads_from_map(domain, &mut netfile_threads_map) 
+                get_domain_threads_from_map(domain, &mut netfile_threads_map)
             {
                 Some(threads) => threads,
                 None => return Err(()),
             };
-            while netfile_sources.len() > 0 && 
-                netfile_threads.len() < MAX_THREADS 
+            while netfile_sources.len() > 0 &&
+                netfile_threads.len() < MAX_THREADS
             {
                 let netfile_source = netfile_sources
                     .pop()
                     .expect("Failed to get source from sources vec");
-                let integ_files 
+                let integ_files
                     = IntegFile::vec_from_source(&netfile_source);
                 let proxy_thread = proxy
                     .map(|proxy|proxy.to_owned());
@@ -111,23 +111,23 @@ pub(crate) fn cache_sources_mt(
                 let netfile_thread = thread::spawn(
                 move ||{
                     netfile::cache_source(&netfile_source, &integ_files,
-                         &actual_identity_thread, skipint, 
+                         &actual_identity_thread, skipint,
                          proxy_thread.as_ref())
                 });
                 netfile_threads.push(netfile_thread);
             }
         }
-        for (domain, git_repos) in 
-            git_repos_map.iter_mut() 
+        for (domain, git_repos) in
+            git_repos_map.iter_mut()
         {
             let git_threads = match
-                get_domain_threads_from_map(domain, &mut git_threads_map) 
+                get_domain_threads_from_map(domain, &mut git_threads_map)
             {
                 Some(threads) => threads,
                 None => return Err(()),
             };
-            while git_repos.len() > 0 && 
-                git_threads.len() < MAX_THREADS 
+            while git_repos.len() > 0 &&
+                git_threads.len() < MAX_THREADS
             {
                 let git_repo = git_repos
                     .pop()
@@ -156,13 +156,13 @@ pub(crate) fn cache_sources_mt(
             |_, repos| repos.len() > 0);
     }
     let mut remaining_threads = vec![];
-    for mut threads in 
-        netfile_threads_map.into_values() 
+    for mut threads in
+        netfile_threads_map.into_values()
     {
         remaining_threads.append(&mut threads);
     }
-    for mut threads in 
-        git_threads_map.into_values() 
+    for mut threads in
+        git_threads_map.into_values()
     {
         remaining_threads.append(&mut threads);
     }

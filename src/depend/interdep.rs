@@ -1,5 +1,5 @@
 use crate::pkgbuild::{
-        PKGBUILD, 
+        PKGBUILD,
         PKGBUILDs
     };
 
@@ -56,7 +56,7 @@ impl<'a> DepNodes<'a>  {
                 }
             }
             let (layer, nodes)
-                : (Vec<DepNode>, Vec<DepNode>) 
+                : (Vec<DepNode>, Vec<DepNode>)
                 = self.nodes.into_iter().partition(
                     |node|node.wants.is_empty());
             if layer.is_empty() {
@@ -69,8 +69,8 @@ impl<'a> DepNodes<'a>  {
         }
         log::info!("Split PKGBUILDs into {} layers:", layers.len());
         let mut pkgbuild_layers = vec![];
-        for (layer_id, layer) in 
-            layers.iter().enumerate() 
+        for (layer_id, layer) in
+            layers.iter().enumerate()
         {
             let mut pkgbuild_layer = vec![];
             let mut line = format!("Layer {}:", layer_id);
@@ -87,8 +87,8 @@ impl<'a> DepNodes<'a>  {
     }
 }
 
-pub(crate) fn split_pkgbuilds<'a>(pkgbuilds: &'a PKGBUILDs) 
-    -> Result<Vec<Vec<&'a PKGBUILD>>, ()> 
+pub(crate) fn split_pkgbuilds<'a>(pkgbuilds: &'a PKGBUILDs)
+    -> Result<Vec<Vec<&'a PKGBUILD>>, ()>
 {
     DepNodes::from_pkgbuilds(pkgbuilds)?.split()
 }

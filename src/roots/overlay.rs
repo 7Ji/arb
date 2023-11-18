@@ -20,7 +20,7 @@ impl OverlayRoot {
         }
         if self.parent.exists() {
             if let Err(e) = remove_dir_all(&self.parent) {
-                log::error!("Failed to remove '{}': {}", 
+                log::error!("Failed to remove '{}': {}",
                             self.parent.display(), e);
                 return Err(())
             }
@@ -37,11 +37,11 @@ impl OverlayRoot {
             Some("overlay"),
             MsFlags::empty(),
             Some(format!(
-                "lowerdir=roots/base,upperdir={},workdir={}", 
-                self.upper.display(), 
+                "lowerdir=roots/base,upperdir={},workdir={}",
+                self.upper.display(),
                 self.work.display()).as_str()))
             .map_err(|e|
-                log::error!("Failed to mount overlay at '{}': {}", 
+                log::error!("Failed to mount overlay at '{}': {}",
                     self.merged.0.display(), e))?;
         Ok(self)
     }
@@ -66,8 +66,8 @@ impl OverlayRoot {
         Ok(self)
     }
 
-    fn bind_homedirs<I, S>(&self, actual_identity: &IdentityActual, home_dirs: I) 
-        -> Result<&Self, ()> 
+    fn bind_homedirs<I, S>(&self, actual_identity: &IdentityActual, home_dirs: I)
+        -> Result<&Self, ()>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>
@@ -79,10 +79,10 @@ impl OverlayRoot {
         for dir in home_dirs {
             let host_dir = host_home.join(dir.as_ref());
             if ! host_dir.exists() {
-                create_dir_all_under_owned_by(dir.as_ref(), 
+                create_dir_all_under_owned_by(dir.as_ref(),
                     host_home, uid, gid)?;
             }
-            create_dir_all_under_owned_by(dir.as_ref(), 
+            create_dir_all_under_owned_by(dir.as_ref(),
                 &chroot_home, uid, gid)?;
             mount(Some(&host_dir),
                 &chroot_home.join(dir.as_ref()),
@@ -142,7 +142,7 @@ impl OverlayRoot {
     pub(crate) fn _new<I, S, I2, S2>(
         name: &str, actual_identity: &IdentityActual, pkgs: I, home_dirs: I2,
         nonet: bool
-    ) -> Result<Self, ()> 
+    ) -> Result<Self, ()>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
@@ -168,7 +168,7 @@ impl OverlayRoot {
         Ok(root)
     }
 
-    pub(crate) fn get_root_no_init(name: &str) 
+    pub(crate) fn get_root_no_init(name: &str)
         -> PathBuf
     {
         PathBuf::from(format!("roots/overlay-{}/merged", name))
@@ -180,7 +180,7 @@ impl CommonRoot for OverlayRoot {
         self.merged.0.as_path()
     }
 }
-    
+
 
 impl Drop for OverlayRoot {
     fn drop(&mut self) {

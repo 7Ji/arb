@@ -4,8 +4,8 @@ use std::{
         path::Path,
     };
 
-pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) 
-    -> Result<(), ()> 
+pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>)
+    -> Result<(), ()>
 {
     let mut target = match File::create(path) {
         Ok(target) => target,
@@ -33,15 +33,15 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>)
         }
     };
     match std::io::copy(
-        &mut response.into_reader().take(len), &mut target) 
+        &mut response.into_reader().take(len), &mut target)
     {
         Ok(size) => {
-            log::info!("Downloaded {} bytes from '{}' into '{}'", 
+            log::info!("Downloaded {} bytes from '{}' into '{}'",
                 size, url, path.display());
             Ok(())
         },
         Err(e) => {
-            log::error!("Failed to copy download '{}' into '{}': {}", 
+            log::error!("Failed to copy download '{}' into '{}': {}",
                         url, path.display(), e);
             Err(())
         },

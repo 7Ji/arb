@@ -137,8 +137,8 @@ where
                 name = Some(String::from_utf8_lossy(value).into_owned());
             }
             b"protocol" => {
-                if let Some(protocol_parse) = 
-                    Protocol::from_raw_string(value) 
+                if let Some(protocol_parse) =
+                    Protocol::from_raw_string(value)
                 {
                     protocol = Some(protocol_parse);
                 }
@@ -178,7 +178,7 @@ pub(crate) fn unique_sources(sources: &Vec<&Source>)
     let mut netfile_sources: Vec<Source> = vec![];
     for source in sources.iter() {
         match &source.protocol {
-            Protocol::Netfile { protocol: _ } => 
+            Protocol::Netfile { protocol: _ } =>
                 push_netfile_source(&mut netfile_sources, source).ok()?,
             Protocol::Vcs { protocol } => {
                 match protocol {  // Ignore VCS sources we do not support

@@ -16,7 +16,7 @@ use crate::{
         depend::DbHandle,
         identity::{
             Identity,
-            IdentityActual, 
+            IdentityActual,
         },
     };
 
@@ -117,8 +117,8 @@ impl Depends {
 
     pub(crate) fn needed_and_hash(
         &mut self, db_handle: &DbHandle, hash_strategy: &DepHashStrategy
-    ) 
-        -> Result<(), ()> 
+    )
+        -> Result<(), ()>
     {
         self.needs.clear();
         let r = match hash_strategy {
@@ -131,15 +131,15 @@ impl Depends {
         r
     }
 
-    pub(crate) fn update_needed(&mut self, db_handle: &DbHandle) 
+    pub(crate) fn update_needed(&mut self, db_handle: &DbHandle)
     {
         self.needs.retain(|pkg|!db_handle.is_installed(pkg));
     }
 
     /// Todo: cache package in our own storage, not tainting host, also without
     /// root permission.
-    pub(crate) fn cache_raw<S: AsRef<OsStr>>(deps: &Vec<String>, dbpath: S) 
-        -> Result<(), ()> 
+    pub(crate) fn cache_raw<S: AsRef<OsStr>>(deps: &Vec<String>, dbpath: S)
+        -> Result<(), ()>
     {
         if deps.len() == 0 {
             return Ok(())

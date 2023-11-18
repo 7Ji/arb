@@ -2,13 +2,13 @@ mod builder;
 mod dir;
 
 pub(crate) fn maybe_build(
-    pkgbuilds: &crate::pkgbuild::PKGBUILDs, 
-    root: Option<crate::root::BaseRoot>, 
-    actual_identity: &crate::identity::IdentityActual, 
-    nobuild: bool, 
-    nonet: bool, 
+    pkgbuilds: &crate::pkgbuild::PKGBUILDs,
+    root: Option<crate::root::BaseRoot>,
+    actual_identity: &crate::identity::IdentityActual,
+    nobuild: bool,
+    nonet: bool,
     sign: Option<&str>
-) -> Result<(), ()> 
+) -> Result<(), ()>
 {
     if let Some(_root) = root {
         if nobuild {

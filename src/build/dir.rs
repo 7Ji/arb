@@ -55,7 +55,7 @@ impl BuildDir {
             }
             log_name.shrink_to(3);
             for char in rand::thread_rng().sample_iter(
-                rand::distributions::Alphanumeric).take(7) 
+                rand::distributions::Alphanumeric).take(7)
             {
                 log_name.push(char::from(char))
             }
@@ -65,7 +65,7 @@ impl BuildDir {
 
     pub(super) fn get_log_file(&self) -> Result<File, ()> {
         File::create(&self.log_path).or_else(|e|{
-            log::error!("Failed to create log file at '{}': {}", 
+            log::error!("Failed to create log file at '{}': {}",
                 self.log_path.display(), e);
             Err(())
         })
@@ -87,7 +87,7 @@ impl BuildDir {
 impl Drop for BuildDir {
     fn drop(&mut self) {
         if crate::filesystem::remove_dir_all_try_best(&self.path).is_err() {
-            log::error!("Warning: failed to remove build dir '{}'", 
+            log::error!("Warning: failed to remove build dir '{}'",
                 self.path.display())
         }
     }

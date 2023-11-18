@@ -40,7 +40,7 @@ fn log_setup() {
 fn prepare() -> Result<Settings, &'static str> {
     log_setup();
     let arg: config::Arg = clap::Parser::parse();
-    let actual_identity = 
+    let actual_identity =
     identity::IdentityActual::new_and_drop(arg.drop.as_deref())
         .or_else(|_|Err("Failed to get actual identity"))?;
     let mut config: config::Config = serde_yaml::from_reader(
@@ -59,7 +59,7 @@ fn prepare() -> Result<Settings, &'static str> {
         config.pkgbuilds.retain(|name, _|arg.build.contains(name));
     }
     let proxy = source::Proxy::from_str_usize(
-        arg.proxy.as_deref().or(config.proxy.as_deref()), 
+        arg.proxy.as_deref().or(config.proxy.as_deref()),
         match arg.proxy_after {
             Some(proxy_after) => proxy_after,
             None => match config.proxy_after {
@@ -91,14 +91,14 @@ fn prepare() -> Result<Settings, &'static str> {
 fn work(settings: Settings) -> Result<(), &'static str> {
     let gmr = settings.gmr.and_then(|gmr|
         Some(crate::source::git::Gmr::init(gmr.as_str())));
-    let mut pkgbuilds = 
+    let mut pkgbuilds =
         pkgbuild::PKGBUILDs::from_config_healthy(
-            &settings.pkgbuilds_config, settings.holdpkg, 
-            settings.noclean, settings.proxy.as_ref(), 
+            &settings.pkgbuilds_config, settings.holdpkg,
+            settings.noclean, settings.proxy.as_ref(),
             gmr.as_ref(), &settings.home_binds, settings.terminal
         ).or_else(|_|Err("Failed to prepare PKGBUILDs list"))?;
     let root = pkgbuilds.prepare_sources(
-        &settings.actual_identity, &settings.basepkgs, settings.holdgit, 
+        &settings.actual_identity, &settings.basepkgs, settings.holdgit,
         settings.skipint, settings.noclean, settings.proxy.as_ref(),
         gmr.as_ref(), &settings.dephash_strategy, settings.terminal
         ).or_else(|_|Err("Failed to prepare sources"))?;

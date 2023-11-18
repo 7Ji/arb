@@ -4,7 +4,7 @@ use std::{
     };
 
 use alpm::{
-        Alpm, 
+        Alpm,
         Package,
     };
 
@@ -17,7 +17,7 @@ impl DbHandle {
         let handle = match Alpm::new(
             root.as_ref().as_os_str().as_bytes(),
             root.as_ref().join("var/lib/pacman")
-                .as_os_str().as_bytes()) 
+                .as_os_str().as_bytes())
         {
             Ok(handle) => handle,
             Err(e) => {
@@ -27,7 +27,7 @@ impl DbHandle {
             },
         };
         let content = match std::fs::read_to_string(
-            "/etc/pacman.conf") 
+            "/etc/pacman.conf")
         {
             Ok(content) => content,
             Err(e) => {
@@ -35,8 +35,8 @@ impl DbHandle {
                 return Err(())
             },
         };
-        let config = match 
-            crate::config::PacmanConfig::from_pacman_conf_content(&content) 
+        let config = match
+            crate::config::PacmanConfig::from_pacman_conf_content(&content)
         {
             Ok(config) => config,
             Err(_) => {
@@ -52,7 +52,7 @@ impl DbHandle {
             match handle.register_syncdb(repo.name, sig_level) {
                 Ok(_) => (),
                 Err(e) => {
-                    log::error!("Failed to register repo '{}': {}", 
+                    log::error!("Failed to register repo '{}': {}",
                                     repo.name, e);
                     return Err(())
                 },
@@ -65,16 +65,16 @@ impl DbHandle {
         Ok(DbHandle { alpm_handle: handle })
     }
 
-    pub(super) fn find_satisfier<S: AsRef<str>>(&self, dep: S) 
-        -> Option<Package> 
+    pub(super) fn find_satisfier<S: AsRef<str>>(&self, dep: S)
+        -> Option<Package>
     {
         let mut pkg_satisfier = None;
         for db in self.alpm_handle.syncdbs() {
             if let Ok(pkg) = db.pkg(dep.as_ref()) {
                 return Some(pkg)
             }
-            if let Some(pkg) = 
-                db.pkgs().find_satisfier(dep.as_ref()) 
+            if let Some(pkg) =
+                db.pkgs().find_satisfier(dep.as_ref())
             {
                 pkg_satisfier = Some(pkg)
             }

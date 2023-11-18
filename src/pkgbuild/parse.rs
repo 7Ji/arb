@@ -1,4 +1,4 @@
-// Parse an on-disk 
+// Parse an on-disk
 
 use std::{path::Path, process::{Command, Stdio}, io::{Write, Read}};
 
@@ -15,7 +15,7 @@ impl<'a> Default for PackageBorrowed<'a> {
         Self {
             name: b"",
             deps: vec![],
-            provides: vec![] 
+            provides: vec![]
         }
     }
 }
@@ -39,8 +39,8 @@ struct PkgbuildBorrowed<'a> {
 }
 
 impl<'a> PkgbuildBorrowed<'a> {
-    fn find_pkg_mut(&'a mut self, name: &[u8]) 
-        -> Result<&mut PackageBorrowed, ()> 
+    fn find_pkg_mut(&'a mut self, name: &[u8])
+        -> Result<&mut PackageBorrowed, ()>
     {
         let mut pkg = None;
         for pkg_cmp in self.pkgs.iter_mut() {
@@ -53,14 +53,14 @@ impl<'a> PkgbuildBorrowed<'a> {
             String::from_utf8_lossy(name)))
     }
     fn push_pkg_dep(&'a mut self, pkg_name: &[u8], dep: &'a [u8])
-        -> Result<(), ()> 
+        -> Result<(), ()>
     {
         let pkg = self.find_pkg_mut(pkg_name)?;
         pkg.deps.push(dep);
         Ok(())
     }
-    fn push_pkg_provide(&'a mut self, pkg_name: &[u8], provide: &'a [u8]) 
-        -> Result<(), ()> 
+    fn push_pkg_provide(&'a mut self, pkg_name: &[u8], provide: &'a [u8])
+        -> Result<(), ()>
     {
         let pkg = self.find_pkg_mut(pkg_name)?;
         pkg.provides.push(provide);
@@ -112,7 +112,7 @@ impl<'a> PkgbuildsBorrowed<'a> {
                 match key {
                     b"base" => pkgbuild.base = value,
                     b"name" => {
-                        let mut pkg = 
+                        let mut pkg =
                             PackageBorrowed::default();
                         pkg.name = value;
                         pkgbuild.pkgs.push(pkg);
@@ -133,24 +133,24 @@ impl<'a> PkgbuildsBorrowed<'a> {
                         b"y" => pkgbuild.pkgver_func = true,
                         b"n" => pkgbuild.pkgver_func = false,
                         _ => {
-                            log::error!("Unexpected value: {}", 
+                            log::error!("Unexpected value: {}",
                                 String::from_utf8_lossy(value));
                             return Err(())
                         }
                     }
                     _ => {
-                        let (offset, is_dep) = 
+                        let (offset, is_dep) =
                         if key.starts_with(b"dep_") {(4, true)}
                         else if key.starts_with(b"provide_") {(8, false)}
                         else {
-                            log::error!("Unexpected line: {}", 
+                            log::error!("Unexpected line: {}",
                                 String::from_utf8_lossy(line));
                             return Err(())
                         };
                         let name = &key[offset..];
                         let mut pkg = None;
-                        for pkg_cmp in 
-                            pkgbuild.pkgs.iter_mut() 
+                        for pkg_cmp in
+                            pkgbuild.pkgs.iter_mut()
                         {
                             if pkg_cmp.name == name {
                                 pkg = Some(pkg_cmp);
@@ -286,7 +286,7 @@ impl PkgbuildsOwned {
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped()))
                 .stderr(Stdio::null())
-            .spawn() 
+            .spawn()
         {
             Ok(child) => child,
             Err(e) => {
@@ -328,7 +328,7 @@ impl PkgbuildsOwned {
                 },
             }
             match child_out.read(&mut output_buffer[..]) {
-                Ok(read_this) => 
+                Ok(read_this) =>
                     output.extend_from_slice(&output_buffer[0..read_this]),
                 Err(e) => {
                     log::error!("Failed to read stdout child: {}", e);
