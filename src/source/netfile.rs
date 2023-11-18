@@ -1,10 +1,11 @@
 
-use std::fs::DirBuilder;
+use std::fs::{DirBuilder, create_dir};
 use crate::{
         error::{
             Error,
             Result
         },
+        filesystem::create_dir_allow_existing,
         source::{
             download,
             protocol::{
@@ -18,19 +19,19 @@ use crate::{
 
 pub(super) fn ensure_parents() -> Result<()>
 {
-    let mut dir_builder = DirBuilder::new();
-    dir_builder.recursive(true);
+    let mut path = std::path::PathBuf::from("sources");
+    create_dir_allow_existing(&path)?;
+    let mut name = String::from("file-");
     for integ in
         ["ck", "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "b2"]
     {
-        let folder = format!("sources/file-{}", integ);
-        match dir_builder.create(&folder) {
-            Ok(_) => (),
-            Err(e) => {
-                log::error!("Failed to create folder '{}': {}", &folder, e);
-                return Err(())
-            },
+        name.push_str(integ);
+        path.push(name);
+        create_dir_allow_existing(&path)?;
+        if ! path.pop() {
+            return Err(Error::ImpossibleLogic)
         }
+        name.truncate(5);
     }
     Ok(())
 }
@@ -56,8 +57,10 @@ fn optional_update<C>(target: &mut Option<C>, source: &Option<C>)
     if let Some(target) = target {
         if let Some(source) = source {
             if target != source {
-                log::error!("Source target mismatch {} != {}", source, target);
-                return Err(());
+                log::error!("Source target mismatch {} != {}, conflicting \
+                    integ checksum in config, check your PKGBUILDs", 
+                    source, target);
+                return Err(Error::InvalidConfig);
             }
         }
     } else if let Some(source) = source {
@@ -125,15 +128,14 @@ pub(super) fn download_source(
 ) -> Result<()>
 {
     const MAX_TRIES: usize = 3;
-    let protocol =
-        if let Protocol::Netfile{protocol} = &source.protocol {
+    let protocol = 
+        if let Protocol::Netfile{protocol} = &source.protocol{
             protocol
         } else {
             log::error!("Non-netfile source encountered by netfile cacher");
-            return Err(())
+            return Err(Error::ImpossibleLogic)
         };
     let url = source.url.as_str();
-    let mut integ_file_temp = integ_file.temp()?;
     let mut proxy_actual = None;
     let mut max_tries = MAX_TRIES;
     let mut enable_proxy_at = MAX_TRIES;
@@ -149,6 +151,7 @@ pub(super) fn download_source(
             proxy_actual = proxy.and_then(
                 |proxy|Some(proxy.url.as_str()));
         }
+        let integ_file_temp = integ_file.temp()?;
         log::info!("Downloading '{}' to '{}', try {} of {}",
             source.url, integ_file_temp.path.display(), i + 1, max_tries);
         if match &protocol {
@@ -167,15 +170,13 @@ pub(super) fn download_source(
         }.is_ok() &&
             integ_file_temp.valid(skipint)
         {
-            match integ_file.absorb(integ_file_temp) {
-                Ok(_) => return Ok(()),
-                Err(integ_file_not_absorbed) =>
-                    integ_file_temp = integ_file_not_absorbed,
+            if integ_file.absorb(integ_file_temp).is_ok() {
+                return Ok(())
             }
         }
     }
     log::error!("Failed to download netfile source '{}'", source.url);
-    return Err(())
+    return Err(Error::IntegrityError)
 }
 
 pub(super) fn cache_source(
@@ -223,7 +224,7 @@ pub(super) fn cache_source(
     if bad_count > 0 {
         log::error!("Bad files still existing after download for '{}' ({})",
                     source.url, bad_count);
-        Err(())
+        Err(Error::IntegrityError)
     } else {
         Ok(())
     }

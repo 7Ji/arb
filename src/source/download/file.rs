@@ -26,7 +26,7 @@ pub(crate) fn clone_file(source: &Path, target: &Path)
         if let Err(e) = remove_file(&target) {
             log::error!("Failed to remove file {}: {}",
                 &target.display(), e);
-            return Err(e)
+            return Err(Error::IoError(e))
         }
     }
     match hard_link(&source, &target) {
@@ -40,7 +40,7 @@ pub(crate) fn clone_file(source: &Path, target: &Path)
         Err(e) => {
             log::error!("Failed to open {} as write-only: {}",
                         target.display(), e);
-            return Err(e)
+            return Err(Error::IoError(e))
         },
     };
     let mut source_file = match File::open(&source) {
@@ -48,7 +48,7 @@ pub(crate) fn clone_file(source: &Path, target: &Path)
         Err(e) => {
             log::error!("Failed to open {} as read-only: {}",
                         source.display(), e);
-            return Err(e)
+            return Err(Error::IoError(e))
         },
     };
     let mut buffer = vec![0; super::BUFFER_SIZE];
@@ -58,21 +58,18 @@ pub(crate) fn clone_file(source: &Path, target: &Path)
                 Ok(size) => size,
                 Err(e) => {
                     log::error!("Failed to read file: {}", e);
-                    return Err(e)
+                    return Err(Error::IoError(e))
                 },
             };
         if size_chunk == 0 {
             break
         }
         let chunk = &buffer[0..size_chunk];
-        match target_file.write_all(chunk) {
-            Ok(_) => (),
-            Err(e) => {
-                log::error!(
-                    "Failed to write {} bytes into file '{}': {}",
-                    size_chunk, target.display(), e);
-                return Err(e);
-            },
+        if let Err(e) = target_file.write_all(chunk) {
+            log::error!(
+                "Failed to write {} bytes into file '{}': {}",
+                size_chunk, target.display(), e);
+            return Err(Error::IoError(e));
         }
     }
     log::info!("Cloned '{}' to '{}'", source.display(), target.display());
@@ -82,7 +79,7 @@ pub(crate) fn clone_file(source: &Path, target: &Path)
 pub(crate) fn file(url: &str, path: &Path) -> Result<()> {
     if ! url.starts_with("file://") {
         log::error!("URL '{}' does not start with file://", url);
-        return Err(())
+        return Err(Error::InvalidConfig)
     }
-    clone_file(&PathBuf::from(&url[7..]), path).or(Err(()))
+    clone_file(&PathBuf::from(&url[7..]), path)
 }

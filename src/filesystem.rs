@@ -160,3 +160,20 @@ where
     }
     Ok(())
 }
+
+pub(crate) fn create_dir_allow_existing<P: AsRef<Path>>(path: P) -> Result<()> {
+    let path = path.as_ref();
+    if path.exists() {
+        if ! path.is_dir() {
+            log::error!("Cannot create dir at '{}' which already exists and \
+                is not a dir", path.display());
+            return Err(Error::FilesystemConflict)
+        }
+    } else {
+        create_dir(&path).map_err(|e|{
+            log::error!("Failed to create dir at '{}': {}", path.display(), e);
+            Error::IoError(e)
+        })?
+    }
+    Ok(())
+}

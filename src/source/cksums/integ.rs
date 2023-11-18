@@ -124,16 +124,16 @@ impl IntegFile {
             Ok(())
         } else {
             log::error!("Cloned integ file not healthy");
-            Err(())
+            Err(Error::IntegrityError)
         }
     }
 
-    pub(crate) fn absorb(&self, source: Self) -> (Result<()>, Option<Self>) {
+    pub(crate) fn absorb(&self, source: Self) -> Result<()> {
         if self.path.exists() {
             if let Err(e) = remove_file(&self.path) {
                 log::error!("Failed to remove existing '{}': {}",
                     self.path.display(), e);
-                return Err(source)
+                return Err(Error::IoError(e))
             }
         }
         match rename(&source.path, &self.path) {
@@ -144,15 +144,15 @@ impl IntegFile {
             },
         }
         // Failed to move, then do light copy (hard link) or read+write copy
-        if self.clone_file_from(&source).is_err() {
+        if let Err(e) = self.clone_file_from(&source) {
             log::error!("Failed to clone '{}' from '{}'",
                 self.path.display(), source.path.display(),);
-            return Err(source)
+            return Err(e)
         }
         if let Err(e) = remove_file(&source.path) {
             log::error!("Failed to remove source file '{}': {}",
                 source.path.display(), e);
-            return Err(source)
+            return Err(Error::IoError(e))
         }
         Ok(())
     }
@@ -197,7 +197,8 @@ impl IntegFile {
 
     pub(crate) fn temp(&self) -> Result<Self> {
         let mut name = self.path.file_name().ok_or_else(||{
-            log::error!("Path has no ending name")
+            log::error!("Path has no ending name");
+            Error::ImpossibleLogic
         })?.to_owned();
         name.push(".temp");
         Ok(Self {
