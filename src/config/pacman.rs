@@ -4,7 +4,6 @@ use std::fmt::{
         Write,
     };
 
-
 use crate::error::{
         Error,
         Result
@@ -64,8 +63,9 @@ impl<'a> Config<'a> {
                 = sections.into_iter().partition(
                     |section|section.name == "options");
         if options.len() != 1 {
-            log::error!("Failed to find options section");
-            return Err(())
+            log::error!("Failed to find options section, please check your \
+                pacman config");
+            return Err(Error::InvalidConfig)
         }
         Ok(Self {
             options: options.swap_remove(0),

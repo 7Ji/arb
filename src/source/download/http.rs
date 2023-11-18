@@ -4,6 +4,11 @@ use std::{
         path::Path,
     };
 
+use crate::error::{
+        Error,
+        Result,
+    };
+
 pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>)
     -> crate::error::Result<()>
 {
@@ -12,18 +17,24 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>)
         Err(e) => {
             log::error!("Failed to open {} as write-only: {}",
                         path.display(), e);
-            return Err(())
+            return Err(Error::IoError(e))
         },
     };
     let response = match proxy {
         Some(proxy) => {
             let proxy_opt = ureq::Proxy::new(proxy).map_err(|e|
-                log::error!("Failed to create proxy from '{}': {}", proxy, e))?;
+            {
+                log::error!("Failed to create proxy from '{}': {}", proxy, e);
+                Error::UreqError(e)
+            })?;
             ureq::AgentBuilder::new().proxy(proxy_opt).build().get(url)
         },
         None => ureq::get(url),
     }.call().map_err(
-        |e|log::error!("Failed to GET url '{}': {}", url, e))?;
+        |e|{
+            log::error!("Failed to GET url '{}': {}", url, e);
+            Error::UreqError(e)
+        })?;
     let len = match response.header("content-length") {
         Some(len) => len.parse().unwrap(),
         None => {
@@ -43,7 +54,7 @@ pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>)
         Err(e) => {
             log::error!("Failed to copy download '{}' into '{}': {}",
                         url, path.display(), e);
-            Err(())
+            Err(Error::IoError(e))
         },
     }
 }

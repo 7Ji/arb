@@ -48,24 +48,21 @@ impl BaseRoot {
                 None::<&str>,
                 MsFlags::MS_BIND,
                 None::<&str>)
-        .map_err(|e|log::error!("Failed to mount base root: {}", e))?;
+        .map_err(|e|{
+            log::error!("Failed to mount base root: {}", e);
+            Error::NixErrno(e)
+        })?;
         Ok(self)
     }
 
     /// Root is expected
     fn remove(&self) -> Result<&Self> {
-        match self.0.remove() {
-            Ok(_) => Ok(self),
-            Err(_) => Err(()),
-        }
+        self.0.remove().and(Ok(self))
     }
 
     /// Root is expected
     fn umount_recursive(&self) -> Result<&Self> {
-        match self.0.umount_recursive() {
-            Ok(_) => Ok(self),
-            Err(_) => Err(()),
-        }
+        self.0.umount_recursive().and(Ok(self))
     }
 
     /// Root is expected
@@ -92,13 +89,13 @@ impl BaseRoot {
         create_dir_all(&builder)
             .or_else(|e|{
                 log::error!("Failed to create chroot builder dir: {}", e);
-                Err(())
+                Err(Error::IoError(e))
             })?;
         for dir in Self::BUILDER_DIRS {
             create_dir(builder.join(dir))
                 .or_else(|e|{
                     log::error!("Failed to create chroot builder dir: {}", e);
-                    Err(())
+                    Err(Error::IoError(e))
                 })?;
         }
         log::warn!("Finished base root setup");

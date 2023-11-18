@@ -29,7 +29,7 @@ impl DbHandle {
             Err(e) => {
                 log::error!("Failed to open pacman DB at root '{}': {}",
                 root.as_ref().display(), e);
-                return Err(())
+                return Err(Error::AlpmError(e))
             },
         };
         let content = match std::fs::read_to_string(
@@ -38,35 +38,25 @@ impl DbHandle {
             Ok(content) => content,
             Err(e) => {
                 log::error!("Failed to open pacman config: {}", e);
-                return Err(())
+                return Err(Error::IoError(e))
             },
         };
-        let config = match
-            crate::config::PacmanConfig::from_pacman_conf_content(&content)
-        {
-            Ok(config) => config,
-            Err(_) => {
-                log::error!("Failed to read pacman config");
-                return Err(())
-            },
-        };
+        let config = crate::config::PacmanConfig::
+            from_pacman_conf_content(&content)?;
         let _new_config = config.with_cusrepo(
             "arch_repo_builder_internal_do_not_use",
             "/srv/repo_builder/pkgs");
         let sig_level = handle.default_siglevel();
         for repo in config.repos.iter() {
-            match handle.register_syncdb(repo.name, sig_level) {
-                Ok(_) => (),
-                Err(e) => {
-                    log::error!("Failed to register repo '{}': {}",
-                                    repo.name, e);
-                    return Err(())
-                },
+            if let Err(e) = handle.register_syncdb(repo.name, sig_level){
+                log::error!("Failed to register repo '{}': {}",
+                                repo.name, e);
+                return Err(Error::AlpmError(e))
             }
         }
         if handle.syncdbs().len() == 0 {
-            log::error!("No DBs defined");
-            return Err(())
+            log::error!("No DBs defined, please check your pacman config");
+            return Err(Error::InvalidConfig)
         }
         Ok(DbHandle { alpm_handle: handle })
     }

@@ -118,7 +118,7 @@ impl IntegFile {
                         self.path.display(),
                         source.path.display(),
                         e);
-            return Err(())
+            return Err(e)
         }
         if self.valid(false) {
             Ok(())

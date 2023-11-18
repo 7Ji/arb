@@ -31,9 +31,9 @@ impl<'a> DepNodes<'a>  {
                 }
                 if let Some(dep) = pkgbuild.wants(pkgbuild_target) {
                     if deps.contains(&dep) {
-                        log::error!("'{}' is provided by multiple PKGBUILDs",
-                                    dep);
-                        return Err(())
+                        log::error!("'{}' is provided by multiple PKGBUILDs, \
+                            please check if your PKGBUILDs are valid", dep);
+                        return Err(Error::InvalidConfig)
                     } else {
                         wants.push(pkgbuild_target);
                         deps.push(&dep)
@@ -67,8 +67,9 @@ impl<'a> DepNodes<'a>  {
                     |node|node.wants.is_empty());
             if layer.is_empty() {
                 log::error!("Failed to split dep layers more, current layer is \
-                    empty, remaining nodes: {}", nodes.len());
-                return Err(())
+                    empty, please check if your PKGBUILDs are valid, remaining \
+                    nodes: {}", nodes.len());
+                return Err(Error::InvalidConfig)
             }
             self.nodes = nodes;
             layers.push(layer);

@@ -27,14 +27,14 @@ impl MountedFolder {
             Err(e) => {
                 log::error!("Failed to canoicalize path '{}': {}",
                     self.0.display(), e);
-                return Err(())
+                return Err(Error::IoError(e))
             },
         };
         let process = match procfs::process::Process::myself() {
             Ok(process) => process,
             Err(e) => {
                 log::error!("Failed to get myself: {}", e);
-                return Err(())
+                return Err(Error::ProcError(e))
             },
         };
         let mut exist = true;
@@ -43,7 +43,7 @@ impl MountedFolder {
                 Ok(mountinfos) => mountinfos,
                 Err(e) => {
                     log::error!("Failed to get mountinfos: {}", e);
-                    return Err(())
+                    return Err(Error::ProcError(e))
                 },
             };
             exist = false;
@@ -54,7 +54,7 @@ impl MountedFolder {
                     {
                         log::error!("Failed to umount '{}': {}",
                             mountinfo.mount_point.display(), e);
-                        return Err(())
+                        return Err(Error::NixErrno(e))
                     }
                     exist = true;
                     break
@@ -72,7 +72,7 @@ impl MountedFolder {
             if let Err(e) = remove_dir_all(&self.0) {
                 log::error!("Failed to remove '{}': {}",
                             self.0.display(), e);
-                return Err(())
+                return Err(Error::IoError(e))
             }
         }
         Ok(self)

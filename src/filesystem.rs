@@ -30,8 +30,10 @@ use crate::error::{
 pub(crate) fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
     -> Result<()>
 {
-    for entry in read_dir(&dir)? {
-        let entry = entry?;
+    for entry in 
+        read_dir(&dir).map_err(|e|Error::IoError(e))? 
+    {
+        let entry = entry.map_err(|e|Error::IoError(e))?;
         let path = entry.path();
         if !path.is_symlink() && path.is_dir() {
             let er =
@@ -45,13 +47,15 @@ pub(crate) fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
                     if let Err(e) = er {
                         log::error!("Subdir failure: {}", e)
                     }
-                    return Err(e);
+                    return Err(Error::IoError(e));
                 },
             }
         } else {
-            remove_file(&path)?
+            remove_file(&path).map_err(|e|Error::IoError(e))?
         }
     }
+    let a = nix::errno::Errno::E2BIG;
+    println!("{}", a);
     Ok(())
 }
 
@@ -70,16 +74,15 @@ pub(crate) fn remove_dir_all_try_best<P: AsRef<Path>>(dir: P)
     remove_dir_recursively(&dir).or_else(|e|{
         log::error!("Failed to remove dir '{}' recursively: {}",
             dir.as_ref().display(), e);
-        Err(())
+        Err(e)
     })?;
     remove_dir(&dir).or_else(|e|{
         log::error!("Failed to remove dir '{}' itself: {}",
             dir.as_ref().display(), e);
-        Err(())
+        Err(Error::IoError(e))
     })?;
     log::info!("Removed dir '{}' recursively", dir.as_ref().display());
     Ok(())
-
 }
 
 pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<()> {
@@ -88,7 +91,7 @@ pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<()> {
         Ok(file) => file,
         Err(e) => {
             log::error!("Failed to open '{}': {}", file_p.display(), e);
-            return Err(())
+            return Err(Error::IoError(e))
         },
     };
     let mut buffer = vec![0; 4096];
@@ -101,12 +104,12 @@ pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<()> {
                 if let Err(e) = stdout().write_all(&buffer[0..size])
                 {
                     log::error!("Failed to write log content to stdout: {}", e);
-                    return Err(())
+                    return Err(Error::IoError(e))
                 }
             },
             Err(e) => {
                 log::error!("Failed to read from '{}': {}", file_p.display(), e);
-                return Err(())
+                return Err(Error::IoError(e))
             },
         }
     }
@@ -115,17 +118,20 @@ pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<()> {
 pub(crate) fn prepare_updated_latest_dirs() -> Result<()> {
     let mut bad = false;
     let dir = PathBuf::from("pkgs");
+    let mut r = Ok(());
     for subdir in ["updated", "latest"] {
         let dir = dir.join(subdir);
-        if dir.exists() && remove_dir_all_try_best(&dir).is_err(){
-            bad = true
+        if dir.exists() {
+            if let Err(e) = remove_dir_all_try_best(&dir) {
+                r = Err(e)
+            }
         }
         if let Err(e) = create_dir_all(&dir) {
             log::error!("Failed to create dir '{}': {}", dir.display(), e);
-            bad = true
+            r = Err(Error::IoError(e))
         }
     }
-    if bad { Err(()) } else { Ok(()) }
+    r
 }
 
 pub(crate) fn create_dir_all_under_owned_by<P, Q>(
@@ -139,13 +145,18 @@ where
     for component in path.as_ref().components() {
         path_buffer.push(component);
         if ! path_buffer.exists() {
-            create_dir(&path_buffer).map_err(|e|
+            create_dir(&path_buffer).map_err(|e| {
                 log::error!("Failed to create dir '{}': {}",
-                path_buffer.display(), e))?;
+                    path_buffer.display(), e);
+                Error::IoError(e)
+            })?;
         }
         chown(&path_buffer, Some(uid), Some(gid)).map_err(
-            |e|log::error!("Failed to chown '{}' to {}:{}: {}",
-            path_buffer.display(), uid, gid, e))?;
+            |e| {
+                log::error!("Failed to chown '{}' to {}:{}: {}",
+                    path_buffer.display(), uid, gid, e);
+                Error::IoError(e)
+            })?;
     }
     Ok(())
 }

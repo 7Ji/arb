@@ -1,5 +1,10 @@
 use serde::Deserialize;
 
+use crate::error::{
+        Error,
+        Result
+    };
+
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 pub(crate) struct AurPackage {
@@ -13,7 +18,7 @@ pub(crate) struct AurResult {
 }
 
 impl AurResult {
-    pub(crate) fn from_pkgs<I, S>(pkgs: I) -> crate::error::Result<Self>
+    pub(crate) fn from_pkgs<I, S>(pkgs: I) -> Result<Self>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>
@@ -31,6 +36,7 @@ impl AurResult {
             url.push_str("arg%5B%5D="); // arg[]=
             url.push_str(pkg.as_ref());
         }
+        let mut last_error = Error::ImpossibleLogic;
         for i in 0..AUR_MAX_TRIES {
             log::info!("Requesting AUR, try {} of {}", i + 1, AUR_MAX_TRIES);
             log::info!("Requesting URL '{}'", url);
@@ -38,15 +44,19 @@ impl AurResult {
                 Ok(response) => response,
                 Err(e) => {
                     log::error!("Failed to call AUR: {}", e);
+                    last_error = Error::UreqError(e);
                     continue
                 },
             };
             match response.into_json() {
                 Ok(result) => return Ok(result),
-                Err(e) => log::error!("Failed to parse response: {}", e),
+                Err(e) => {
+                    log::error!("Failed to parse response: {}", e);
+                    last_error = Error::IoError(e)
+                },
             }
         }
         log::error!("Failed to get AUR result after all tries");
-        Err(())
+        Err(last_error)
     }
 }

@@ -19,28 +19,16 @@ use crate::{
 fn sign_pkg(actual_identity: &IdentityActual, file: &Path, key: &str)
     -> Result<()>
 {
-    let output = match actual_identity.set_root_drop_command(
-        Command::new("/usr/bin/gpg")
-        .arg("--detach-sign")
-        .arg("--local-user")
-        .arg(key)
-        .arg(file))
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .output() {
-            Ok(output) => output,
-            Err(e) => {
-                log::error!("Failed to spawn child to sign pkg: {}", e);
-                return Err(Error::IoError(e))
-            },
-        };
-    if Some(0) != output.status.code() {
-        log::error!("Bad return from gpg");
-        Err(())
-    } else {
-        Ok(())
-    }
+    crate::child::output_and_check(
+        actual_identity.set_root_drop_command(
+            Command::new("/usr/bin/gpg")
+                .arg("--detach-sign")
+                .arg("--local-user")
+                .arg(key)
+                .arg(file))
+                .stdin(Stdio::null()),
+        "to sign pkg"
+    )
 }
 
 pub(crate) fn sign_pkgs(actual_identity: &IdentityActual, dir: &Path, key: &str)
@@ -50,7 +38,7 @@ pub(crate) fn sign_pkgs(actual_identity: &IdentityActual, dir: &Path, key: &str)
         Ok(reader) => reader,
         Err(e) => {
             log::error!("Failed to read temp pkgdir: {}", e);
-            return Err(())
+            return Err(Error::IoError(e))
         },
     };
     let mut bad = false;
@@ -68,5 +56,5 @@ pub(crate) fn sign_pkgs(actual_identity: &IdentityActual, dir: &Path, key: &str)
         }
         if sign_pkg(actual_identity, &entry, key).is_err() { bad = true }
     }
-    if bad { Err(()) } else { Ok(()) }
+    if bad { Err(Error::BadChild { pid: None, code: None }) } else { Ok(()) }
 }

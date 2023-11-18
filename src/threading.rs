@@ -162,7 +162,7 @@ pub(crate) fn wait_if_too_busy<T>(
                         .swap_remove(thread_id_finished)
                         .join()
             {
-                Ok(r) => return r,
+                Ok(r) => return r.and(Ok(())),
                 Err(e) => {
                     log::error!("Failed to join finished thread: {:?}", e);
                     return Err(Error::ThreadFailure(Some(e)))
@@ -272,7 +272,7 @@ pub(crate) fn wait_thread_map<T>(
         }
     }
     if bad {
-        Err(())
+        Err(Error::ThreadFailure(None))
     } else {
         Ok(())
     }

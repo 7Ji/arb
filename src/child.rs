@@ -1,3 +1,7 @@
+use std::process::{
+        Command,
+        Stdio,
+    };
 use nix::{
         unistd::Pid,
         sys::wait::{
@@ -51,29 +55,30 @@ impl ForkedChild {
         match waitpid(self.pid, Some(WaitPidFlag::WNOHANG)) {
             Ok(status) => match status {
                 WaitStatus::StillAlive => Ok(None),
-                WaitStatus::Exited(pid, code) =>
+                WaitStatus::Exited(pid, code) => {
                     if pid == self.pid {
                         if code == 0 {
                             Ok(Some(Ok(())))
                         } else {
                             log::error!("Child {} non-zero exit code {}",
                                 self.pid, code);
-                            Ok(Some(Err(())))
+                            Ok(Some(Err(Error::BadChild { pid: Some(pid), code: Some(code)})))
                         }
                     } else {
                         log::error!("Waited {} is not our child {}, its exit code
                             {}", pid, self.pid, code);
-                        Ok(Some(Err(())))
+                        Ok(Some(Err(Error::BadChild { pid: Some(pid), code: Some(code)})))
                     }
+                },
                 _ => {
                     log::error!("Child {} did not exit cleanly: {:?}",
                         self.pid, status);
-                    Ok(Some(Err(())))
+                    Ok(Some(Err(Error::BadChild { pid: Some(self.pid), code: None })))
                 }
             },
             Err(e) => {
                 log::error!("Failed to wait for child {}: {}", self.pid, e);
-                Err(())
+                Err(Error::BadChild { pid: None, code: None })
             },
         }
     }
@@ -81,11 +86,13 @@ impl ForkedChild {
 
 
 
-pub(crate) fn output_and_check(command: &mut std::process::Command, job: &str)
+pub(crate) fn output_and_check(command: &mut Command, job: &str)
     -> Result<()>
 {
-    match command.stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+    match command
+        .stdin(Stdio::null())
+        // .stdout(Stdio::null())
+        // .stderr(Stdio::null())
         .output()
     {
         Ok(output) => {
@@ -95,17 +102,17 @@ pub(crate) fn output_and_check(command: &mut std::process::Command, job: &str)
                         Ok(())
                     } else {
                         log::error!("Child {} bad return {}", &job, code);
-                        Err(())
+                        Err(Error::BadChild { pid: None, code: Some(code) })
                     },
                 None => {
                     log::error!("Failed to get return code of child {}", &job);
-                    Err(())
+                    Err(Error::BadChild { pid: None, code: None })
                 },
             }
         },
         Err(e) => {
             log::error!("Failed to spawn child to {}: {}", &job, e);
-            Err(())
+            Err(Error::IoError(e))
         },
     }
 }
