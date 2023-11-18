@@ -18,7 +18,15 @@ use std::{
         }, fmt::Display,
     };
 
-use nix::{unistd::{Uid, Gid, getuid, getgid}, errno::Errno};
+use nix::{
+        errno::Errno,
+        unistd::{
+            getgid,
+            getuid,
+            Gid,
+            Uid,
+        }
+    };
 
 use crate::child::ForkedChild;
 

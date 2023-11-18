@@ -2,7 +2,7 @@ use std::{
         fs::File,
         io::Read,
         path::Path,
-};
+    };
 
 pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>) 
     -> Result<(), ()> 

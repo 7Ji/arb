@@ -1,20 +1,20 @@
 use std::{
-    fs::{File, remove_file, rename},
-    path::{
-        PathBuf,
-        Path
-    },
-};
+        fs::{File, remove_file, rename},
+        path::{
+            PathBuf,
+            Path
+        },
+    };
 
 use super::ck::Cksum;
 use super::crypto::{
-    B2sum,
-    Sha1sum,
-    Sha224sum,
-    Sha256sum,
-    Sha384sum,
-    Sha512sum,
-};
+        B2sum,
+        Sha1sum,
+        Sha224sum,
+        Sha256sum,
+        Sha384sum,
+        Sha512sum,
+    };
 use super::md5::Md5sum;
 use super::Sum;
 

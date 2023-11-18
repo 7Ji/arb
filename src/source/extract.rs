@@ -6,14 +6,14 @@ use std::{
         }
     };
 
-use super::{
+use xxhash_rust::xxh3::xxh3_64;
+
+use crate::source::{
     VcsProtocol,
     Protocol,
     Source,
     IntegFile,
 };
-
-use xxhash_rust::xxh3::xxh3_64;
 
 pub(crate) fn extract<P: AsRef<Path>>(dir: P, sources: &Vec<Source>) {
     let rel = PathBuf::from("../..");

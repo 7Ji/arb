@@ -5,22 +5,18 @@ mod depend;
 mod filesystem;
 mod identity;
 mod pkgbuild;
-mod roots;
+mod root;
 mod sign;
 mod source;
 mod threading;
 
 use std::collections::HashMap;
 
-use clap::Parser;
-use config::{Arg,Config, Pkgbuild as PkgbuildConfig, DepHashStrategy};
-use source::Proxy;
-
 struct Settings {
     actual_identity: crate::identity::IdentityActual,
-    pkgbuilds_config: HashMap<String, PkgbuildConfig>,
+    pkgbuilds_config: HashMap<String, config::Pkgbuild>,
     basepkgs: Vec<String>,
-    proxy: Option<Proxy>,
+    proxy: Option<source::Proxy>,
     holdpkg: bool,
     holdgit: bool,
     skipint: bool,
@@ -28,7 +24,7 @@ struct Settings {
     noclean: bool,
     nonet: bool,
     gmr: Option<String>,
-    dephash_strategy: DepHashStrategy,
+    dephash_strategy: config::DepHashStrategy,
     sign: Option<String>,
     home_binds: Vec<String>,
     terminal: bool
@@ -43,11 +39,11 @@ fn log_setup() {
 
 fn prepare() -> Result<Settings, &'static str> {
     log_setup();
-    let arg = Arg::parse();
+    let arg: config::Arg = clap::Parser::parse();
     let actual_identity = 
     identity::IdentityActual::new_and_drop(arg.drop.as_deref())
         .or_else(|_|Err("Failed to get actual identity"))?;
-    let mut config: Config = serde_yaml::from_reader(
+    let mut config: config::Config = serde_yaml::from_reader(
         std::fs::File::open(&arg.config).or_else(
         |e|{
             log::error!("Failed to open config file '{}': {}", arg.config, e);

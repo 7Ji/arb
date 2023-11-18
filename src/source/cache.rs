@@ -6,13 +6,13 @@ use std::{
             JoinHandle,
         }
     };
-use super::{
-    netfile,
-    cksums::IntegFile,
-    git::ToReposMap,
-    Source,
-    MapByDomain, Proxy
-};
+use crate::source::{
+        netfile,
+        cksums::IntegFile,
+        git::ToReposMap,
+        Source,
+        MapByDomain, Proxy
+    };
 
 fn get_domain_threads_map<T>(orig_map: &HashMap<u64, Vec<T>>) 
     -> Option<HashMap<u64, Vec<JoinHandle<Result<(), ()>>>>>

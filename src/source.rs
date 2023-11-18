@@ -2,7 +2,6 @@ use std::{
         collections::HashMap,
         str::FromStr,
     };
-use xxhash_rust::xxh3::xxh3_64;
 
 mod aur;
 mod cache;
@@ -73,7 +72,7 @@ pub(crate) trait MapByDomain {
             let url =
                 url::Url::from_str(source.url())
                 .expect("Failed to parse URL");
-            let domain = xxh3_64(
+            let domain = xxhash_rust::xxh3::xxh3_64(
                 url.domain().expect("Failed to get domain")
                 .as_bytes());
             if ! map.contains_key(&domain) {

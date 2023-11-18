@@ -1,25 +1,25 @@
 use std::{
-    path::Path,
-    process::Command,
-};
+        path::Path,
+        process::Command,
+    };
 use xxhash_rust::xxh3::xxh3_64;
 
-use super::{
-    cksums::Sum,
-    netfile::push_source as push_netfile_source,
-    git::push_source as push_git_source,
-    Source,
-    VcsProtocol,
-    Protocol,
-    Cksum,
-    Md5sum,
-    Sha1sum,
-    Sha224sum,
-    Sha256sum,
-    Sha384sum,
-    Sha512sum,
-    B2sum
-};
+use crate::source::{
+        cksums::Sum,
+        netfile::push_source as push_netfile_source,
+        git::push_source as push_git_source,
+        Source,
+        VcsProtocol,
+        Protocol,
+        Cksum,
+        Md5sum,
+        Sha1sum,
+        Sha224sum,
+        Sha256sum,
+        Sha384sum,
+        Sha512sum,
+        B2sum
+    };
 
 fn push_source(
     sources: &mut Vec<Source>,

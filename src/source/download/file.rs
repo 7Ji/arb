@@ -1,18 +1,18 @@
 use std::{
-    fs::{
-        File,
-        hard_link,
-        remove_file,
-    },
-    io::{
-        Read,
-        Write,
-    },
-    path::{
-        Path,
-        PathBuf
-    },
-};
+        fs::{
+            File,
+            hard_link,
+            remove_file,
+        },
+        io::{
+            Read,
+            Write,
+        },
+        path::{
+            Path,
+            PathBuf
+        },
+    };
 
 pub(crate) fn clone_file(source: &Path, target: &Path) 
     -> Result<(), std::io::Error> 

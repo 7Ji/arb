@@ -1,12 +1,14 @@
 mod builder;
 mod dir;
 
-use crate::{roots::BaseRoot, identity::IdentityActual};
-
-use crate::pkgbuild::PKGBUILDs;
-
-pub(crate) fn maybe_build(pkgbuilds: &PKGBUILDs, root: Option<BaseRoot>, actual_identity: &IdentityActual, 
-    nobuild: bool, nonet: bool, sign: Option<&str>) -> Result<(), ()> 
+pub(crate) fn maybe_build(
+    pkgbuilds: &crate::pkgbuild::PKGBUILDs, 
+    root: Option<crate::root::BaseRoot>, 
+    actual_identity: &crate::identity::IdentityActual, 
+    nobuild: bool, 
+    nonet: bool, 
+    sign: Option<&str>
+) -> Result<(), ()> 
 {
     if let Some(_root) = root {
         if nobuild {

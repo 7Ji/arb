@@ -1,14 +1,20 @@
-use std::{path::Path, os::unix::prelude::OsStrExt};
+use std::{
+        os::unix::prelude::OsStrExt,
+        path::Path,
+    };
 
-use alpm::{self, Package};
+use alpm::{
+        Alpm, 
+        Package,
+    };
 
 pub(crate) struct DbHandle {
-    alpm_handle: alpm::Alpm,
+    alpm_handle: Alpm,
 }
 
 impl DbHandle {
     pub(crate) fn new<P: AsRef<Path>>(root: P) -> Result<Self, ()> {
-        let handle = match alpm::Alpm::new(
+        let handle = match Alpm::new(
             root.as_ref().as_os_str().as_bytes(),
             root.as_ref().join("var/lib/pacman")
                 .as_os_str().as_bytes()) 
@@ -46,7 +52,8 @@ impl DbHandle {
             match handle.register_syncdb(repo.name, sig_level) {
                 Ok(_) => (),
                 Err(e) => {
-                    log::error!("Failed to register repo '{}': {}", repo.name, e);
+                    log::error!("Failed to register repo '{}': {}", 
+                                    repo.name, e);
                     return Err(())
                 },
             }
@@ -58,7 +65,9 @@ impl DbHandle {
         Ok(DbHandle { alpm_handle: handle })
     }
 
-    pub(super) fn find_satisfier<S: AsRef<str>>(&self, dep: S) -> Option<Package> {
+    pub(super) fn find_satisfier<S: AsRef<str>>(&self, dep: S) 
+        -> Option<Package> 
+    {
         let mut pkg_satisfier = None;
         for db in self.alpm_handle.syncdbs() {
             if let Ok(pkg) = db.pkg(dep.as_ref()) {

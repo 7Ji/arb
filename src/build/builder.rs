@@ -1,8 +1,30 @@
-use std::{path::PathBuf, process::{Command, Child}, fs::{remove_dir_all, create_dir_all}, thread::sleep, time::Duration};
+use std::{
+        fs::{
+            remove_dir_all,
+            create_dir_all,
+        },
+        path::PathBuf, 
+        process::{
+            Child,
+            Command,
+        },
+        thread::sleep,
+        time::Duration
+    };
 
-use crate::{roots::{OverlayRoot, BootstrappingOverlayRoot}, identity::IdentityActual, filesystem::remove_dir_all_try_best, pkgbuild::{PKGBUILD, PKGBUILDs}};
-
-use super::dir::BuildDir;
+use crate::{
+        build::dir::BuildDir,
+        filesystem::remove_dir_all_try_best, 
+        identity::IdentityActual, 
+        pkgbuild::{
+            PKGBUILD,
+            PKGBUILDs,
+        },
+        root::{
+            OverlayRoot,
+            BootstrappingOverlayRoot,
+        },
+    };
 
 enum RootState {
     None,

@@ -1,12 +1,13 @@
 
 use std::fs::DirBuilder;
-use super::{
-        Source,
+use crate::source::{
+        download,
         protocol::{
             NetfileProtocol,
             Protocol,
         },
-        download, Proxy,
+        Proxy,
+        Source,
     };
 
 pub(super) fn ensure_parents() -> Result<(), ()>

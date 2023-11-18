@@ -1,4 +1,12 @@
-use std::{path::Path, fs::read_dir, process::{Command, Stdio}};
+// TODO: Use native openpgp implementation
+use std::{
+        fs::read_dir,
+        path::Path,
+        process::{
+            Command,
+            Stdio,
+        },
+    };
 
 use crate::identity::IdentityActual;
 

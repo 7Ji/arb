@@ -10,8 +10,8 @@ use std::{
             JoinHandle,
         }
     };
-use super::Source;
 use xxhash_rust::xxh3::xxh3_64;
+use crate::source::Source;
 
 // Used must be already sorted
 pub(crate) fn remove_unused<P: AsRef<Path>>(dir: P, used: &Vec<String>) {

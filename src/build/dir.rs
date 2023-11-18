@@ -1,4 +1,11 @@
-use std::{path::PathBuf, ffi::OsStr, fs::{create_dir_all, File}};
+use std::{
+        ffi::OsStr,
+        fs::{
+            create_dir_all,
+            File,
+        },
+        path::PathBuf,
+    };
 
 use rand::Rng;
 

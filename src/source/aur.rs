@@ -1,13 +1,13 @@
-use serde::{Serialize, Deserialize};
+use serde::Deserialize;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 pub(crate) struct AurPackage {
     pub(crate) last_modified: i64,
     pub(crate) name: String
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 pub(crate) struct AurResult {
     pub(crate) results: Vec<AurPackage>,
 }

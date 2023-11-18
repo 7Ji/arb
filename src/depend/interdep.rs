@@ -1,4 +1,7 @@
-use crate::pkgbuild::{PKGBUILD, PKGBUILDs};
+use crate::pkgbuild::{
+        PKGBUILD, 
+        PKGBUILDs
+    };
 
 struct DepNode<'a> {
     pkgbuild: &'a PKGBUILD,
@@ -22,7 +25,8 @@ impl<'a> DepNodes<'a>  {
                 }
                 if let Some(dep) = pkgbuild.wants(pkgbuild_target) {
                     if deps.contains(&dep) {
-                        log::error!("'{}' is provided by multiple PKGBUILDs",dep);
+                        log::error!("'{}' is provided by multiple PKGBUILDs",
+                                    dep);
                         return Err(())
                     } else {
                         wants.push(pkgbuild_target);
@@ -71,7 +75,8 @@ impl<'a> DepNodes<'a>  {
             let mut pkgbuild_layer = vec![];
             let mut line = format!("Layer {}:", layer_id);
             for node in layer.iter() {
-                line.push_str(format!(" '{}'", &node.pkgbuild.base).as_str());
+                line.push_str(
+                    format!(" '{}'", &node.pkgbuild.base).as_str());
                 pkgbuild_layer.push(node.pkgbuild);
             }
             line.push('\n');

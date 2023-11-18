@@ -1,4 +1,5 @@
 // TODO: Split this into multiple modules
+// Progress: already splitted part into pkgbuild/parse.rs, add mod parse to enable part of that
 use crate::{
         config::Pkgbuild as PkgbuildConfig,
         identity::IdentityActual,
@@ -7,7 +8,7 @@ use crate::{
             git::{self, Gmr},
             MapByDomain, Proxy,
         },
-        roots::{
+        root::{
             CommonRoot,
             BaseRoot,
             OverlayRoot, BootstrappingOverlayRoot,

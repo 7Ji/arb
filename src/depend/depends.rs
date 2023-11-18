@@ -1,11 +1,24 @@
-use std::{hash::Hasher, ffi::OsStr, process::{Command, Stdio}};
+use std::{
+        ffi::OsStr,
+        hash::Hasher,
+        process::{
+            Command,
+            Stdio,
+        },
+    };
 
 use alpm::Package;
+
 use xxhash_rust::xxh3;
 
-use crate::{config::DepHashStrategy, identity::{IdentityActual, Identity}};
-
-use super::DbHandle;
+use crate::{
+        config::DepHashStrategy,
+        depend::DbHandle,
+        identity::{
+            Identity,
+            IdentityActual, 
+        },
+    };
 
 
 #[derive(Clone)]

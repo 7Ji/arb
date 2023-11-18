@@ -1,5 +1,24 @@
-use std::{path::{Path, PathBuf}, fs::{read_dir, remove_dir, remove_file, remove_dir_all, File, create_dir_all, create_dir}, io::{stdout, Read, Write}, os::unix::fs::chown};
-
+use std::{
+        fs::{
+            create_dir,
+            create_dir_all, 
+            File, 
+            read_dir, 
+            remove_dir, 
+            remove_dir_all, 
+            remove_file,
+        }, 
+        io::{
+            Read,
+            stdout, 
+            Write
+        }, 
+        os::unix::fs::chown,
+        path::{
+            Path,
+            PathBuf
+        },
+    };
 
 // build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
 // we use our own implementation
