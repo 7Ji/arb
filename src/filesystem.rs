@@ -20,10 +20,15 @@ use std::{
         },
     };
 
+use crate::error::{
+        Error,
+        Result,
+    };
+
 // build/*/pkg being 0111 would cause remove_dir_all() to fail, in this case
 // we use our own implementation
 pub(crate) fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
-    -> Result<(), std::io::Error>
+    -> Result<()>
 {
     for entry in read_dir(&dir)? {
         let entry = entry?;
@@ -52,7 +57,7 @@ pub(crate) fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
 
 
 pub(crate) fn remove_dir_all_try_best<P: AsRef<Path>>(dir: P)
-    -> Result<(), ()>
+    -> Result<()>
 {
     log::info!("Removing dir '{}' recursively...", dir.as_ref().display());
     match remove_dir_all(&dir) {
@@ -77,7 +82,7 @@ pub(crate) fn remove_dir_all_try_best<P: AsRef<Path>>(dir: P)
 
 }
 
-pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<(), ()> {
+pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<()> {
     let file_p = file.as_ref();
     let mut file = match File::open(&file) {
         Ok(file) => file,
@@ -107,7 +112,7 @@ pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<(), ()> {
     }
 }
 
-pub(crate) fn prepare_updated_latest_dirs() -> Result<(), ()> {
+pub(crate) fn prepare_updated_latest_dirs() -> Result<()> {
     let mut bad = false;
     let dir = PathBuf::from("pkgs");
     for subdir in ["updated", "latest"] {
@@ -125,7 +130,7 @@ pub(crate) fn prepare_updated_latest_dirs() -> Result<(), ()> {
 
 pub(crate) fn create_dir_all_under_owned_by<P, Q>(
     path: P, parent: Q, uid: u32, gid: u32
-) -> Result<(), ()>
+) -> Result<()>
 where
     P: AsRef<Path>,
     Q: AsRef<Path>

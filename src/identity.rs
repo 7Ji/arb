@@ -28,7 +28,13 @@ use nix::{
         }
     };
 
-use crate::child::ForkedChild;
+use crate::{
+        child::ForkedChild,
+        error::{
+            Error,
+            Result,
+        },
+    };
 
 #[derive(Clone)]
 struct Environment {
@@ -40,7 +46,7 @@ struct Environment {
     path: OsString
 }
 
-fn get_pw_entry_from_uid(uid: libc::uid_t) -> Result<libc::passwd, ()> {
+fn get_pw_entry_from_uid(uid: libc::uid_t) -> Result<libc::passwd> {
     let pw_entry = unsafe { libc::getpwuid(uid) };
     if pw_entry.is_null() {
         log::error!("getpwuid() call failed: {}",
@@ -50,7 +56,7 @@ fn get_pw_entry_from_uid(uid: libc::uid_t) -> Result<libc::passwd, ()> {
     Ok(unsafe { pw_entry.read() })
 }
 
-fn get_something_raw_from_uid<F>(uid: libc::uid_t, f: F) -> Result<Vec<u8>, ()>
+fn get_something_raw_from_uid<F>(uid: libc::uid_t, f: F) -> Result<Vec<u8>>
 where
     F: FnOnce(&libc::passwd) -> *mut libc::c_char
 {
@@ -62,16 +68,16 @@ where
     Ok(raw.to_vec())
 }
 
-fn _get_home_raw_from_uid(uid: libc::uid_t) -> Result<Vec<u8>, ()> {
+fn _get_home_raw_from_uid(uid: libc::uid_t) -> Result<Vec<u8>> {
     get_something_raw_from_uid(uid, |passwd|passwd.pw_dir)
 }
 
-fn get_name_raw_from_uid(uid: libc::uid_t) -> Result<Vec<u8>, ()> {
+fn get_name_raw_from_uid(uid: libc::uid_t) -> Result<Vec<u8>> {
     get_something_raw_from_uid(uid, |passwd|passwd.pw_name)
 }
 
 fn get_home_and_name_raw_from_uid(uid: libc::uid_t)
-    -> Result<(Vec<u8>, Vec<u8>), ()>
+    -> Result<(Vec<u8>, Vec<u8>)>
 {
     let pw_entry = get_pw_entry_from_uid(uid)?;
     let pw_dir = pw_entry.pw_dir;
@@ -87,7 +93,7 @@ fn get_home_and_name_raw_from_uid(uid: libc::uid_t)
 
 
 impl Environment {
-    fn init(uid: Uid) -> Result<Self, ()> {
+    fn init(uid: Uid) -> Result<Self> {
         let (home_raw, name_raw)
             = get_home_and_name_raw_from_uid(uid.as_raw())?;
         let cwd = std::env::current_dir().or_else(|e|{
@@ -150,24 +156,24 @@ pub(crate) trait Identity {
     }
 
     fn sete_raw(uid: Uid, gid: Gid)
-        -> Result<(), Errno>
+        -> Result<()>
     {
         nix::unistd::setegid(gid)?;
         nix::unistd::seteuid(uid)
     }
 
     fn set_raw(uid: Uid, gid: Gid)
-        -> Result<(), Errno>
+        -> Result<()>
     {
         nix::unistd::setgid(gid)?;
         nix::unistd::setuid(uid)
     }
 
-    fn sete(&self) -> Result<(), std::io::Error> {
+    fn sete(&self) -> Result<()> {
         Self::sete_raw(self.uid(), self.gid()).map_err(|e|e.into())
     }
 
-    fn sete_root() -> Result<(), std::io::Error> {
+    fn sete_root() -> Result<()> {
         Self::sete_raw(
             Uid::from_raw(0), Gid::from_raw(0))
                 .map_err(|e|e.into())
@@ -197,7 +203,7 @@ pub(crate) trait Identity {
 
     fn run_chroot_command<P: AsRef<Path>>(
         command: &mut Command, root: P
-    ) -> Result<(), ()>
+    ) -> Result<()>
     {
         let r = Self::set_chroot_command(command, root)
             .output()
@@ -221,8 +227,8 @@ pub(crate) trait Identity {
         }
     }
 
-    fn fork_and_run_child<F: FnOnce() -> Result<(), ()>,>(f: F)
-        -> Result<ForkedChild, ()>
+    fn fork_and_run_child<F: FnOnce() -> Result<()>,>(f: F)
+        -> Result<ForkedChild>
     {
         match unsafe{ nix::unistd::fork() } {
             Ok(result) => match result {
@@ -242,16 +248,16 @@ pub(crate) trait Identity {
         }
     }
 
-    fn fork_and_run<F: FnOnce() -> Result<(), ()>,>(f: F)  -> Result<(), ()>
+    fn fork_and_run<F: FnOnce() -> Result<()>,>(f: F)  -> Result<()>
     {
         Self::fork_and_run_child(f)?.wait()
     }
 
     /// Run a block as root in a forked child
     fn _as_root_with_chroot<F, P>(f: F, root: P)
-        -> Result<(), ()>
+        -> Result<()>
     where
-        F: FnOnce() -> Result<(), ()>,
+        F: FnOnce() -> Result<()>,
         P: AsRef<Path>
     {
         Self::fork_and_run(||{
@@ -268,7 +274,7 @@ pub(crate) trait Identity {
         })
     }
 
-    fn as_root<F: FnOnce() -> Result<(), ()>>(f: F) -> Result<(), ()>
+    fn as_root<F: FnOnce() -> Result<()>>(f: F) -> Result<()>
     {
         Self::fork_and_run(||{
             if Self::sete_root().is_err() {
@@ -279,8 +285,8 @@ pub(crate) trait Identity {
         })
     }
 
-    fn as_root_child<F: FnOnce() -> Result<(), ()>>(f: F)
-        -> Result<ForkedChild, ()>
+    fn as_root_child<F: FnOnce() -> Result<()>>(f: F)
+        -> Result<ForkedChild>
     {
         Self::fork_and_run_child(||{
             if Self::sete_root().is_err() {
@@ -292,9 +298,9 @@ pub(crate) trait Identity {
     }
 
     fn _with_chroot<F, P>(f: F, root: P)
-        -> Result<(), ()>
+        -> Result<()>
     where
-        F: FnOnce() -> Result<(), ()>,
+        F: FnOnce() -> Result<()>,
         P: AsRef<Path>
     {
         Self::fork_and_run(||{
@@ -331,7 +337,7 @@ impl Display for IdentityCurrent {
 }
 
 impl IdentityCurrent {
-    pub(crate) fn new() -> Result<Self, ()> {
+    pub(crate) fn new() -> Result<Self> {
         let uid = getuid();
         let name_raw = get_name_raw_from_uid(uid.as_raw())?;
         Ok(Self {
@@ -383,7 +389,7 @@ impl IdentityActual {
         &self._home_string
     }
 
-    fn new(uid: Uid, gid: Gid) -> Result<Self, ()> {
+    fn new(uid: Uid, gid: Gid) -> Result<Self> {
         let env = Environment::init(uid).or_else(|_|{
             log::info!("Failed to get env for actual user");
             Err(())
@@ -410,7 +416,7 @@ impl IdentityActual {
 
     }
 
-    fn new_from_id_pair(id_pair: &str) -> Result<Self, ()> {
+    fn new_from_id_pair(id_pair: &str) -> Result<Self> {
         let components: Vec<&str> = id_pair
             .splitn(2, ':')
             .collect();
@@ -434,7 +440,7 @@ impl IdentityActual {
         Err(())
     }
 
-    fn new_from_sudo() -> Result<Self, ()> {
+    fn new_from_sudo() -> Result<Self> {
         if let Some(sudo_uid) = std::env::var_os("SUDO_UID") {
         if let Some(sudo_gid) = std::env::var_os("SUDO_GID") {
         if let Ok(uid) = sudo_uid.to_string_lossy().parse(){
@@ -445,7 +451,7 @@ impl IdentityActual {
         Err(())
     }
 
-    pub(crate) fn drop(&self) -> Result<&Self, ()> {
+    pub(crate) fn drop(&self) -> Result<&Self> {
         let current = IdentityCurrent::new();
         if ! current?.is_root() {
             log::error!("Current user is not root, please run builder with sudo");
@@ -467,7 +473,7 @@ impl IdentityActual {
         }
     }
 
-    pub(crate) fn new_and_drop(id_pair: Option<&str>) -> Result<Self, ()> {
+    pub(crate) fn new_and_drop(id_pair: Option<&str>) -> Result<Self> {
         let identity = match match id_pair {
             Some(id_pair) =>
                 Self::new_from_id_pair(id_pair),

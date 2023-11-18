@@ -20,7 +20,13 @@ use nix::mount::{
         MsFlags
     };
 
-use crate::identity::IdentityActual;
+use crate::{
+        error::{
+            Error,
+            Result
+        },
+        identity::IdentityActual,
+    };
 
 pub(crate) trait CommonRoot {
     const BUILDER_DIRS: [&'static str; 3] = ["build", "pkgs", "sources"];
@@ -31,7 +37,7 @@ pub(crate) trait CommonRoot {
     }
     // fn fresh_install() -> bool;
     /// Root is expected
-    fn base_layout(&self) -> Result<&Self, ()> {
+    fn base_layout(&self) -> Result<&Self> {
         for subdir in [
             "boot", "dev/pts", "dev/shm", "etc/pacman.d", "proc", "run", "sys",
             "tmp", "var/cache/pacman/pkg", "var/lib/pacman", "var/log"]
@@ -49,7 +55,7 @@ pub(crate) trait CommonRoot {
 
     /// The minimum mounts needed for execution, like how it's done by pacstrap.
     /// Root is expected.
-    fn base_mounts(&self) -> Result<&Self, ()> {
+    fn base_mounts(&self) -> Result<&Self> {
         mount(Some("proc"),
             &self.path().join("proc"),
             Some("proc"),
@@ -111,7 +117,7 @@ pub(crate) trait CommonRoot {
     }
 
     // Todo: split out common wait child parts
-    fn refresh_dbs(&self) -> Result<&Self, ()> {
+    fn refresh_dbs(&self) -> Result<&Self> {
         let r = Command::new("/usr/bin/pacman")
             .env("LANG", "C")
             .arg("-Sy")
@@ -138,7 +144,7 @@ pub(crate) trait CommonRoot {
     }
 
     fn install_pkgs<I, S>(&self, pkgs: I)
-        -> Result<&Self, ()>
+        -> Result<&Self>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
@@ -178,7 +184,7 @@ pub(crate) trait CommonRoot {
         Ok(self)
     }
 
-    fn resolv(&self) -> Result<&Self, ()> {
+    fn resolv(&self) -> Result<&Self> {
         let resolv = self.path().join("etc/resolv.conf");
         if resolv.exists() {
             remove_file(&resolv).or_else(|e|{
@@ -191,7 +197,7 @@ pub(crate) trait CommonRoot {
     }
 
     fn copy_file<P: AsRef<Path>, Q: AsRef<Path>>(source: P, target: Q)
-        -> Result<(), ()>
+        -> Result<()>
     {
         match copy(&source, &target) {
             Ok(_) => Ok(()),
@@ -204,13 +210,13 @@ pub(crate) trait CommonRoot {
 
     }
 
-    fn copy_file_same<P: AsRef<Path>>(&self, suffix: P) -> Result<&Self, ()> {
+    fn copy_file_same<P: AsRef<Path>>(&self, suffix: P) -> Result<&Self> {
         let source = PathBuf::from("/").join(&suffix);
         let target = self.path().join(&suffix);
         Self::copy_file(source, target).and(Ok(self))
     }
 
-    fn home(&self, actual_identity: &IdentityActual) -> Result<PathBuf, ()> {
+    fn home(&self, actual_identity: &IdentityActual) -> Result<PathBuf> {
         let home_suffix = actual_identity.home_path()
         .strip_prefix("/").or_else(
             |e| {
@@ -221,7 +227,7 @@ pub(crate) trait CommonRoot {
     }
 
     fn builder_raw(root_path: &Path, actual_identity: &IdentityActual)
-        -> Result<PathBuf, ()>
+        -> Result<PathBuf>
     {
         let suffix = actual_identity.cwd().strip_prefix("/").or_else(
             |e|{
@@ -231,7 +237,7 @@ pub(crate) trait CommonRoot {
         Ok(root_path.join(suffix))
     }
 
-    fn builder(&self, actual_identity: &IdentityActual) -> Result<PathBuf, ()> {
+    fn builder(&self, actual_identity: &IdentityActual) -> Result<PathBuf> {
         Self::builder_raw(self.path(), actual_identity)
     }
 }

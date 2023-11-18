@@ -43,7 +43,7 @@ pub(crate) fn extract<P: AsRef<Path>>(dir: P, sources: &Vec<Source>) {
 }
 
 // makepkg loves abslute link, but as we use chroot, that breaks up a lot
-// pub(crate) fn fix_src_links<P: AsRef<Path>>(srcdir: P) -> Result<(), ()>{
+// pub(crate) fn fix_src_links<P: AsRef<Path>>(srcdir: P) -> Result<()>{
 //     if ! srcdir.as_ref().is_dir() {
 //         log::error!("'{}' is not a srcdir", srcdir.as_ref().display());
 //         return Err(())

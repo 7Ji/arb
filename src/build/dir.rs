@@ -9,7 +9,13 @@ use std::{
 
 use rand::Rng;
 
-use crate::filesystem::file_to_stdout;
+use crate::{
+        error::{
+            Error,
+            Result
+        },
+        filesystem::file_to_stdout
+    };
 
 pub(super) struct BuildDir {
     pub(super) path: PathBuf,
@@ -17,17 +23,17 @@ pub(super) struct BuildDir {
 }
 
 impl BuildDir {
-    pub(super) fn new<S: AsRef<OsStr>>(name: S) -> Result<Self, ()> {
+    pub(super) fn new<S: AsRef<OsStr>>(name: S) -> Result<Self> {
         let path = PathBuf::from("build").join(name.as_ref());
         if path.exists() {
             if ! path.is_dir() {
                 log::error!("Existing path for build dir is not a dir");
-                return Err(())
+                return Err(Error::FilesystemConflict)
             }
         } else {
             create_dir_all(&path).or_else(|e|{
                 log::error!("Failed to create build dir: {}", e);
-                Err(())
+                Err(Error::IoError(e))
             })?;
         }
         let log_path = path.clone();
@@ -36,7 +42,7 @@ impl BuildDir {
         Ok(build_dir)
     }
 
-    fn fill_log_path(&mut self) -> Result<(), ()> {
+    fn fill_log_path(&mut self) -> Result<()> {
         let mut log_name = String::from("log");
         self.log_path.push(&log_name);
         let mut i = 0;
@@ -47,11 +53,11 @@ impl BuildDir {
             i += 1;
             if i > 1000 {
                 log::error!("Failed to get valid log name after 1000 tries");
-                return Err(())
+                return Err(Error::FilesystemConflict)
             }
             if ! self.log_path.pop() {
                 log::error!("Failed to pop last part from log path");
-                return Err(())
+                return Err(Error::ImpossibleLogic)
             }
             log_name.shrink_to(3);
             for char in rand::thread_rng().sample_iter(
@@ -63,15 +69,15 @@ impl BuildDir {
         }
     }
 
-    pub(super) fn get_log_file(&self) -> Result<File, ()> {
+    pub(super) fn get_log_file(&self) -> Result<File> {
         File::create(&self.log_path).or_else(|e|{
             log::error!("Failed to create log file at '{}': {}",
                 self.log_path.display(), e);
-            Err(())
+            Err(Error::IoError(e))
         })
     }
 
-    pub(super) fn read_log(&self) -> Result<(), ()> {
+    pub(super) fn read_log(&self) -> Result<()> {
         file_to_stdout(&self.log_path)
     }
 

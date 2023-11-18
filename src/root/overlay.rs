@@ -17,6 +17,10 @@ use nix::mount::{
 
 use crate::{
         child::ForkedChild,
+        error::{
+            Error,
+            Result
+        },
         filesystem::create_dir_all_under_owned_by,
         identity::{
             Identity,
@@ -36,7 +40,7 @@ pub(crate) struct OverlayRoot {
 }
 
 impl OverlayRoot {
-    fn remove(&self) -> Result<&Self, ()> {
+    fn remove(&self) -> Result<&Self> {
         if self.merged.remove().is_err() {
             return Err(())
         }
@@ -50,7 +54,7 @@ impl OverlayRoot {
         Ok(self)
     }
 
-    fn overlay(&self) -> Result<&Self, ()> {
+    fn overlay(&self) -> Result<&Self> {
         for dir in [&self.upper, &self.work, &self.merged.0] {
             create_dir_all(dir).or(Err(()))?
         }
@@ -68,13 +72,13 @@ impl OverlayRoot {
         Ok(self)
     }
 
-    fn create_home(&self, actual_identity: &IdentityActual) -> Result<&Self, ()> {
+    fn create_home(&self, actual_identity: &IdentityActual) -> Result<&Self> {
         create_dir_all(self.home(actual_identity)?).map_err(
             |e|log::error!("Failed to pre-create home: {}", e))?;
         Ok(self)
     }
 
-    fn bind_builder(&self, actual_identity: &IdentityActual) -> Result<&Self, ()> {
+    fn bind_builder(&self, actual_identity: &IdentityActual) -> Result<&Self> {
         let builder = self.builder(actual_identity)?;
         for dir in Self::BUILDER_DIRS {
             mount(Some(dir),
@@ -89,7 +93,7 @@ impl OverlayRoot {
     }
 
     fn bind_homedirs<I, S>(&self, actual_identity: &IdentityActual, home_dirs: I)
-        -> Result<&Self, ()>
+        -> Result<&Self>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>
@@ -133,7 +137,7 @@ impl OverlayRoot {
     fn new_child<I, S, I2, S2>(
         name: &str, actual_identity: &IdentityActual, pkgs: I, home_dirs: I2,
         nonet: bool
-    ) -> Result<(Self, ForkedChild), ()>
+    ) -> Result<(Self, ForkedChild)>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
@@ -164,7 +168,7 @@ impl OverlayRoot {
     pub(crate) fn _new<I, S, I2, S2>(
         name: &str, actual_identity: &IdentityActual, pkgs: I, home_dirs: I2,
         nonet: bool
-    ) -> Result<Self, ()>
+    ) -> Result<Self>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
@@ -218,7 +222,7 @@ impl Drop for OverlayRoot {
 pub(crate) struct BootstrappingOverlayRoot {
     root: OverlayRoot,
     child: ForkedChild,
-    status: Option<Result<(), ()>>,
+    status: Option<Result<()>>,
 }
 
 
@@ -226,7 +230,7 @@ impl BootstrappingOverlayRoot {
     pub(crate) fn new<I, S, I2, S2>(
         name: &str, actual_identity: &IdentityActual, pkgs: I, home_dirs: I2,
         nonet: bool
-    ) -> Result<Self, ()>
+    ) -> Result<Self>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
@@ -242,7 +246,7 @@ impl BootstrappingOverlayRoot {
         })
     }
 
-    pub(crate) fn wait_noop(&mut self) -> Result<Option<Result<(), ()>>, ()>{
+    pub(crate) fn wait_noop(&mut self) -> Result<Option<Result<()>>>{
         assert!(self.status.is_none());
         let r = self.child.wait_noop();
         if let Ok(r) = r {
@@ -253,7 +257,7 @@ impl BootstrappingOverlayRoot {
         r
     }
 
-    pub(crate) fn wait(self) -> Result<OverlayRoot, ()> {
+    pub(crate) fn wait(self) -> Result<OverlayRoot> {
         let status = match self.status {
             Some(status) => status,
             None => self.child.wait(),

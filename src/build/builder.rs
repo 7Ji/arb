@@ -14,6 +14,10 @@ use std::{
 
 use crate::{
         build::dir::BuildDir,
+        error::{
+            Error,
+            Result
+        },
         filesystem::remove_dir_all_try_best,
         identity::IdentityActual,
         pkgbuild::{
@@ -73,7 +77,7 @@ struct Builder<'a> {
 impl <'a> Builder<'a> {
     const BUILD_MAX_TRIES: usize = 3;
     fn from_pkgbuild(pkgbuild: &'a PKGBUILD, actual_identity: &IdentityActual)
-        -> Result<Self, ()>
+        -> Result<Self>
     {
         let builddir = BuildDir::new(&pkgbuild.base)?;
         let temp_pkgdir = pkgbuild.get_temp_pkgdir()?;
@@ -95,7 +99,7 @@ impl <'a> Builder<'a> {
         })
     }
 
-    fn start_extract(&mut self, actual_identity: &IdentityActual) -> Result<(), ()> {
+    fn start_extract(&mut self, actual_identity: &IdentityActual) -> Result<()> {
         match self.pkgbuild.extractor_source(actual_identity) {
             Ok(child) => {
                 log::info!("Start extracting for pkgbuild '{}'",
@@ -112,7 +116,7 @@ impl <'a> Builder<'a> {
     }
 
     fn step_build(&mut self,  heavy_load: bool, actual_identity: &IdentityActual,
-        sign: Option<&str>, jobs: &mut usize ) -> Result<(), ()>
+        sign: Option<&str>, jobs: &mut usize ) -> Result<()>
     {
         match &mut self.build_state {
             BuildState::None =>
@@ -224,7 +228,7 @@ impl <'a> Builder<'a> {
     }
 
     fn step(&mut self, heavy_load: bool, actual_identity: &IdentityActual,
-            nonet: bool, sign: Option<&str>, jobs: &mut usize ) -> Result<(), ()>
+            nonet: bool, sign: Option<&str>, jobs: &mut usize ) -> Result<()>
     {
         match &mut self.root_state {
             RootState::None => if ! heavy_load {
@@ -297,7 +301,7 @@ impl <'a> Builder<'a> {
     }
 }
 
-fn prepare_pkgdir() -> Result<(), ()> {
+fn prepare_pkgdir() -> Result<()> {
     let _ = remove_dir_all("pkgs/updated");
     let _ = remove_dir_all("pkgs/latest");
     if let Err(e) = create_dir_all("pkgs/updated") {
@@ -353,7 +357,7 @@ impl<'a> Builders<'a> {
     fn from_pkgbuilds(
         pkgbuilds: &'a PKGBUILDs, actual_identity: &'a IdentityActual,
         nonet: bool, sign: Option<&'a str>
-    ) -> Result<Self, ()>
+    ) -> Result<Self>
     {
         prepare_pkgdir()?;
         let mut builders = vec![];
@@ -380,7 +384,7 @@ impl<'a> Builders<'a> {
     fn from_pkgbuild_layer(
         pkgbuild_layer: &Vec<&'a PKGBUILD>, actual_identity: &'a IdentityActual,
         nonet: bool, sign: Option<&'a str>
-    ) -> Result<Self, ()>
+    ) -> Result<Self>
     {
         prepare_pkgdir()?;
         let mut builders = vec![];
@@ -404,7 +408,7 @@ impl<'a> Builders<'a> {
         })
     }
 
-    fn work(&mut self)  -> Result<(), ()>
+    fn work(&mut self)  -> Result<()>
     {
         let cpuinfo = procfs::CpuInfo::new().or_else(|e|{
             log::error!("Failed to get cpuinfo: {}", e);
@@ -463,7 +467,7 @@ impl<'a> Builders<'a> {
 pub(super) fn build_any_needed(
     pkgbuilds: &PKGBUILDs,  actual_identity: &IdentityActual,
     nonet: bool, sign: Option<&str>
-) -> Result<(), ()>
+) -> Result<()>
 {
     Builders::from_pkgbuilds(pkgbuilds, actual_identity, nonet, sign)?
         .work()?;
@@ -473,7 +477,7 @@ pub(super) fn build_any_needed(
 pub(super) fn build_any_needed_layer(
     pkgbuild_layer: &Vec<&PKGBUILD>,  actual_identity: &IdentityActual,
     nonet: bool, sign: Option<&str>
-) -> Result<(), ()>
+) -> Result<()>
 {
     Builders::from_pkgbuild_layer(pkgbuild_layer, actual_identity, nonet, sign)?
         .work()?;

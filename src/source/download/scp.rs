@@ -2,7 +2,7 @@ pub(crate) fn scp(
     actual_identity: &crate::identity::IdentityActual,
     url: &str,
     path: &std::path::Path
-) -> Result<(), ()>
+) -> crate::error::Result<()>
 {
     let job = format!("download scp source from '{}' to '{}'",
                                 url, path.display());

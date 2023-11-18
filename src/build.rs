@@ -1,6 +1,11 @@
 mod builder;
 mod dir;
 
+use crate::error::{
+        Error,
+        Result
+    };
+
 pub(crate) fn maybe_build(
     pkgbuilds: &crate::pkgbuild::PKGBUILDs,
     root: Option<crate::root::BaseRoot>,
@@ -8,7 +13,7 @@ pub(crate) fn maybe_build(
     nobuild: bool,
     nonet: bool,
     sign: Option<&str>
-) -> Result<(), ()>
+) -> Result<()>
 {
     if let Some(_root) = root {
         if nobuild {

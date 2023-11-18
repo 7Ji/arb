@@ -1,6 +1,5 @@
 // Todo: use `gitoxide` instead of `git2-rs`, for memory safety
 
-use crate::threading;
 use git2::{
         Blob,
         Branch,
@@ -29,7 +28,17 @@ use std::{
         thread,
     };
 
-use super::{aur::AurResult, Proxy};
+use crate::{
+        error::{
+            Error,
+            Result
+        },
+        source::{
+            aur::AurResult,
+            Proxy
+        },
+        threading
+    };
 
 const REFSPECS_HEADS_TAGS: &[&str] = &[
     "+refs/heads/*:refs/heads/*",
@@ -96,7 +105,7 @@ pub(crate) trait ToReposMap {
     fn hash_url(&self) -> u64;
     fn path(&self) -> Option<&Path>;
     fn to_repo(&self, parent: &str, gmr: Option<&Gmr>, branch: Option<String>)
-        -> Result<Repo, ()>
+        -> Result<Repo>
     {
         let url = self.url();
         let repo = match self.path() {
@@ -125,7 +134,7 @@ pub(crate) trait ToReposMap {
 
     fn to_repos_map(
         map: HashMap<u64, Vec<Self>>, parent: &str, gmr: Option<&Gmr>
-    ) -> Result<HashMap<u64, Vec<Repo>>, ()>
+    ) -> Result<HashMap<u64, Vec<Repo>>>
     where Self: Sized
     {
         let mut repos_map = HashMap::new();
@@ -272,7 +281,7 @@ fn fetch_remote(
     proxy: Option<&Proxy>,
     refspecs: &[&str],
     tries: usize
-) -> Result<(), ()>
+) -> Result<()>
 {
     let (tries_without_proxy, tries_with_proxy) = match proxy {
         Some(proxy) => (proxy.after, tries),
@@ -321,7 +330,7 @@ fn fetch_remote(
 }
 
 impl Repo {
-    fn add_remote(&self) -> Result<(), ()> {
+    fn add_remote(&self) -> Result<()> {
         match &self.repo.remote_with_fetch(
             "origin", &self.url, "+refs/*:refs/*") {
             Ok(_) => Ok(()),
@@ -334,7 +343,7 @@ impl Repo {
     }
 
     fn init_bare<P: AsRef<Path>>(path: P, url: &str, gmr: Option<&Gmr>)
-        -> Result<Self, ()>
+        -> Result<Self>
     {
         match Repository::init_bare(&path) {
             Ok(repo) => {
@@ -360,7 +369,7 @@ impl Repo {
 
     pub(crate) fn open_bare<P: AsRef<Path>>(
         path: P, url: &str, gmr: Option<&Gmr>
-    ) -> Result<Self, ()>
+    ) -> Result<Self>
     {
         match Repository::open_bare(&path) {
             Ok(repo) => Ok(Self {
@@ -388,7 +397,7 @@ impl Repo {
     }
 
     fn update_head_raw(repo: &Repository, remote: &mut Remote)
-        -> Result<(), ()>
+        -> Result<()>
     {
         let url = remote_safe_url(remote);
         let heads = match remote.list() {
@@ -416,14 +425,14 @@ impl Repo {
         Ok(())
     }
 
-    fn _update_head(&self, remote: &mut Remote) -> Result<(), ()> {
+    fn _update_head(&self, remote: &mut Remote) -> Result<()> {
         Self::update_head_raw(&self.repo, remote)
     }
 
     fn sync_raw(
         repo: &Repository, url: &str, proxy: Option<&Proxy>, refspecs: &[&str],
         tries: usize, terminal: bool
-    ) -> Result<(), ()>
+    ) -> Result<()>
     {
         let mut remote =
             repo.remote_anonymous(url).or(Err(()))?;
@@ -434,7 +443,7 @@ impl Repo {
     }
 
     pub(crate) fn sync(&self, proxy: Option<&Proxy>, terminal: bool)
-        -> Result<(), ()>
+        -> Result<()>
     {
         let mut refspecs_dynamic = vec![];
         let mut refspecs_ref = vec![];
@@ -463,7 +472,7 @@ impl Repo {
         Self::sync_raw(&self.repo, &self.url, proxy, refspecs, 3, terminal)
     }
 
-    fn get_branch<'a>(&'a self, branch: &str) -> Result<Branch<'a>, ()> {
+    fn get_branch<'a>(&'a self, branch: &str) -> Result<Branch<'a>> {
         match self.repo.find_branch(branch, BranchType::Local) {
             Ok(branch) => Ok(branch),
             Err(e) => {
@@ -473,7 +482,7 @@ impl Repo {
         }
     }
 
-    fn get_branch_commit<'a>(&'a self, branch: &str) -> Result<Commit<'a>, ()> {
+    fn get_branch_commit<'a>(&'a self, branch: &str) -> Result<Commit<'a>> {
         let branch_gref = self.get_branch(branch)?;
         match branch_gref.get().peel_to_commit() {
             Ok(commit) => Ok(commit),
@@ -484,12 +493,12 @@ impl Repo {
         }
     }
 
-    pub(crate) fn _get_branch_commit_id(&self, branch: &str) -> Result<Oid, ()> {
+    pub(crate) fn _get_branch_commit_id(&self, branch: &str) -> Result<Oid> {
         Ok(self.get_branch_commit(branch)?.id())
     }
 
     fn get_commit_tree<'a>(&'a self, commit: &Commit<'a>, subtree: Option<&Path>
-    )   -> Result<Tree<'a>, ()>
+    )   -> Result<Tree<'a>>
     {
         let tree = commit.tree().or_else(|e| {
             log::error!("Failed to get tree pointed by commit: {}", e);
@@ -517,7 +526,7 @@ impl Repo {
     }
 
     fn get_branch_tree<'a>(&'a self, branch: &str, subtree: Option<&Path>)
-        -> Result<Tree<'a>, ()>
+        -> Result<Tree<'a>>
     {
         let commit = self.get_branch_commit(branch)?;
         self.get_commit_tree(&commit, subtree)
@@ -525,7 +534,7 @@ impl Repo {
 
     pub(crate) fn get_branch_commit_or_subtree_id(&self,
         branch: &str, subtree: Option<&Path>
-    ) -> Result<Oid, ()>
+    ) -> Result<Oid>
     {
         let commit = self.get_branch_commit(branch)?;
         if let None = subtree {
@@ -536,7 +545,7 @@ impl Repo {
     }
 
     fn get_tree_entry_blob<'a>(&'a self, tree: &Tree, name: &str)
-        -> Result<Blob<'a>, ()>
+        -> Result<Blob<'a>>
     {
         let entry =
             match tree.get_name(name) {
@@ -566,14 +575,14 @@ impl Repo {
     pub(crate) fn get_branch_entry_blob<'a>(&'a self,
         branch: &str, subtree: Option<&Path>, name: &str
     )
-        -> Result<Blob<'a>, ()>
+        -> Result<Blob<'a>>
     {
         let tree = self.get_branch_tree(branch, subtree)?;
         self.get_tree_entry_blob(&tree, name)
     }
 
     pub(crate) fn get_pkgbuild_blob(&self, branch: &str, subtree: Option<&Path>)
-        -> Result<Blob, ()>
+        -> Result<Blob>
     {
         self.get_branch_entry_blob(branch, subtree, "PKGBUILD")
     }
@@ -598,7 +607,7 @@ impl Repo {
     }
 
     pub(crate) fn checkout<P>(&self, target: P, branch: &str, subtree: Option<&Path>)
-        -> Result<(),()>
+        -> Result<()>
     where
         P: AsRef<Path>
     {
@@ -628,13 +637,15 @@ impl Repo {
         hold: bool,
         proxy: Option<&Proxy>,
         terminal: bool
-    ) -> Result<(), ()>
+    ) -> Result<()>
     {
-        // let proxy = proxy.and_then(
-        //     |proxy|Some(proxy.clone()));
-        let mut threads = vec![];
+        // let pool = ThreadPool::new(max_threads,
+        //     format!("syncing git repos from domain '{}'",
+        //         repos.last().ok_or(())?.get_domain()));
+        // let mut r = 
+        let mut threads = Vec::new();
         let job = format!("syncing git repos from domain '{}'",
-            repos.last().ok_or(())?.get_domain());
+                repos.last().ok_or(())?.get_domain());
         let mut bad = false;
         for repo in repos {
             if hold {
@@ -648,6 +659,12 @@ impl Repo {
             }
             let proxy_thread = proxy.and_then(
                 |proxy|Some(proxy.to_owned()));
+            // match pool.push(move ||
+            //         repo.sync(proxy_thread.as_ref(), terminal)) {
+            //             Ok(_) => todo!(),
+            //             Err(_) => todo!(),
+            //         }
+
             if let Err(_) =
                 threading::wait_if_too_busy(&mut threads, max_threads, &job) {
                 bad = true;
@@ -671,7 +688,7 @@ impl Repo {
         hold: bool,
         proxy: Option<&Proxy>,
         terminal: bool
-    ) -> Result<(), ()>
+    ) -> Result<()>
     {
         let mut bad = false;
         for repo in repos {
@@ -702,7 +719,7 @@ impl Repo {
         hold: bool,
         proxy: Option<&Proxy>,
         terminal: bool
-    ) -> Result<(), ()>
+    ) -> Result<()>
     {
         if max_threads >= 2 && repos.len() >= 2 {
             Self::sync_for_domain_mt(repos, max_threads, hold, proxy, terminal)
@@ -716,7 +733,7 @@ impl Repo {
         hold: bool,
         proxy: Option<&Proxy>,
         terminal: bool
-    ) -> Result<(), ()>
+    ) -> Result<()>
     {
         if Self::filter_aur(&mut repos).is_err() {
             log::error!("Warning: failed to filter AUR repos")
@@ -740,7 +757,7 @@ impl Repo {
         metadata.mtime()
     }
 
-    fn filter_aur(repos: &mut Vec<Self>) -> Result<(), ()> {
+    fn filter_aur(repos: &mut Vec<Self>) -> Result<()> {
         let mut pkgs: Vec<String> = Vec::new();
         for repo in repos.iter() {
             let url = match Url::parse(&repo.url) {
@@ -853,7 +870,7 @@ impl Repo {
         hold: bool,
         proxy: Option<&Proxy>,
         terminal: bool
-    ) -> Result<(), ()>
+    ) -> Result<()>
     {
         log::info!("Syncing repos with {} groups", repos_map.len());
         let mut threads = vec![];

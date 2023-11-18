@@ -1,6 +1,12 @@
-use crate::pkgbuild::{
-        PKGBUILD,
-        PKGBUILDs
+use crate::{
+        error::{
+            Error,
+            Result
+        },
+        pkgbuild::{
+            PKGBUILD,
+            PKGBUILDs
+        },
     };
 
 struct DepNode<'a> {
@@ -14,7 +20,7 @@ struct DepNodes<'a> {
 }
 
 impl<'a> DepNodes<'a>  {
-    fn from_pkgbuilds(pkgbuilds: &'a PKGBUILDs) -> Result<Self, ()> {
+    fn from_pkgbuilds(pkgbuilds: &'a PKGBUILDs) -> Result<Self> {
         let mut nodes = vec![];
         for pkgbuild in pkgbuilds.0.iter() {
             let mut wants = vec![];
@@ -43,7 +49,7 @@ impl<'a> DepNodes<'a>  {
         Ok(Self{nodes})
     }
 
-    fn split(mut self) -> Result<Vec<Vec<&'a PKGBUILD>>, ()> {
+    fn split(mut self) -> Result<Vec<Vec<&'a PKGBUILD>>> {
         let mut layers: Vec<Vec<DepNode>> = vec![];
         while ! self.nodes.is_empty() {
             if let Some(layer) = layers.last() {
@@ -88,7 +94,7 @@ impl<'a> DepNodes<'a>  {
 }
 
 pub(crate) fn split_pkgbuilds<'a>(pkgbuilds: &'a PKGBUILDs)
-    -> Result<Vec<Vec<&'a PKGBUILD>>, ()>
+    -> Result<Vec<Vec<&'a PKGBUILD>>>
 {
     DepNodes::from_pkgbuilds(pkgbuilds)?.split()
 }

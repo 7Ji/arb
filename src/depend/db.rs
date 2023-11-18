@@ -8,12 +8,18 @@ use alpm::{
         Package,
     };
 
+
+use crate::error::{
+        Error,
+        Result
+    };
+
 pub(crate) struct DbHandle {
     alpm_handle: Alpm,
 }
 
 impl DbHandle {
-    pub(crate) fn new<P: AsRef<Path>>(root: P) -> Result<Self, ()> {
+    pub(crate) fn new<P: AsRef<Path>>(root: P) -> Result<Self> {
         let handle = match Alpm::new(
             root.as_ref().as_os_str().as_bytes(),
             root.as_ref().join("var/lib/pacman")

@@ -3,9 +3,15 @@ use std::{
         path::PathBuf
     };
 
-use crate::identity::{
-        Identity,
-        IdentityActual,
+use crate::{
+        error::{
+            Error,
+            Result
+        },
+        identity::{
+            Identity,
+            IdentityActual,
+        }
     };
 
 #[derive(Clone)]
@@ -14,7 +20,7 @@ pub(super) struct MountedFolder (pub(super) PathBuf);
 impl MountedFolder {
     /// Umount any folder starting from the path.
     /// Root is expected
-    pub(super) fn umount_recursive(&self) -> Result<&Self, ()> {
+    pub(super) fn umount_recursive(&self) -> Result<&Self> {
         log::info!("Umounting '{}' recursively...", self.0.display());
         let absolute_path = match self.0.canonicalize() {
             Ok(path) => path,
@@ -59,7 +65,7 @@ impl MountedFolder {
     }
 
     /// Root is expected
-    pub(super) fn remove(&self) -> Result<&Self, ()> {
+    pub(super) fn remove(&self) -> Result<&Self> {
         if self.0.exists() {
             log::info!("Removing '{}'...", self.0.display());
             self.umount_recursive()?;
@@ -73,7 +79,7 @@ impl MountedFolder {
     }
 
     /// Root is expected
-    pub(super) fn remove_all() -> Result<(), ()> {
+    pub(super) fn remove_all() -> Result<()> {
         Self(PathBuf::from("roots")).remove().and(Ok(()))
     }
 }

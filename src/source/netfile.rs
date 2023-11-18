@@ -1,16 +1,22 @@
 
 use std::fs::DirBuilder;
-use crate::source::{
-        download,
-        protocol::{
-            NetfileProtocol,
-            Protocol,
+use crate::{
+        error::{
+            Error,
+            Result
         },
-        Proxy,
-        Source,
+        source::{
+            download,
+            protocol::{
+                NetfileProtocol,
+                Protocol,
+            },
+            Proxy,
+            Source,
+        },
     };
 
-pub(super) fn ensure_parents() -> Result<(), ()>
+pub(super) fn ensure_parents() -> Result<()>
 {
     let mut dir_builder = DirBuilder::new();
     dir_builder.recursive(true);
@@ -44,7 +50,7 @@ fn optional_equal<C:PartialEq + std::fmt::Display>(a: &Option<C>, b: &Option<C>)
 }
 
 fn optional_update<C>(target: &mut Option<C>, source: &Option<C>)
--> Result<(), ()>
+-> Result<()>
     where C: PartialEq + Clone + std::fmt::Display
 {
     if let Some(target) = target {
@@ -62,7 +68,7 @@ fn optional_update<C>(target: &mut Option<C>, source: &Option<C>)
 
 pub(super) fn push_source(
     sources: &mut Vec<Source>, source: &Source
-) -> Result<(), ()>
+) -> Result<()>
 {
     let mut existing = None;
     for source_cmp in sources.iter_mut() {
@@ -116,7 +122,7 @@ pub(super) fn download_source(
     actual_identity: &crate::identity::IdentityActual,
     skipint: bool,
     proxy: Option<&Proxy>
-) -> Result<(), ()>
+) -> Result<()>
 {
     const MAX_TRIES: usize = 3;
     let protocol =
@@ -178,7 +184,7 @@ pub(super) fn cache_source(
     actual_identity: &crate::identity::IdentityActual,
     skipint: bool,
     proxy: Option<&Proxy>
-) -> Result<(), ()>
+) -> Result<()>
 {
     assert!(integ_files.len() > 0, "No integ files");
     let mut good_files = vec![];

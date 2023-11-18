@@ -2,6 +2,10 @@
 // Progress: already splitted part into pkgbuild/parse.rs, add mod parse to enable part of that
 use crate::{
         config::Pkgbuild as PkgbuildConfig,
+        error::{
+            Error,
+            Result
+        },
         identity::IdentityActual,
         source::{
             self,
@@ -208,7 +212,7 @@ impl PKGBUILD {
         }
     }
     // If healthy, return the latest commit id
-    fn healthy(&self) -> Result<Oid, ()> {
+    fn healthy(&self) -> Result<Oid> {
         let repo = git::Repo::open_bare(
             &self.git, &self.url, None).or_else(|_|
         {
@@ -243,7 +247,7 @@ impl PKGBUILD {
         }
     }
 
-    fn dump<P: AsRef<Path>> (&self, target: P) -> Result<(), ()> {
+    fn dump<P: AsRef<Path>> (&self, target: P) -> Result<()> {
         let repo = git::Repo::open_bare(
             &self.git, &self.url, None)?;
         let blob = repo.get_pkgbuild_blob(&self.branch,
@@ -286,7 +290,7 @@ impl PKGBUILD {
         source::get_sources(pkgbuild_file)
     }
 
-    fn get_sources<P: AsRef<Path>> (&mut self, dir: P) -> Result<(), ()> {
+    fn get_sources<P: AsRef<Path>> (&mut self, dir: P) -> Result<()> {
         let pkgbuild_file = dir.as_ref().join(&self.base);
         match Self::get_sources_file(&pkgbuild_file) {
             Some(sources) => {
@@ -298,7 +302,7 @@ impl PKGBUILD {
     }
 
     pub(crate) fn extractor_source(
-        &self, actual_identity: &IdentityActual) -> Result<Child, ()>
+        &self, actual_identity: &IdentityActual) -> Result<Child>
     {
         const SCRIPT: &str = include_str!("../scripts/extract_sources.bash");
         if let Err(e) = create_dir_all(&self.build) {
@@ -336,7 +340,7 @@ impl PKGBUILD {
         }
     }
 
-    fn _extract_source(&self, actual_identity: &IdentityActual) -> Result<(), ()> {
+    fn _extract_source(&self, actual_identity: &IdentityActual) -> Result<()> {
         if self.extractor_source(actual_identity).or_else(|_|{
             log::error!("Failed to spawn child to extract source");
             Err(())
@@ -371,7 +375,7 @@ impl PKGBUILD {
         log::info!("PKGBUILD '{}' pkgid is '{}'", self.base, self.pkgid);
     }
 
-    pub(crate) fn get_temp_pkgdir(&self) -> Result<PathBuf, ()> {
+    pub(crate) fn get_temp_pkgdir(&self) -> Result<PathBuf> {
         let mut temp_name = self.pkgid.clone();
         temp_name.push_str(".temp");
         let temp_pkgdir = self.pkgdir.with_file_name(temp_name);
@@ -390,7 +394,7 @@ impl PKGBUILD {
         actual_identity: &IdentityActual,
         temp_pkgdir: &Path
     )
-        -> Result<Command, ()>
+        -> Result<Command>
     {
         let cwd = actual_identity.cwd();
         let cwd_no_root = actual_identity.cwd_no_root();
@@ -426,7 +430,7 @@ impl PKGBUILD {
         Ok(command)
     }
 
-    pub(crate) fn link_pkgs(&self) -> Result<(), ()> {
+    pub(crate) fn link_pkgs(&self) -> Result<()> {
         let mut rel = PathBuf::from("..");
         rel.push(&self.pkgid);
         let updated = PathBuf::from("pkgs/updated");
@@ -459,7 +463,7 @@ impl PKGBUILD {
     pub(crate) fn finish_build(&self,
         actual_identity: &IdentityActual, temp_pkgdir: &Path, sign: Option<&str>
     )
-        -> Result<(), ()>
+        -> Result<()>
     {
         log::info!("Finishing building '{}'", &self.pkgid);
         if self.pkgdir.exists() {
@@ -512,7 +516,7 @@ impl PKGBUILD {
 
     pub(crate) fn _get_overlay_root(
         &self, actual_identity: &IdentityActual, nonet: bool
-    ) -> Result<OverlayRoot, ()>
+    ) -> Result<OverlayRoot>
     {
         OverlayRoot::_new(&self.base, actual_identity,
             &self.depends.needs, self.get_home_binds(), nonet)
@@ -520,7 +524,7 @@ impl PKGBUILD {
 
     pub(crate) fn get_bootstrapping_overlay_root(
         &self, actual_identity: &IdentityActual, nonet: bool
-    ) -> Result<BootstrappingOverlayRoot, ()>
+    ) -> Result<BootstrappingOverlayRoot>
     {
         BootstrappingOverlayRoot::new(&self.base, actual_identity,
             &self.depends.needs, self.get_home_binds(), nonet)
@@ -534,7 +538,7 @@ impl PKGBUILDs {
     pub(crate) fn from_config(
         config: &HashMap<String, PkgbuildConfig>, home_binds_global: &Vec<String>
     )
-        -> Result<Self, ()>
+        -> Result<Self>
     {
         let build_parent = PathBuf::from("build");
         let git_parent = PathBuf::from("sources/PKGBUILD");
@@ -563,7 +567,7 @@ impl PKGBUILDs {
     }
 
     fn sync(&self, hold: bool, proxy: Option<&Proxy>, gmr: Option<&Gmr>, terminal: bool)
-        -> Result<(), ()>
+        -> Result<()>
     {
         let map =
             PKGBUILD::map_by_domain(&self.0);
@@ -593,7 +597,7 @@ impl PKGBUILDs {
         config: &HashMap<String, PkgbuildConfig>,
         hold: bool, noclean: bool, proxy: Option<&Proxy>, gmr: Option<&Gmr>,
         home_binds: &Vec<String>, terminal: bool
-    ) -> Result<Self, ()>
+    ) -> Result<Self>
     {
         let mut pkgbuilds = Self::from_config(config, home_binds)?;
         let update_pkg = if hold {
@@ -636,7 +640,7 @@ impl PKGBUILDs {
         Ok(pkgbuilds)
     }
 
-    fn dump<P: AsRef<Path>> (&self, dir: P) -> Result<(), ()> {
+    fn dump<P: AsRef<Path>> (&self, dir: P) -> Result<()> {
         let dir = dir.as_ref();
         let mut bad = false;
         for pkgbuild in self.0.iter() {
@@ -653,7 +657,7 @@ impl PKGBUILDs {
     fn get_deps<P: AsRef<Path>> (
         &mut self, actual_identity: &IdentityActual, dir: P, db_handle: &DbHandle,
         dephash_strategy: &DepHashStrategy
-    ) -> Result<(), ()>
+    ) -> Result<()>
     {
         let mut bad = false;
         let mut children = vec![];
@@ -735,7 +739,7 @@ impl PKGBUILDs {
     fn check_deps<P: AsRef<Path>> (
         &mut self, actual_identity: &IdentityActual, dir: P, root: P,
         dephash_strategy: &DepHashStrategy
-    )   -> Result<(), ()>
+    )   -> Result<()>
     {
         let db_handle = DbHandle::new(root)?;
         self.get_deps(actual_identity, dir, &db_handle, dephash_strategy)
@@ -766,7 +770,7 @@ impl PKGBUILDs {
 
     fn filter_with_pkgver_func<P: AsRef<Path>>(
         &mut self, actual_identity: &IdentityActual, dir: P
-    ) -> Result<Vec<&mut PKGBUILD>, ()>
+    ) -> Result<Vec<&mut PKGBUILD>>
     {
         let mut buffer = vec![];
         for pkgbuild in self.0.iter() {
@@ -885,7 +889,7 @@ impl PKGBUILDs {
         actual_identity: &IdentityActual,
         pkgbuilds: &mut [&mut PKGBUILD]
     )
-        -> Result<(), ()>
+        -> Result<()>
     {
         let mut children = vec![];
         let mut bad = false;
@@ -907,7 +911,7 @@ impl PKGBUILDs {
     fn fill_all_pkgvers<P: AsRef<Path>>(
         &mut self, actual_identity: &IdentityActual, dir: P
     )
-        -> Result<(), ()>
+        -> Result<()>
     {
         let mut pkgbuilds =
             self.filter_with_pkgver_func(actual_identity, dir)?;
@@ -948,7 +952,7 @@ impl PKGBUILDs {
     }
 
     fn check_if_need_build(&mut self)
-        -> Result<u32, ()>
+        -> Result<u32>
     {
         let mut cleaners = vec![];
         let mut bad = false;
@@ -1000,7 +1004,7 @@ impl PKGBUILDs {
         gmr: Option<&git::Gmr>,
         dephash_strategy: &DepHashStrategy,
         terminal: bool
-    ) -> Result<Option<BaseRoot>, ()>
+    ) -> Result<Option<BaseRoot>>
     {
 
         let dir = tempfile::tempdir().or_else(|e| {

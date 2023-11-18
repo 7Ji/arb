@@ -4,6 +4,12 @@ use std::fmt::{
         Write,
     };
 
+
+use crate::error::{
+        Error,
+        Result
+    };
+
 pub(crate) struct Section<'a> {
     pub(crate) name: &'a str,
     pub(crate) lines: Vec<&'a str>,
@@ -37,7 +43,7 @@ impl<'a> Display for Config<'a> {
 
 impl<'a> Config<'a> {
     pub(crate) fn from_pacman_conf_content(content: &'a str)
-        -> Result<Self, ()>
+        -> Result<Self>
     {
         let mut sections = vec![];
         let mut section = None;

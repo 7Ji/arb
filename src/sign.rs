@@ -8,10 +8,16 @@ use std::{
         },
     };
 
-use crate::identity::IdentityActual;
+use crate::{
+        error::{
+            Error,
+            Result
+        },
+        identity::IdentityActual
+    };
 
 fn sign_pkg(actual_identity: &IdentityActual, file: &Path, key: &str)
-    -> Result<(), ()>
+    -> Result<()>
 {
     let output = match actual_identity.set_root_drop_command(
         Command::new("/usr/bin/gpg")
@@ -26,7 +32,7 @@ fn sign_pkg(actual_identity: &IdentityActual, file: &Path, key: &str)
             Ok(output) => output,
             Err(e) => {
                 log::error!("Failed to spawn child to sign pkg: {}", e);
-                return Err(())
+                return Err(Error::IoError(e))
             },
         };
     if Some(0) != output.status.code() {
@@ -38,7 +44,7 @@ fn sign_pkg(actual_identity: &IdentityActual, file: &Path, key: &str)
 }
 
 pub(crate) fn sign_pkgs(actual_identity: &IdentityActual, dir: &Path, key: &str)
-    -> Result<(), ()>
+    -> Result<()>
 {
     let reader = match read_dir(dir) {
         Ok(reader) => reader,

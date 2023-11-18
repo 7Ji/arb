@@ -6,16 +6,23 @@ use std::{
             JoinHandle,
         }
     };
-use crate::source::{
-        netfile,
-        cksums::IntegFile,
-        git::ToReposMap,
-        Source,
-        MapByDomain, Proxy
+use crate::{
+        error::{
+            Error,
+            Result
+        },
+        source::{
+            cksums::IntegFile,
+            git::ToReposMap,
+            MapByDomain,
+            netfile,
+            Proxy,
+            Source,
+        }
     };
 
 fn get_domain_threads_map<T>(orig_map: &HashMap<u64, Vec<T>>)
-    -> Option<HashMap<u64, Vec<JoinHandle<Result<(), ()>>>>>
+    -> Option<HashMap<u64, Vec<JoinHandle<Result<()>>>>>
 {
     let mut map = HashMap::new();
     for key in orig_map.keys() {
@@ -32,8 +39,8 @@ fn get_domain_threads_map<T>(orig_map: &HashMap<u64, Vec<T>>)
 
 fn get_domain_threads_from_map<'a>(
     domain: &u64,
-    map: &'a mut HashMap<u64, Vec<JoinHandle<Result<(), ()>>>>
-) -> Option<&'a mut Vec<JoinHandle<Result<(), ()>>>>
+    map: &'a mut HashMap<u64, Vec<JoinHandle<Result<()>>>>
+) -> Option<&'a mut Vec<JoinHandle<Result<()>>>>
 {
     match map.get_mut(domain) {
         Some(threads) => Some(threads),
@@ -54,7 +61,7 @@ pub(crate) fn cache_sources_mt(
     proxy: Option<&Proxy>,
     gmr: Option<&super::git::Gmr>,
     terminal: bool
-) -> Result<(), ()>
+) -> Result<()>
 {
     netfile::ensure_parents()?;
     let mut netfile_sources_map =

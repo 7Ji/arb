@@ -14,6 +14,10 @@ use xxhash_rust::xxh3;
 use crate::{
         config::DepHashStrategy,
         depend::DbHandle,
+        error::{
+            Error,
+            Result,
+        },
         identity::{
             Identity,
             IdentityActual,
@@ -52,7 +56,7 @@ fn update_hash_from_pkg(hash: &mut xxh3::Xxh3, pkg: Package<'_>) {
 }
 
 impl Depends {
-    fn needed_and_strict_hash(&mut self, db_handle: &DbHandle) -> Result<(), ()>
+    fn needed_and_strict_hash(&mut self, db_handle: &DbHandle) -> Result<()>
     {
         let mut hash_box = Box::new(xxh3::Xxh3::new());
         let hash = hash_box.as_mut();
@@ -71,7 +75,7 @@ impl Depends {
         Ok(())
     }
 
-    fn needed_and_loose_hash(&mut self, db_handle: &DbHandle) -> Result<(), ()>
+    fn needed_and_loose_hash(&mut self, db_handle: &DbHandle) -> Result<()>
     {
         let mut hash_box = Box::new(xxh3::Xxh3::new());
         let hash = hash_box.as_mut();
@@ -100,7 +104,7 @@ impl Depends {
         Ok(())
     }
 
-    fn needed_and_no_hash(&mut self, db_handle: &DbHandle) -> Result<(), ()> {
+    fn needed_and_no_hash(&mut self, db_handle: &DbHandle) -> Result<()> {
         for dep in self.deps.iter().chain(self.makedeps.iter()) {
             let dep = match db_handle.find_satisfier(dep) {
                 Some(dep) => dep,
@@ -118,7 +122,7 @@ impl Depends {
     pub(crate) fn needed_and_hash(
         &mut self, db_handle: &DbHandle, hash_strategy: &DepHashStrategy
     )
-        -> Result<(), ()>
+        -> Result<()>
     {
         self.needs.clear();
         let r = match hash_strategy {
@@ -139,7 +143,7 @@ impl Depends {
     /// Todo: cache package in our own storage, not tainting host, also without
     /// root permission.
     pub(crate) fn cache_raw<S: AsRef<OsStr>>(deps: &Vec<String>, dbpath: S)
-        -> Result<(), ()>
+        -> Result<()>
     {
         if deps.len() == 0 {
             return Ok(())

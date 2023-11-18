@@ -40,7 +40,7 @@ struct PkgbuildBorrowed<'a> {
 
 impl<'a> PkgbuildBorrowed<'a> {
     fn find_pkg_mut(&'a mut self, name: &[u8])
-        -> Result<&mut PackageBorrowed, ()>
+        -> Result<&mut PackageBorrowed>
     {
         let mut pkg = None;
         for pkg_cmp in self.pkgs.iter_mut() {
@@ -53,14 +53,14 @@ impl<'a> PkgbuildBorrowed<'a> {
             String::from_utf8_lossy(name)))
     }
     fn push_pkg_dep(&'a mut self, pkg_name: &[u8], dep: &'a [u8])
-        -> Result<(), ()>
+        -> Result<()>
     {
         let pkg = self.find_pkg_mut(pkg_name)?;
         pkg.deps.push(dep);
         Ok(())
     }
     fn push_pkg_provide(&'a mut self, pkg_name: &[u8], provide: &'a [u8])
-        -> Result<(), ()>
+        -> Result<()>
     {
         let pkg = self.find_pkg_mut(pkg_name)?;
         pkg.provides.push(provide);
@@ -96,7 +96,7 @@ struct PkgbuildsBorrowed<'a> {
 
 
 impl<'a> PkgbuildsBorrowed<'a> {
-    fn from_parser_output(output: &'a Vec<u8>) -> Result<Self, ()> {
+    fn from_parser_output(output: &'a Vec<u8>) -> Result<Self> {
         let mut pkgbuilds = vec![];
         let mut pkgbuild = PkgbuildBorrowed::default();
         let mut started = false;
@@ -264,7 +264,7 @@ impl PkgbuildsOwned {
 impl PkgbuildsOwned {
     fn from_dumped_pkgbuilds<P, I, S> (
         dir: P, list: I, actual_identity: IdentityActual
-    ) -> Result<Self, ()>
+    ) -> Result<Self>
     where
         P: AsRef<Path>,
         I: IntoIterator<Item = S>,

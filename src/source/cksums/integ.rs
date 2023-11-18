@@ -18,6 +18,11 @@ use super::crypto::{
 use super::md5::Md5sum;
 use super::Sum;
 
+use crate::error::{
+        Error,
+        Result
+    };
+
 #[derive(Clone)]
 pub(crate) enum Integ {
     CK (Cksum),
@@ -105,7 +110,7 @@ impl IntegFile {
         return valid;
     }
 
-    pub(crate) fn clone_file_from(&self, source: &Self) -> Result<(), ()> {
+    pub(crate) fn clone_file_from(&self, source: &Self) -> Result<()> {
         if let Err(e) = super::super::download::clone_file(
             &source.path, &self.path)
         {
@@ -123,7 +128,7 @@ impl IntegFile {
         }
     }
 
-    pub(crate) fn absorb(&self, source: Self) -> Result<(), Self> {
+    pub(crate) fn absorb(&self, source: Self) -> (Result<()>, Option<Self>) {
         if self.path.exists() {
             if let Err(e) = remove_file(&self.path) {
                 log::error!("Failed to remove existing '{}': {}",
@@ -190,7 +195,7 @@ impl IntegFile {
 
     }
 
-    pub(crate) fn temp(&self) -> Result<Self, ()> {
+    pub(crate) fn temp(&self) -> Result<Self> {
         let mut name = self.path.file_name().ok_or_else(||{
             log::error!("Path has no ending name")
         })?.to_owned();

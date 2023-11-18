@@ -14,8 +14,13 @@ use std::{
         },
     };
 
+use crate::error::{
+        Error,
+        Result
+    };
+
 pub(crate) fn clone_file(source: &Path, target: &Path)
-    -> Result<(), std::io::Error>
+    -> Result<()>
 {
     if target.exists() {
         if let Err(e) = remove_file(&target) {
@@ -74,7 +79,7 @@ pub(crate) fn clone_file(source: &Path, target: &Path)
     Ok(())
 }
 
-pub(crate) fn file(url: &str, path: &Path) -> Result<(), ()> {
+pub(crate) fn file(url: &str, path: &Path) -> Result<()> {
     if ! url.starts_with("file://") {
         log::error!("URL '{}' does not start with file://", url);
         return Err(())

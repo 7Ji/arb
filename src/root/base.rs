@@ -17,6 +17,10 @@ use nix::mount::{
     };
 
 use crate::{
+        error::{
+            Error,
+            Result
+        },
         identity::{
             Identity,
             IdentityActual,
@@ -38,7 +42,7 @@ impl BaseRoot {
     }
 
     /// Root is expected
-    fn bind_self(&self) -> Result<&Self, ()> {
+    fn bind_self(&self) -> Result<&Self> {
         mount(Some("roots/base"),
                 self.path(),
                 None::<&str>,
@@ -49,7 +53,7 @@ impl BaseRoot {
     }
 
     /// Root is expected
-    fn remove(&self) -> Result<&Self, ()> {
+    fn remove(&self) -> Result<&Self> {
         match self.0.remove() {
             Ok(_) => Ok(self),
             Err(_) => Err(()),
@@ -57,7 +61,7 @@ impl BaseRoot {
     }
 
     /// Root is expected
-    fn umount_recursive(&self) -> Result<&Self, ()> {
+    fn umount_recursive(&self) -> Result<&Self> {
         match self.0.umount_recursive() {
             Ok(_) => Ok(self),
             Err(_) => Err(()),
@@ -66,7 +70,7 @@ impl BaseRoot {
 
     /// Root is expected
     fn create_home(&self, actual_identity: &IdentityActual)
-        -> Result<&Self, ()>
+        -> Result<&Self>
     {
         // std::thread::sleep(std::time::Duration::from_secs(100));
         IdentityActual::run_chroot_command(
@@ -77,7 +81,7 @@ impl BaseRoot {
     }
 
     /// Root is expected
-    fn setup(&self, actual_identity: &IdentityActual) -> Result<&Self, ()> {
+    fn setup(&self, actual_identity: &IdentityActual) -> Result<&Self> {
         log::warn!("Finishing base root setup");
         let builder = self.builder(actual_identity)?;
         self.copy_file_same("etc/passwd")?
@@ -101,7 +105,7 @@ impl BaseRoot {
         Ok(self)
     }
 
-    pub(crate) fn db_only() -> Result<Self, ()> {
+    pub(crate) fn db_only() -> Result<Self> {
         IdentityActual::as_root(||MountedFolder::remove_all())?;
         log::info!("Creating base chroot (DB only)");
         let root = Self(MountedFolder(PathBuf::from("roots/base")));
@@ -120,7 +124,7 @@ impl BaseRoot {
     /// Create a base rootfs containing the minimum packages and user setup
     /// This should not be used directly for building packages
     pub(crate) fn _new<I, S>(actual_identity: &IdentityActual, pkgs: I)
-        -> Result<Self, ()>
+        -> Result<Self>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>
@@ -145,7 +149,7 @@ impl BaseRoot {
 
     /// Finish a DB-only base root
     pub(crate) fn finish<I, S>(&self, actual_identity: &IdentityActual, pkgs: I)
-        -> Result<&Self, ()>
+        -> Result<&Self>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>

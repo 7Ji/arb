@@ -7,12 +7,20 @@ use nix::{
         }
     };
 
+
+use crate::error::{
+        Error,
+        Result
+    };
+
 pub(crate) struct ForkedChild {
     pub(crate) pid: Pid
 }
 
 impl ForkedChild {
-    pub(crate) fn wait(&self) -> Result<(), ()> {
+    pub(crate) fn wait(&self) -> Result<()> {
+        let mut return_pid = Some(self.pid);
+        let mut return_code = None;
         match waitpid(self.pid, None) {
             Ok(status) => match status {
                 WaitStatus::Exited(pid, code) =>
@@ -20,12 +28,15 @@ impl ForkedChild {
                         if code == 0 {
                             return Ok(())
                         } else {
+                            return_code = Some(code);
                             log::error!("Child {} non-zero exit code {}",
-                                self.pid, code)
+                                self.pid, code);
                         }
                     } else {
+                        return_code = Some(code);
+                        return_pid = Some(pid);
                         log::error!("Waited {} is not our child {}, its exit code
-                            {}", pid, self.pid, code)
+                            {}", pid, self.pid, code);
                     }
                 _ => log::error!("Child {} did not exit cleanly: {:?}",
                         self.pid, status)
@@ -33,10 +44,10 @@ impl ForkedChild {
             Err(e) =>
                 log::error!("Failed to wait for child {}: {}", self.pid, e),
         }
-        Err(())
+        Err(Error::BadChild { pid: return_pid, code: return_code })
     }
 
-    pub(crate) fn wait_noop(&self) -> Result<Option<Result<(), ()>>, ()> {
+    pub(crate) fn wait_noop(&self) -> Result<Option<Result<()>>> {
         match waitpid(self.pid, Some(WaitPidFlag::WNOHANG)) {
             Ok(status) => match status {
                 WaitStatus::StillAlive => Ok(None),
@@ -71,7 +82,7 @@ impl ForkedChild {
 
 
 pub(crate) fn output_and_check(command: &mut std::process::Command, job: &str)
-    -> Result<(), ()>
+    -> Result<()>
 {
     match command.stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

@@ -2,6 +2,7 @@ mod build;
 mod child;
 mod config;
 mod depend;
+mod error;
 mod filesystem;
 mod identity;
 mod pkgbuild;
