@@ -373,6 +373,9 @@ impl IdentityActual {
     pub(crate) fn cwd(&self) -> &Path {
         &self.cwd
     }
+    pub(crate) fn cwd_suffix(&self) -> Result<&Path> {
+        
+    }
     pub(crate) fn cwd_no_root(&self) -> &Path {
         &self.cwd_no_root
     }
@@ -385,6 +388,20 @@ impl IdentityActual {
     pub(crate) fn home_path(&self) -> &Path {
         &self.home_path
     }
+    pub(crate) fn home_suffix(&self) -> Result<&Path> {
+        let home_path = self.home_path();
+        match home_path.strip_prefix("/") {
+            Ok(path) => Ok(path),
+            Err(e) => {
+                log::error!("Home path '{}' does not start with /, \
+                    check you passwd config, strip error: {}", 
+                    home_path.display(), e);
+                Err(Error::InvalidConfig)
+            },
+        }
+    }
+
+
     pub(crate) fn _home_str(&self) -> &str {
         &self._home_string
     }

@@ -10,6 +10,7 @@ pub(crate) enum Error {
     ImpossibleLogic,
     IntegrityError,
     InvalidConfig,
+    // MappingFailure,
     IoError (std::io::Error),
     NixErrno (nix::errno::Errno),
     ProcError (procfs::ProcError),

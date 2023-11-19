@@ -26,12 +26,21 @@ use crate::{
             Result
         },
         identity::IdentityActual,
+        root::mount::mount_checked,
     };
 
 pub(crate) trait CommonRoot {
     const BUILDER_DIRS: [&'static str; 3] = ["build", "pkgs", "sources"];
+    // const MSFLAGS_PROC: MsFlags = MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV;
 
     fn path(&self) -> &Path;
+    fn path_absolute(&self) -> Result<PathBuf> {
+        let path = self.path();
+        path.canonicalize().map_err(|e|{
+            log::error!("Failed to caonoicalize path '{}': {}", path.display(), e);
+            Error::IoError(e)
+        })
+    }
     fn db_path(&self) -> PathBuf {
         self.path().join("var/lib/pacman")
     }
@@ -47,100 +56,118 @@ pub(crate) trait CommonRoot {
             if let Err(e) = create_dir_all(&subdir) {
                 log::error!("Failed to create dir '{}': {}",
                     subdir.display(), e);
-                return Err(())
+                return Err(Error::IoError(e))
             }
         }
         Ok(self)
     }
 
-    /// The minimum mounts needed for execution, like how it's done by pacstrap.
-    /// Root is expected.
-    fn base_mounts(&self) -> Result<&Self> {
-        mount(Some("proc"),
-            &self.path().join("proc"),
+    fn mount_proc(&self) -> Result<&Self> {
+        let path_proc = self.path().join("proc");
+        mount_checked(Some("proc"),
+            &path_proc,
             Some("proc"),
             MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV,
-            None::<&str>
-        ).map_err(|e|
-            log::error!("Failed to mount proc for '{}': {}",
-            self.path().display(), e))?;
-        mount(Some("sys"),
-            &self.path().join("sys"),
+            None::<&str>,
+            "proc",
+            path_proc.display()
+        ).and(Ok(self))
+    }
+
+    fn mount_sys(&self) -> Result<&Self> {
+        let path_sys = self.path().join("sys");
+        mount_checked(Some("sys"),
+            &path_sys,
             Some("sysfs"),
             MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV |
                 MsFlags::MS_RDONLY,
-            None::<&str>
-        ).map_err(|e|
-            log::error!("Failed to mount sys for '{}': {}",
-            self.path().display(), e))?;
-        mount(Some("udev"),
-            &self.path().join("dev"),
+            None::<&str>,
+            "sys",
+            path_sys.display()
+        ).and(Ok(self))
+    }
+
+    fn mount_dev(&self) -> Result<&Self> {
+        let path_dev = self.path().join("dev");
+        mount_checked(Some("udev"),
+            &path_dev,
             Some("devtmpfs"),
             MsFlags::MS_NOSUID,
-            Some("mode=0755")
-        ).map_err(|e|
-            log::error!("Failed to mount udev for '{}': {}",
-            self.path().display(), e))?;
-        mount(Some("devpts"),
-            &self.path().join("dev/pts"),
+            Some("mode=0755"),
+            "dev",
+            path_dev.display()
+        ).and(Ok(self))
+    }
+
+    fn mount_devpts(&self) -> Result<&Self> {
+        let path_devpts = self.path().join("dev/pts");
+        mount_checked(Some("devpts"),
+            &path_devpts,
             Some("devpts"),
             MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
-            Some("mode=0620,gid=5")
-        ).map_err(|e|
-            log::error!("Failed to mount devpts for '{}': {}",
-            self.path().display(), e))?;
-        mount(Some("shm"),
-            &self.path().join("dev/shm"),
+            Some("mode=0620,gid=5"),
+            "devpts",
+            path_devpts.display()
+        ).and(Ok(self)) 
+    }
+
+    fn mount_devshm(&self) -> Result<&Self> {
+        let path_devshm = self.path().join("dev/shm");
+        mount_checked(Some("shm"),
+            &path_devshm,
             Some("tmpfs"),
             MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
-            Some("mode=1777")
-        ).map_err(|e|
-            log::error!("Failed to mount shm for '{}': {}",
-            self.path().display(), e))?;
-        mount(Some("run"),
-            &self.path().join("run"),
+            Some("mode=1777"),
+            "tmpfs",
+            path_devshm.display()
+        ).and(Ok(self))
+    }
+
+    fn mount_run(&self) -> Result<&Self> {
+        let path_run = self.path().join("run");
+        mount_checked(Some("run"),
+            &path_run,
             Some("tmpfs"),
             MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
-            Some("mode=0755")
-        ).map_err(|e|
-            log::error!("Failed to mount run for '{}': {}",
-            self.path().display(), e))?;
-        mount(Some("tmp"),
-            &self.path().join("tmp"),
+            Some("mode=0755"),
+            "tmpfs",
+            path_run.display()
+        ).and(Ok(self))
+    }
+
+    fn mount_tmp(&self) -> Result<&Self> {
+        let path_tmp = self.path().join("tmp");
+        mount_checked(Some("tmp"),
+            &path_tmp,
             Some("tmpfs"),
             MsFlags::MS_STRICTATIME | MsFlags::MS_NODEV | MsFlags::MS_NOSUID,
-            Some("mode=1777")
-        ).map_err(|e|
-            log::error!("Failed to mount tmp for '{}': {}",
-            self.path().display(), e))?;
-        Ok(self)
+            Some("mode=1777"),
+            "tmpfs",
+            path_tmp.display()
+        ).and(Ok(self))
+    }
+
+    /// The minimum mounts needed for execution, like how it's done by pacstrap.
+    /// Root is expected.
+    fn base_mounts(&self) -> Result<&Self> {
+        self.mount_proc()?
+            .mount_sys()?
+            .mount_dev()?
+            .mount_devpts()?
+            .mount_devshm()?
+            .mount_run()?
+            .mount_tmp()
     }
 
     // Todo: split out common wait child parts
     fn refresh_dbs(&self) -> Result<&Self> {
-        let r = Command::new("/usr/bin/pacman")
-            .env("LANG", "C")
-            .arg("-Sy")
-            .arg("--root")
-            .arg(self.path().canonicalize().or(Err(()))?)
-            .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .output()
-            .or_else(|e| {
-                log::error!("Failed to spawn child to refresh DB: {}", e);
-                Err(())
-            })?
-            .status
-            .code()
-            .ok_or_else(||{
-                log::error!("Failed to get code from child to refresh DB");
-            })?;
-        if r != 0 {
-            log::error!("Failed to execute refresh command, return: {}", r);
-            return Err(())
-        }
-        Ok(self)
+        crate::child::output_and_check(
+            Command::new("/usr/bin/pacman")
+                .env("LANG", "C")
+                .arg("-Sy")
+                .arg("--root")
+                .arg(self.path_absolute()?),
+            "refresh pacman DB").and(Ok(self))
     }
 
     fn install_pkgs<I, S>(&self, pkgs: I)
@@ -149,11 +176,8 @@ pub(crate) trait CommonRoot {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let pkgs: Vec<S> = pkgs.into_iter().collect();
-        if pkgs.len() == 0 {
-            return Ok(self)
-        }
-        let r = Command::new("/usr/bin/pacman")
+        let mut command = Command::new("/usr/bin/pacman");
+        command
             .env("LANG", "C")
             .arg("-S")
             .arg("--root")
@@ -161,36 +185,27 @@ pub(crate) trait CommonRoot {
             .arg("--dbpath")
             .arg(self.db_path())
             .arg("--noconfirm")
-            .arg("--needed")
-            .args(pkgs)
-            .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .output()
-            .or_else(|e|{
-                log::error!("Failed to spawn child to install pkgs: {}", e);
-                Err(())
-            })?
-            .status
-            .code()
-            .ok_or_else(||{
-                log::error!(
-                    "Failed to get return code from child to install pkgs");
-            })?;
-        if r != 0 {
-            log::error!("Failed to execute install command, return: {}", r);
-            return Err(())
+            .arg("--needed");
+        let mut has_pkg = false;
+        for pkg in pkgs {
+            has_pkg = true;
+            command.arg(pkg);
         }
-        Ok(self)
+        if ! has_pkg {
+            return Ok(self)
+        }
+        crate::child::output_and_check(
+            &mut command,
+            "install pkgs").and(Ok(self))
     }
 
     fn resolv(&self) -> Result<&Self> {
         let resolv = self.path().join("etc/resolv.conf");
         if resolv.exists() {
-            remove_file(&resolv).or_else(|e|{
+            if let Err(e) = remove_file(&resolv) {
                 log::error!("Failed to remove resolv from root: {}", e);
-                Err(())
-            })?;
+                return Err(Error::IoError(e))
+            }
         }
         Self::copy_file("/etc/resolv.conf", &resolv)?;
         Ok(self)
@@ -199,15 +214,13 @@ pub(crate) trait CommonRoot {
     fn copy_file<P: AsRef<Path>, Q: AsRef<Path>>(source: P, target: Q)
         -> Result<()>
     {
-        match copy(&source, &target) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                log::error!("Failed to copy from '{}' to '{}': {}",
-                    source.as_ref().display(), target.as_ref().display(), e);
-                Err(())
-            },
+        if let Err(e) = copy(&source, &target) {
+            log::error!("Failed to copy from '{}' to '{}': {}",
+                source.as_ref().display(), target.as_ref().display(), e);
+            Err(Error::IoError(e))
+        } else {
+            Ok(())
         }
-
     }
 
     fn copy_file_same<P: AsRef<Path>>(&self, suffix: P) -> Result<&Self> {
@@ -217,13 +230,7 @@ pub(crate) trait CommonRoot {
     }
 
     fn home(&self, actual_identity: &IdentityActual) -> Result<PathBuf> {
-        let home_suffix = actual_identity.home_path()
-        .strip_prefix("/").or_else(
-            |e| {
-                log::error!("Failed to strip home prefix: {}", e);
-                Err(())
-            })?;
-        Ok(self.path().join(home_suffix))
+        Ok(self.path().join(actual_identity.home_suffix()?))
     }
 
     fn builder_raw(root_path: &Path, actual_identity: &IdentityActual)

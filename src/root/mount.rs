@@ -1,6 +1,14 @@
 use std::{
         fs::remove_dir_all,
-        path::PathBuf
+        path::PathBuf, fmt::Display
+    };
+    
+use nix::{
+        mount::{
+            mount,
+            MsFlags,
+        },
+        NixPath
     };
 
 use crate::{
@@ -92,4 +100,27 @@ impl Drop for MountedFolder {
             log::error!("Failed to drop mounted folder '{}'", self.0.display());
         }
     }
+}
+
+pub(super) fn mount_checked<
+    P1: ?Sized + NixPath,
+    P2: ?Sized + NixPath,
+    P3: ?Sized + NixPath,
+    P4: ?Sized + NixPath,
+    S1: Display,
+    S2: Display
+>(
+    source: Option<&P1>,
+    target: &P2,
+    fstype: Option<&P3>,
+    flags: MsFlags,
+    data: Option<&P4>,
+    source_human_readable: S1,
+    target_human_readable: S2
+) -> Result<()> {
+    mount(source, target, fstype, flags, data).map_err(|e|{
+        log::error!("Failed to mount '{}' to '{}': {}", 
+            source_human_readable, target_human_readable, e);
+        Error::NixErrno(e)
+    })
 }

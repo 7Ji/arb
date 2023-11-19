@@ -91,8 +91,8 @@ pub(crate) fn output_and_check(command: &mut Command, job: &str)
 {
     match command
         .stdin(Stdio::null())
-        // .stdout(Stdio::null())
-        // .stderr(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
         .output()
     {
         Ok(output) => {

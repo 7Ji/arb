@@ -22,36 +22,34 @@ use crate::{
     };
 
 fn get_domain_threads_map<T>(orig_map: &HashMap<u64, Vec<T>>)
-    -> Option<HashMap<u64, Vec<JoinHandle<Result<()>>>>>
+    -> Result<HashMap<u64, Vec<JoinHandle<Result<()>>>>>
 {
     let mut map = HashMap::new();
     for key in orig_map.keys() {
-        match map.insert(*key, vec![]) {
-            Some(_) => {
-                log::error!("Duplicated domain for thread: {:x}", key);
-                return None
-            },
-            None => (),
+        if map.insert(*key, vec![]).is_some() {
+            log::error!("Duplicated domain for thread: {:x}", key);
+            return Err(Error::ImpossibleLogic)
         }
     }
-    Some(map)
+    Ok(map)
 }
 
 fn get_domain_threads_from_map<'a>(
     domain: &u64,
     map: &'a mut HashMap<u64, Vec<JoinHandle<Result<()>>>>
-) -> Option<&'a mut Vec<JoinHandle<Result<()>>>>
+) -> Result<&'a mut Vec<JoinHandle<Result<()>>>>
 {
     match map.get_mut(domain) {
-        Some(threads) => Some(threads),
+        Some(threads) => Ok(threads),
         None => {
             log::info!(
                 "Domain {:x} has no threads, which should not happen", domain);
-            None
+            Err(Error::ImpossibleLogic)
         },
     }
 }
 
+// TODO: Use now-being-implemented thread pool
 pub(crate) fn cache_sources_mt(
     netfile_sources: &Vec<Source>,
     git_sources: &Vec<Source>,
@@ -68,42 +66,20 @@ pub(crate) fn cache_sources_mt(
         Source::map_by_domain(netfile_sources);
     let git_sources_map =
         Source::map_by_domain(git_sources);
-    let mut netfile_threads_map =
-        match get_domain_threads_map(&netfile_sources_map) {
-            Some(map) => map,
-            None => {
-                log::error!("Failed to get netfile threads map");
-                return Err(())
-            },
-        };
+    let mut netfile_threads_map = 
+        get_domain_threads_map(&netfile_sources_map)?;
     let mut git_threads_map =
-        match get_domain_threads_map(&git_sources_map) {
-            Some(map) => map,
-            None => {
-                log::error!("Failed to get git threads map");
-                return Err(())
-            },
-        };
+        get_domain_threads_map(&git_sources_map)?;
     let mut git_repos_map =
-        match Source::to_repos_map(git_sources_map, "sources/git", gmr) {
-            Ok(git_repos_map) => git_repos_map,
-            Err(_) => {
-                log::error!("Failed to get git repos map");
-                return Err(())
-            },
-        };
+        Source::to_repos_map(git_sources_map, "sources/git", gmr)?;
     const MAX_THREADS: usize = 10;
     let mut bad = false;
     while netfile_sources_map.len() > 0 || git_repos_map.len() > 0 {
         for (domain, netfile_sources) in
             netfile_sources_map.iter_mut()
         {
-            let netfile_threads = match
-                get_domain_threads_from_map(domain, &mut netfile_threads_map)
-            {
-                Some(threads) => threads,
-                None => return Err(()),
-            };
+            let netfile_threads = 
+                get_domain_threads_from_map(domain, &mut netfile_threads_map)?;
             while netfile_sources.len() > 0 &&
                 netfile_threads.len() < MAX_THREADS
             {
@@ -127,12 +103,8 @@ pub(crate) fn cache_sources_mt(
         for (domain, git_repos) in
             git_repos_map.iter_mut()
         {
-            let git_threads = match
-                get_domain_threads_from_map(domain, &mut git_threads_map)
-            {
-                Some(threads) => threads,
-                None => return Err(()),
-            };
+            let git_threads = 
+                get_domain_threads_from_map(domain, &mut git_threads_map)?;
             while git_repos.len() > 0 &&
                 git_threads.len() < MAX_THREADS
             {
@@ -179,7 +151,7 @@ pub(crate) fn cache_sources_mt(
     }
     log::info!("Finished multi-threading caching sources");
     if bad {
-        Err(())
+        Err(Error::ThreadFailure(None))
     } else {
         Ok(())
     }

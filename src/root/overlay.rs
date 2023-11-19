@@ -41,14 +41,12 @@ pub(crate) struct OverlayRoot {
 
 impl OverlayRoot {
     fn remove(&self) -> Result<&Self> {
-        if self.merged.remove().is_err() {
-            return Err(())
-        }
+        self.merged.remove()?;
         if self.parent.exists() {
             if let Err(e) = remove_dir_all(&self.parent) {
                 log::error!("Failed to remove '{}': {}",
                             self.parent.display(), e);
-                return Err(())
+                return Err(Error::IoError(e))
             }
         }
         Ok(self)
@@ -56,7 +54,7 @@ impl OverlayRoot {
 
     fn overlay(&self) -> Result<&Self> {
         for dir in [&self.upper, &self.work, &self.merged.0] {
-            create_dir_all(dir).or(Err(()))?
+            create_dir_all(dir).map_err(|e|Error::IoError(e))?
         }
         mount(Some("overlay"),
             &self.merged.0,
@@ -66,15 +64,20 @@ impl OverlayRoot {
                 "lowerdir=roots/base,upperdir={},workdir={}",
                 self.upper.display(),
                 self.work.display()).as_str()))
-            .map_err(|e|
+            .map_err(|e| {
                 log::error!("Failed to mount overlay at '{}': {}",
-                    self.merged.0.display(), e))?;
+                    self.merged.0.display(), e);
+                Error::NixErrno(e)
+            })?;
         Ok(self)
     }
 
     fn create_home(&self, actual_identity: &IdentityActual) -> Result<&Self> {
         create_dir_all(self.home(actual_identity)?).map_err(
-            |e|log::error!("Failed to pre-create home: {}", e))?;
+            |e|{
+                log::error!("Failed to pre-create home: {}", e);
+                Error::IoError(e)
+            })?;
         Ok(self)
     }
 
@@ -86,8 +89,11 @@ impl OverlayRoot {
                 None::<&str>,
                 MsFlags::MS_BIND,
                 None::<&str>)
-            .map_err(|e|log::error!(
-                "Failed to bind mount builder subdir '{}' : {}", dir, e))?;
+            .map_err(|e| {
+                log::error!(
+                    "Failed to bind mount builder subdir '{}' : {}", dir, e);
+                Error::NixErrno(e)
+            })?;
         }
         Ok(self)
     }
@@ -115,8 +121,11 @@ impl OverlayRoot {
                 None::<&str>,
                 MsFlags::MS_BIND,
                 None::<&str>)
-            .map_err(|e|log::error!(
-                "Failed to bind mount homedir '{}' : {}", dir.as_ref(), e))?;
+            .map_err(|e|{
+                log::error!(
+                    "Failed to bind mount homedir '{}' : {}", dir.as_ref(), e);
+                Error::NixErrno(e)
+            })?;
         }
         Ok(self)
     }
@@ -258,13 +267,9 @@ impl BootstrappingOverlayRoot {
     }
 
     pub(crate) fn wait(self) -> Result<OverlayRoot> {
-        let status = match self.status {
+        match self.status {
             Some(status) => status,
             None => self.child.wait(),
-        };
-        match status {
-            Ok(_) => Ok(self.root),
-            Err(_) => Err(()),
-        }
+        }.and(Ok(self.root))
     }
 }
