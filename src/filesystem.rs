@@ -186,8 +186,39 @@ where
     r
 }
 
+pub(crate) fn remove_dir_allow_non_existing<P: AsRef<Path>>(path: P) -> Result<()> {
+    let path = path.as_ref();
+    if path.exists() {
+        if ! path.is_dir() {
+            log::error!("Cannot remove dir at '{}' which already exists but \
+                is not a dir", path.display());
+            return Err(Error::FilesystemConflict)
+        }
+        if let Err(e) = remove_dir(&path) {
+            log::error!("Failed to create dir at '{}': {}", path.display(), e);
+            return Err(e.into())
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn remove_dirs_allow_non_existing<I, P>(dirs: I) -> Result<()> 
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>
+{
+    let mut r = Ok(());
+    for dir in dirs {
+        if let Err(e) = remove_dir_allow_non_existing(dir) {
+            r = Err(e)
+        }
+    }
+    r
+}
+
 pub(crate) fn create_layout() -> Result<()> {
     create_dirs_allow_existing(["build", "logs", "pkgs", "sources"])?;
+    remove_dirs_allow_non_existing(["pkgs/updated", "pkgs/latest"])?;
     create_dirs_under_allow_existing(["updated", "latest"], "pkgs")?;
     create_dirs_under_allow_existing([
         "file-ck", "file-md5", "file-sha1", "file-sha224", "file-sha256",
