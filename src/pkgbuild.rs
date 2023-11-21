@@ -341,7 +341,7 @@ impl PKGBUILD {
         arg0.push(&self.base);
         arg0.push("] /bin/bash");
         let log_file = crate::logfile::LogFile::new(
-            crate::logfile::LogType::Extract, &self.pkgid)?;
+            crate::logfile::LogType::Extract, &self.base)?;
         let dup_file = match log_file.file.try_clone() {
             Ok(dup_file) => dup_file,
             Err(e) => {
