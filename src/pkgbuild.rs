@@ -425,17 +425,6 @@ impl PKGBUILD {
             .arg("--ignorearch")
             .arg("--nosign")
             .env("PKGDEST", &pkgdest);
-        unsafe {
-            command.pre_exec(||{
-                if 0 <= libc::dup2(
-                    libc::STDOUT_FILENO, libc::STDERR_FILENO
-                ) {
-                    Ok(())
-                } else {
-                    Err(std::io::Error::last_os_error())
-                }
-            });
-        }
         actual_identity.set_root_chroot_drop_command(&mut command, chroot);
         Ok(command)
     }
