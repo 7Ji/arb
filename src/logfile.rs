@@ -15,7 +15,6 @@ use crate::error::{
 
 pub(crate) enum LogType {
     Build,
-    // Custom (String),
     Extract,
 }
 
@@ -23,7 +22,6 @@ impl Display for LogType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", match self {
             Self::Build => "build",
-            // Self::Custom(s) => s,
             Self::Extract => "extract"
         })
     }
@@ -51,7 +49,7 @@ impl LogFile {
         let path = PathBuf::from(format!("logs/{}_{}_{}.log", 
             time_formatted, log_type, id.as_ref()));
         let file = File::create(&path).map_err(Error::from)?;
-        log::info!("{} log of {} is stored at '{}'", log_type, id.as_ref(), 
+        log::info!("Log to {} '{}' is stored at '{}'", log_type, id.as_ref(), 
                     path.display());
         Ok(Self {
             path,

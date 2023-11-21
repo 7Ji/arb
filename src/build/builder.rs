@@ -155,9 +155,16 @@ impl <'a> Builder<'a> {
                 if ! heavy_load {
                     let log_file = LogFile::new(
                         LogType::Build, &self.pkgbuild.pkgid)?;
+                    let dup_file = match log_file.file.try_clone() {
+                        Ok(dup_file) => dup_file,
+                        Err(e) => {
+                            log::error!("Failed to dup log file handle: {}", e);
+                            return Err(e.into())
+                        },
+                    };
                     self.log_path = log_file.path;
                     let child = match self.command
-                        .stdout(log_file.file).spawn()
+                        .stdout(log_file.file).stderr(dup_file).spawn()
                     {
                         Ok(child) => child,
                         Err(e) => {
