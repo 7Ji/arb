@@ -10,7 +10,7 @@ use crate::error::{
     };
 
 pub(crate) fn http(url: &str, path: &Path, proxy: Option<&str>)
-    -> crate::error::Result<()>
+    -> Result<()>
 {
     let mut target = match File::create(path) {
         Ok(target) => target,

@@ -246,7 +246,7 @@ impl PKGBUILD {
                 self.commit = commit;
                 Ok(())
             },
-            Err(e) => {
+            Err(_e) => {
                 // log::error!("PKGBUILD '{}' is not healthy: {}", &self.base, e);
                 Err(Error::BrokenPKGBUILDs(vec![self.base.clone()]))
             },
@@ -755,7 +755,6 @@ impl PKGBUILDs {
       -> Result<(Vec<source::Source>, Vec<source::Source>, Vec<source::Source>)>
     {
         let mut sources_non_unique = vec![];
-        let mut bad = false;
         for pkgbuild in self.0.iter_mut() {
             if let Err(e) = pkgbuild.get_sources(&dir) {
                 log::error!("Failed to get sources for PKGBUILD '{}'",

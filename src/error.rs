@@ -1,6 +1,3 @@
-use std::default;
-
-
 #[derive(Debug)]
 pub(crate) enum Error {
     AlpmError (alpm::Error),

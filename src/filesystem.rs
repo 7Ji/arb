@@ -116,7 +116,6 @@ pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<()> {
 }
 
 pub(crate) fn prepare_updated_latest_dirs() -> Result<()> {
-    let mut bad = false;
     let dir = PathBuf::from("pkgs");
     let mut r = Ok(());
     for subdir in ["updated", "latest"] {
@@ -190,7 +189,7 @@ pub(crate) fn prepare_pkgdir() -> Result<()> {
             log::error!("Failed to remove dir '{}': {}", path.display(), e);
             return Err(e.into())
         }
-        if let Err(e) = create_dir_all((&path)) {
+        if let Err(e) = create_dir_all(&path) {
             log::error!("Failed to create dir '{}': {}", path.display(), e);
             return Err(e.into())
         }

@@ -1,10 +1,7 @@
 mod builder;
 mod dir;
 
-use crate::error::{
-        Error,
-        Result
-    };
+use crate::error::Result;
 
 pub(crate) fn maybe_build(
     pkgbuilds: &crate::pkgbuild::PKGBUILDs,

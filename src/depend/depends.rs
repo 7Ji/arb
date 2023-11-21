@@ -1,10 +1,7 @@
 use std::{
         ffi::OsStr,
         hash::Hasher,
-        process::{
-            Command,
-            Stdio,
-        },
+        process::Command,
     };
 
 use alpm::Package;
@@ -165,7 +162,7 @@ impl Depends {
         if let Err(e) = output_and_check(&mut command,
             "to download packages on host") 
         {
-            if let Error::BadChild { pid, code } = e {
+            if let Error::BadChild { pid: _, code } = e {
                 if let Some(1) = code {
                     output_and_check(&mut command,
                         "to retry to download packages on host")?

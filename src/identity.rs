@@ -57,7 +57,7 @@ fn passwd_from_uid_checked(uid: Uid) -> Result<Passwd> {
 
 impl Environment {
     fn init(uid: Uid) -> Result<Self> {
-        let passwd = passwd_from_uid_checked(uid)?;;
+        let passwd = passwd_from_uid_checked(uid)?;
         let cwd = std::env::current_dir().map_err(Error::from)?
             .as_os_str().to_os_string();
         let path = std::env::var_os("PATH").ok_or_else(||{
