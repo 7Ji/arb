@@ -68,8 +68,6 @@ fn prepare() -> Result<Settings, &'static str> {
                 None => 0,
             },
         });
-    filesystem::prepare_updated_latest_dirs().or_else(
-        |_|Err("Failed to prepare pkgs/{updated,latest}"))?;
     Ok(Settings {
         actual_identity,
         pkgbuilds_config: config.pkgbuilds,
@@ -92,6 +90,7 @@ fn prepare() -> Result<Settings, &'static str> {
 fn work(settings: Settings) -> Result<(), &'static str> {
     let gmr = settings.gmr.and_then(|gmr|
         Some(crate::source::git::Gmr::init(gmr.as_str())));
+    filesystem::create_layout().or(Err("Failed to create layout"))?;
     let mut pkgbuilds =
         pkgbuild::PKGBUILDs::from_config_healthy(
             &settings.pkgbuilds_config, settings.holdpkg,

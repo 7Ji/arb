@@ -14,7 +14,7 @@ use crate::{
             Error,
             Result
         },
-        filesystem::{remove_dir_all_try_best, self},
+        filesystem::remove_dir_all_try_best,
         identity::IdentityActual,
         pkgbuild::{
             PKGBUILD,
@@ -343,7 +343,6 @@ impl<'a> Builders<'a> {
         nonet: bool, sign: Option<&'a str>
     ) -> Result<Self>
     {
-        filesystem::prepare_pkgdir()?;
         let mut builders = vec![];
         for pkgbuild in pkgbuilds.0.iter() {
             if ! pkgbuild.need_build {
@@ -370,7 +369,6 @@ impl<'a> Builders<'a> {
         nonet: bool, sign: Option<&'a str>
     ) -> Result<Self>
     {
-        filesystem::prepare_pkgdir()?;
         let mut builders = vec![];
         for pkgbuild in pkgbuild_layer.iter() {
             if ! pkgbuild.need_build {

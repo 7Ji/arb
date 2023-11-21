@@ -1,7 +1,6 @@
 use std::{
         fs::{
             create_dir,
-            create_dir_all,
             File,
             read_dir,
             remove_dir,
@@ -14,10 +13,7 @@ use std::{
             Write
         },
         os::unix::fs::chown,
-        path::{
-            Path,
-            PathBuf
-        },
+        path::Path,
     };
 
 use crate::error::{
@@ -115,24 +111,6 @@ pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<()> {
     }
 }
 
-pub(crate) fn prepare_updated_latest_dirs() -> Result<()> {
-    let dir = PathBuf::from("pkgs");
-    let mut r = Ok(());
-    for subdir in ["updated", "latest"] {
-        let dir = dir.join(subdir);
-        if dir.exists() {
-            if let Err(e) = remove_dir_all_try_best(&dir) {
-                r = Err(e)
-            }
-        }
-        if let Err(e) = create_dir_all(&dir) {
-            log::error!("Failed to create dir '{}': {}", dir.display(), e);
-            r = Err(Error::IoError(e))
-        }
-    }
-    r
-}
-
 pub(crate) fn create_dir_all_under_owned_by<P, Q>(
     path: P, parent: Q, uid: u32, gid: u32
 ) -> Result<()>
@@ -169,31 +147,50 @@ pub(crate) fn create_dir_allow_existing<P: AsRef<Path>>(path: P) -> Result<()> {
             return Err(Error::FilesystemConflict)
         }
     } else {
-        create_dir(&path).map_err(|e|{
+        if let Err(e) = create_dir(&path) {
             log::error!("Failed to create dir at '{}': {}", path.display(), e);
-            Error::IoError(e)
-        })?
+            return Err(e.into())
+        }
     }
     Ok(())
 }
 
-pub(crate) fn prepare_pkgdir() -> Result<()> {
-    let mut path = PathBuf::from("pkgs");
-    for suffix in ["updated", "latest"] {
-        path.push(suffix);
-        if ! path.is_dir() {
-            log::error!("Existing '{}' is not folder", path.display());
-            return Err(Error::FilesystemConflict)
+pub(crate) fn create_dirs_allow_existing<I, P>(dirs: I) -> Result<()> 
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>
+{
+    let mut r = Ok(());
+    for dir in dirs {
+        if let Err(e) = create_dir_allow_existing(dir) {
+            r = Err(e)
         }
-        if let Err(e) = remove_dir_all(&path) {
-            log::error!("Failed to remove dir '{}': {}", path.display(), e);
-            return Err(e.into())
-        }
-        if let Err(e) = create_dir_all(&path) {
-            log::error!("Failed to create dir '{}': {}", path.display(), e);
-            return Err(e.into())
+    }
+    r
+}
+
+pub(crate) fn create_dirs_under_allow_existing<I, P>(dirs: I, under: P) -> Result<()> 
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>
+{
+    let mut r = Ok(());
+    let mut path = under.as_ref().to_owned();
+    for dir in dirs {
+        path.push(dir);
+        if let Err(e) = create_dir_allow_existing(&path) {
+            r = Err(e)
         }
         path.pop();
     }
-    Ok(())
+    r
+}
+
+pub(crate) fn create_layout() -> Result<()> {
+    create_dirs_allow_existing(["build", "logs", "pkgs", "sources"])?;
+    create_dirs_under_allow_existing(["updated", "latest"], "pkgs")?;
+    create_dirs_under_allow_existing([
+        "file-ck", "file-md5", "file-sha1", "file-sha224", "file-sha256",
+        "file-sha384", "file-sha512", "file-b2", "git", "PKGBUILD"], 
+        "sources")
 }

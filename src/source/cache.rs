@@ -61,7 +61,6 @@ pub(crate) fn cache_sources_mt(
     terminal: bool
 ) -> Result<()>
 {
-    netfile::ensure_parents()?;
     let mut netfile_sources_map =
         Source::map_by_domain(netfile_sources);
     let git_sources_map =

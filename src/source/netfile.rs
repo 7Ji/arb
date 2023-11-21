@@ -3,7 +3,6 @@ use crate::{
             Error,
             Result
         },
-        filesystem::create_dir_allow_existing,
         source::{
             download,
             protocol::{
@@ -14,25 +13,6 @@ use crate::{
             Source,
         },
     };
-
-pub(super) fn ensure_parents() -> Result<()>
-{
-    let mut path = std::path::PathBuf::from("sources");
-    create_dir_allow_existing(&path)?;
-    let mut name = String::from("file-");
-    for integ in
-        ["ck", "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "b2"]
-    {
-        name.push_str(integ);
-        path.push(&name);
-        create_dir_allow_existing(&path)?;
-        if ! path.pop() {
-            return Err(Error::ImpossibleLogic)
-        }
-        name.truncate(5);
-    }
-    Ok(())
-}
 
 fn optional_equal<C:PartialEq + std::fmt::Display>(a: &Option<C>, b: &Option<C>)
     -> bool
