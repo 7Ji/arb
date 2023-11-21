@@ -5,7 +5,6 @@ use std::{
         ffi::OsString,
         os::unix::{
             process::CommandExt,
-            prelude::OsStringExt,
             fs::chroot
         },
         process::{
@@ -18,18 +17,20 @@ use std::{
         }, fmt::Display,
     };
 
-use nix::{
-        errno::Errno,
-        unistd::{
-            getgid,
-            getuid,
-            Gid,
-            Uid,
-        }
+use nix::unistd::{
+        getgid,
+        getuid,
+        Gid,
+        Uid,
     };
 
+use pwd::Passwd;
+
 use crate::{
-        child::ForkedChild,
+        child::{
+            ForkedChild,
+            output_and_check,
+        },
         error::{
             Error,
             Result,
@@ -46,69 +47,29 @@ struct Environment {
     path: OsString
 }
 
-fn get_pw_entry_from_uid(uid: libc::uid_t) -> Result<libc::passwd> {
-    let pw_entry = unsafe { libc::getpwuid(uid) };
-    if pw_entry.is_null() {
-        log::error!("getpwuid() call failed: {}",
-            std::io::Error::last_os_error());
-        return Err(())
+fn passwd_from_uid_checked(uid: Uid) -> Result<Passwd> {
+    if let Some(pwd) = pwd::Passwd::from_uid(uid.into()) {
+        Ok(pwd)
+    } else {
+        Err(Error::BrokenEnvironment)
     }
-    Ok(unsafe { pw_entry.read() })
 }
-
-fn get_something_raw_from_uid<F>(uid: libc::uid_t, f: F) -> Result<Vec<u8>>
-where
-    F: FnOnce(&libc::passwd) -> *mut libc::c_char
-{
-    let pw_entry = get_pw_entry_from_uid(uid)?;
-    let attribute = f(&pw_entry);
-    let len = unsafe { libc::strnlen(attribute, 0x1000) };
-    let raw = unsafe {
-        std::slice::from_raw_parts(attribute as *const u8, len) };
-    Ok(raw.to_vec())
-}
-
-fn _get_home_raw_from_uid(uid: libc::uid_t) -> Result<Vec<u8>> {
-    get_something_raw_from_uid(uid, |passwd|passwd.pw_dir)
-}
-
-fn get_name_raw_from_uid(uid: libc::uid_t) -> Result<Vec<u8>> {
-    get_something_raw_from_uid(uid, |passwd|passwd.pw_name)
-}
-
-fn get_home_and_name_raw_from_uid(uid: libc::uid_t)
-    -> Result<(Vec<u8>, Vec<u8>)>
-{
-    let pw_entry = get_pw_entry_from_uid(uid)?;
-    let pw_dir = pw_entry.pw_dir;
-    let pw_name = pw_entry.pw_name;
-    let len_dir = unsafe { libc::strnlen(pw_dir, 0x1000) };
-    let len_name = unsafe { libc::strnlen(pw_name, 0x1000) };
-    let raw_home = unsafe {
-        std::slice::from_raw_parts(pw_dir as *const u8, len_dir) };
-    let raw_name = unsafe {
-        std::slice::from_raw_parts(pw_name as *const u8, len_name) };
-    Ok((raw_home.to_vec(), raw_name.to_vec()))
-}
-
 
 impl Environment {
     fn init(uid: Uid) -> Result<Self> {
-        let (home_raw, name_raw)
-            = get_home_and_name_raw_from_uid(uid.as_raw())?;
-        let cwd = std::env::current_dir().or_else(|e|{
-            log::error!("Failed to get current dir: {}", e);
-            Err(())
-        })?.as_os_str().to_os_string();
+        let passwd = passwd_from_uid_checked(uid)?;;
+        let cwd = std::env::current_dir().map_err(Error::from)?
+            .as_os_str().to_os_string();
         let path = std::env::var_os("PATH").ok_or_else(||{
             log::error!("Failed to get PATH from env");
+            Error::BrokenEnvironment
         })?;
         Ok(Self {
             shell: OsString::from("/bin/bash"),
             cwd,
-            home: OsString::from_vec(home_raw),
+            home: passwd.dir.into(),
             lang: OsString::from("en_US.UTF-8"),
-            user: OsString::from_vec(name_raw),
+            user: passwd.name.into(),
             path,
         })
 
@@ -142,9 +103,7 @@ pub(crate) struct IdentityActual {
     name: String,
     env: Environment,
     cwd: PathBuf,
-    cwd_no_root: PathBuf,
-    home_path: PathBuf,
-    _home_string: String
+    home: PathBuf,
 }
 
 pub(crate) trait Identity {
@@ -158,15 +117,15 @@ pub(crate) trait Identity {
     fn sete_raw(uid: Uid, gid: Gid)
         -> Result<()>
     {
-        nix::unistd::setegid(gid)?;
-        nix::unistd::seteuid(uid)
+        nix::unistd::setegid(gid).map_err(Error::from)?;
+        nix::unistd::seteuid(uid).map_err(Error::from)
     }
 
     fn set_raw(uid: Uid, gid: Gid)
         -> Result<()>
     {
-        nix::unistd::setgid(gid)?;
-        nix::unistd::setuid(uid)
+        nix::unistd::setgid(gid).map_err(Error::from)?;
+        nix::unistd::setuid(uid).map_err(Error::from)
     }
 
     fn sete(&self) -> Result<()> {
@@ -182,7 +141,7 @@ pub(crate) trait Identity {
     /// Return to root
     fn set_root_command(command: &mut Command) -> &mut Command {
         unsafe {
-            command.pre_exec(|| Self::sete_root());
+            command.pre_exec(|| Self::sete_root().map_err(Error::into));
         }
         command
     }
@@ -205,26 +164,8 @@ pub(crate) trait Identity {
         command: &mut Command, root: P
     ) -> Result<()>
     {
-        let r = Self::set_chroot_command(command, root)
-            .output()
-            .or_else(|e|{
-                log::error!("Failed to spawn chroot command {:?}: {}",
-                    command, e);
-                Err(())
-            })?
-            .status
-            .code()
-            .ok_or_else(||{
-                log::error!("Failed to get exit code for chroot command {:?}",
-                            command);
-                ()
-            })?;
-        if r == 0 {
-            Ok(())
-        } else {
-            log::error!("Bad return {} from chroot command {:?}", r, command);
-            Err(())
-        }
+        output_and_check(Self::set_chroot_command(command, root),
+                         "chrooted")
     }
 
     fn fork_and_run_child<F: FnOnce() -> Result<()>,>(f: F)
@@ -243,7 +184,7 @@ pub(crate) trait Identity {
             },
             Err(e) => {
                 log::error!("Failed to fork: {}", e);
-                Err(())
+                Err(e.into())
             },
         }
     }
@@ -264,11 +205,11 @@ pub(crate) trait Identity {
             if let Err(e) = chroot(root.as_ref()) {
                 log::error!("Child: Failed to chroot to '{}': {}",
                     root.as_ref().display(), e);
-                return Err(())
+                return Err(e.into())
             }
-            if Self::sete_root().is_err() {
-                log::error!("Child: Failed to seteuid back to root");
-                return Err(())
+            if let Err(e) = Self::sete_root() {
+                log::error!("Child: Failed to seteuid back to root: {}", e);
+                return Err(e.into())
             }
             f()
         })
@@ -277,9 +218,9 @@ pub(crate) trait Identity {
     fn as_root<F: FnOnce() -> Result<()>>(f: F) -> Result<()>
     {
         Self::fork_and_run(||{
-            if Self::sete_root().is_err() {
-                log::error!("Child: Failed to seteuid back to root");
-                return Err(())
+            if let Err(e) = Self::sete_root() {
+                log::error!("Child: Failed to seteuid back to root: {}", e);
+                return Err(e.into())
             }
             f()
         })
@@ -289,9 +230,9 @@ pub(crate) trait Identity {
         -> Result<ForkedChild>
     {
         Self::fork_and_run_child(||{
-            if Self::sete_root().is_err() {
-                log::error!("Child: Failed to seteuid back to root");
-                return Err(())
+            if let Err(e) = Self::sete_root() {
+                log::error!("Child: Failed to seteuid back to root: {}", e);
+                return Err(e.into())
             }
             f()
         })
@@ -307,7 +248,7 @@ pub(crate) trait Identity {
             if let Err(e) = chroot(root.as_ref()) {
                 log::error!("Child: Failed to chroot to '{}': {}",
                     root.as_ref().display(), e);
-                return Err(())
+                return Err(e.into())
             }
             f()
         })
@@ -339,11 +280,11 @@ impl Display for IdentityCurrent {
 impl IdentityCurrent {
     pub(crate) fn new() -> Result<Self> {
         let uid = getuid();
-        let name_raw = get_name_raw_from_uid(uid.as_raw())?;
+        let name = passwd_from_uid_checked(uid)?.name;
         Ok(Self {
             uid,
             gid: getgid(),
-            name: String::from_utf8_lossy(&name_raw).to_string(),
+            name,
         })
     }
 }
@@ -373,64 +314,53 @@ impl IdentityActual {
     pub(crate) fn cwd(&self) -> &Path {
         &self.cwd
     }
-    pub(crate) fn cwd_suffix(&self) -> Result<&Path> {
-        
+    pub(crate) fn cwd_no_root(&self) -> Result<&Path> {
+        match self.cwd.strip_prefix("/") {
+            Ok(path) => Ok(path),
+            Err(e) => {
+                log::error!("CWD path '{}' does not start with /, strip error: \
+                   {}", self.cwd.display(), e);
+                Err(Error::BrokenEnvironment)
+            },
+        }
     }
-    pub(crate) fn cwd_no_root(&self) -> &Path {
-        &self.cwd_no_root
-    }
-    // pub(crate) fn cwd_absolute(&self) -> &Path {
-    //     &self.cwd_absolute
-    // }
     pub(crate) fn name(&self) -> &str {
         &self.name
     }
-    pub(crate) fn home_path(&self) -> &Path {
-        &self.home_path
+    pub(crate) fn home(&self) -> &Path {
+        &self.home
     }
-    pub(crate) fn home_suffix(&self) -> Result<&Path> {
-        let home_path = self.home_path();
-        match home_path.strip_prefix("/") {
+    pub(crate) fn home_no_root(&self) -> Result<&Path> {
+        match self.home.strip_prefix("/") {
             Ok(path) => Ok(path),
             Err(e) => {
                 log::error!("Home path '{}' does not start with /, \
                     check you passwd config, strip error: {}", 
-                    home_path.display(), e);
-                Err(Error::InvalidConfig)
+                    self.home.display(), e);
+                Err(Error::BrokenEnvironment)
             },
         }
     }
 
-
-    pub(crate) fn _home_str(&self) -> &str {
-        &self._home_string
-    }
-
     fn new(uid: Uid, gid: Gid) -> Result<Self> {
-        let env = Environment::init(uid).or_else(|_|{
-            log::info!("Failed to get env for actual user");
-            Err(())
-        })?;
-        let cwd = PathBuf::from(&env.cwd);
-        let cwd_no_root = cwd.strip_prefix("/").or_else(
-        |e|{
-            log::error!("Failed to strip leading / from cwd: {}", e);
-            Err(())
-        })?.to_path_buf();
-        let name = env.user.to_string_lossy().to_string();
-        let home_path = PathBuf::from(&env.home);
-        let _home_string = env.home.to_string_lossy().to_string();
-        Ok(Self {
-            uid,
-            gid,
-            name,
-            env,
-            cwd,
-            cwd_no_root,
-            home_path,
-            _home_string
-        })
-
+        match Environment::init(uid) {
+            Ok(env) => {
+                let cwd = PathBuf::from(&env.cwd);
+                let home = PathBuf::from(&env.home);
+                Ok(Self {
+                    uid,
+                    gid,
+                    name: env.user.to_string_lossy().to_string(),
+                    env,
+                    cwd,
+                    home, 
+                })
+            },
+            Err(e) => {
+                log::error!("Failed to get env for actual user: {}", e);
+                return Err(e)
+            },
+        }
     }
 
     fn new_from_id_pair(id_pair: &str) -> Result<Self> {
@@ -439,13 +369,13 @@ impl IdentityActual {
             .collect();
         if components.len() != 2 {
             log::error!("ID pair '{}' syntax incorrect", id_pair);
-            return Err(())
+            return Err(Error::InvalidConfig)
         }
         let components: [&str; 2] = match components.try_into() {
             Ok(components) => components,
             Err(_) => {
                 log::error!("Failed to convert identity components to array");
-                return Err(())
+                return Err(Error::ImpossibleLogic)
             },
         };
         if let Ok(uid) = components[0].parse() {
@@ -454,7 +384,7 @@ impl IdentityActual {
         }
         }
         log::error!("Can not parse ID pair '{}'", id_pair);
-        Err(())
+        Err(Error::InvalidConfig)
     }
 
     fn new_from_sudo() -> Result<Self> {
@@ -465,28 +395,24 @@ impl IdentityActual {
             return Self::new(
                 Uid::from_raw(uid), Gid::from_raw(gid))
         }}}}
-        Err(())
+        Err(Error::BrokenEnvironment)
     }
 
     pub(crate) fn drop(&self) -> Result<&Self> {
-        let current = IdentityCurrent::new();
-        if ! current?.is_root() {
+        if ! IdentityCurrent::new()?.is_root() {
             log::error!("Current user is not root, please run builder with sudo");
-            return Err(())
+            return Err(Error::BrokenEnvironment)
         }
         if self.is_root() {
             log::error!("Actual user is root, please run builder with sudo");
-            return Err(())
+            return Err(Error::BrokenEnvironment)
         }
-        match self.sete() {
-            Ok(_) => {
-                log::info!("Dropped from root to {}", self);
-                Ok(self)
-            },
-            Err(_) => {
-                log::error!("Failed to drop from root to {}", self);
-                Err(())
-            },
+        if let Err(e) = self.sete() {
+            log::error!("Failed to drop from root to {}", self);
+            Err(e.into())
+        } else {
+            log::info!("Dropped from root to {}", self);
+            Ok(self)
         }
     }
 
@@ -497,16 +423,14 @@ impl IdentityActual {
             None => Self::new_from_sudo(),
         } {
             Ok(identity) => identity,
-            Err(_) => {
+            Err(e) => {
                 log::error!("Failed to get actual identity, did you start the \
                     builder with sudo as a non-root user?");
-                return Err(())
+                return Err(e)
             },
         };
-        match identity.drop() {
-            Ok(_) => Ok(identity),
-            Err(_) => Err(()),
-        }
+        identity.drop()?;
+        Ok(identity)
     }
 
     /// Drop to the identity, as this uses setuid/setgid, you need to return

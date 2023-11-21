@@ -1,8 +1,4 @@
 use std::{
-        fs::{
-            remove_dir_all,
-            create_dir_all,
-        },
         path::PathBuf,
         process::{
             Child,
@@ -18,7 +14,7 @@ use crate::{
             Error,
             Result
         },
-        filesystem::remove_dir_all_try_best,
+        filesystem::{remove_dir_all_try_best, self},
         identity::IdentityActual,
         pkgbuild::{
             PKGBUILD,
@@ -107,10 +103,10 @@ impl <'a> Builder<'a> {
                 self.build_state = BuildState::Extracting { child };
                 Ok(())
             },
-            Err(_) => {
+            Err(e) => {
                 log::error!("Failed to get extractor for pkgbuild\
                  '{}'", &self.pkgbuild.base);
-                Err(())
+                Err(e)
             },
         }
     }
@@ -129,7 +125,8 @@ impl <'a> Builder<'a> {
                     Ok(r) => match r {
                         Some(r) => {
                             *jobs -= 1;
-                            if let Some(0) = r.code() {
+                            let code = r.code();
+                            if let Some(0) = code {
                                 log::info!(
                                     "Successfully extracted source for \
                                     pkgbuild '{}'", &self.pkgbuild.base);
@@ -137,7 +134,7 @@ impl <'a> Builder<'a> {
                             } else {
                                 log::error!("Failed to extract source for \
                                     pkgbuild '{}'", &self.pkgbuild.base);
-                                return Err(())
+                                return Err(Error::BadChild { pid: None, code })
                             }
                         },
                         None => (),
@@ -145,7 +142,7 @@ impl <'a> Builder<'a> {
                     Err(e) => {
                         log::error!("Failed to wait for extractor: {}", e);
                         *jobs -= 1;
-                        return Err(())
+                        return Err(e.into())
                     },
                 },
             BuildState::Extracted =>
@@ -158,7 +155,7 @@ impl <'a> Builder<'a> {
                         Err(e) => {
                             log::error!("Failed to spawn builder for '{}': {}",
                                 &self.pkgbuild.base, e);
-                            return Err(())
+                            return Err(e.into())
                         },
                     };
                     self.build_state = BuildState::Building { child };
@@ -192,16 +189,17 @@ impl <'a> Builder<'a> {
                                 if self.tries >= Self::BUILD_MAX_TRIES {
                                     log::error!("Max retries exceeded for '{}'",
                                         &self.pkgbuild.base);
-                                    return Err(())
+                                    return Err(Error::BuildFailure)
                                 }
                                 // Only needed when we want to re-extract
                                 // As the destructor of builddir would delete
                                 // itself when silently droppped
-                                if remove_dir_all_try_best(
-                                    &self.builddir.path).is_err() {
+                                if let Err(e) = remove_dir_all_try_best(
+                                    &self.builddir.path)
+                                {
                                     log::error!("Failed to remove build dir \
                                         after failed build attempt");
-                                    return Err(())
+                                    return Err(e)
                                 }
                                 if heavy_load {
                                     self.build_state = BuildState::None;
@@ -216,12 +214,12 @@ impl <'a> Builder<'a> {
                     Err(e) => {
                         log::error!("Failed to wait for builder: {}", e);
                         *jobs -= 1;
-                        return Err(())
+                        return Err(e.into())
                     },
                 }
             BuildState::Built => {
                 log::error!("Built status should not be met by state machine");
-                return Err(())
+                return Err(Error::ImpossibleLogic)
             },
         }
         Ok(())
@@ -242,10 +240,10 @@ impl <'a> Builder<'a> {
                             bootstrapping_root };
                         *jobs += 1;
                     },
-                    Err(_) => {
+                    Err(e) => {
                         log::error!("Failed to get chroot bootstrapper for \
                             pkgbuild '{}'", &self.pkgbuild.base);
-                        return Err(())
+                        return Err(e)
                     },
                 }
             },
@@ -255,7 +253,10 @@ impl <'a> Builder<'a> {
                 Ok(r) => match r {
                     Some(r) => {
                         *jobs -= 1;
-                        if r.is_ok() {
+                        if let Err(e) = r {
+                            log::error!("Bootstrapper failed");
+                            return Err(e)
+                        } else {
                             let old_state =
                                 std::mem::take(&mut self.root_state);
                             if let RootState::Boostrapping {
@@ -269,27 +270,25 @@ impl <'a> Builder<'a> {
                                         log::info!("Chroot bootstrapped for \
                                             pkgbuild '{}'", &self.pkgbuild.base);
                                     },
-                                    Err(_) => {
+                                    Err(e) => {
                                         log::error!("Failed to bootstrap chroot \
                                             for pkgbuild '{}'",
                                             &self.pkgbuild.base);
-                                        return Err(())
+                                        return Err(e)
                                     },
                                 }
                             } else {
                                 log::error!("Status inconsistent");
-                                return Err(())
+                                return Err(Error::ImpossibleLogic)
                             }
-                        } else  {
-                            log::error!("Bootstrapper failed");
-                            return Err(())
                         }
                     },
                     None => (),
                 },
-                Err(_) => {
+                Err(e) => {
                     *jobs -= 1;
-                    return Err(())
+                    log::error!("Failed to noop wait: {}", e);
+                    return Err(e)
                 },
             },
             RootState::Bootstrapped { root } => {
@@ -300,21 +299,6 @@ impl <'a> Builder<'a> {
         Ok(())
     }
 }
-
-fn prepare_pkgdir() -> Result<()> {
-    let _ = remove_dir_all("pkgs/updated");
-    let _ = remove_dir_all("pkgs/latest");
-    if let Err(e) = create_dir_all("pkgs/updated") {
-        log::error!("Failed to create pkgs/updated: {}", e);
-        return Err(())
-    }
-    if let Err(e) = create_dir_all("pkgs/latest") {
-        log::error!("Failed to create pkgs/latest: {}", e);
-        return Err(())
-    }
-    Ok(())
-}
-
 
 fn check_heavy_load(jobs: usize, cores: usize) -> bool {
     if jobs >= cores {
@@ -359,7 +343,7 @@ impl<'a> Builders<'a> {
         nonet: bool, sign: Option<&'a str>
     ) -> Result<Self>
     {
-        prepare_pkgdir()?;
+        filesystem::prepare_pkgdir()?;
         let mut builders = vec![];
         for pkgbuild in pkgbuilds.0.iter() {
             if ! pkgbuild.need_build {
@@ -367,9 +351,9 @@ impl<'a> Builders<'a> {
             }
             match Builder::from_pkgbuild(pkgbuild, actual_identity) {
                 Ok(builder) => builders.push(builder),
-                Err(_) => {
+                Err(e) => {
                     log::error!("Failed to create builder for pkgbuild");
-                    return Err(())
+                    return Err(e)
                 },
             }
         }
@@ -386,7 +370,7 @@ impl<'a> Builders<'a> {
         nonet: bool, sign: Option<&'a str>
     ) -> Result<Self>
     {
-        prepare_pkgdir()?;
+        filesystem::prepare_pkgdir()?;
         let mut builders = vec![];
         for pkgbuild in pkgbuild_layer.iter() {
             if ! pkgbuild.need_build {
@@ -394,9 +378,9 @@ impl<'a> Builders<'a> {
             }
             match Builder::from_pkgbuild(pkgbuild, actual_identity) {
                 Ok(builder) => builders.push(builder),
-                Err(_) => {
-                    log::error!("Failed to create builder for pkgbuild");
-                    return Err(())
+                Err(e) => {
+                    log::error!("Failed to create builder for pkgbuild: {}", e);
+                    return Err(e)
                 },
             }
         }
@@ -410,12 +394,15 @@ impl<'a> Builders<'a> {
 
     fn work(&mut self)  -> Result<()>
     {
-        let cpuinfo = procfs::CpuInfo::new().or_else(|e|{
-            log::error!("Failed to get cpuinfo: {}", e);
-            Err(())
-        })?;
+        let cpuinfo = match procfs::CpuInfo::new() {
+            Ok(cpuinfo) => cpuinfo,
+            Err(e) => {
+                log::error!("Failed to get cpuinfo: {}", e);
+                return Err(Error::ProcError(e))
+            },
+        };
         let cores = cpuinfo.num_cores();
-        let mut bad = false;
+        let mut r = Ok(());
         let mut jobs = 0;
         loop {
             // let jobs_last = jobs;
@@ -431,8 +418,8 @@ impl<'a> Builders<'a> {
                         finished = Some(id);
                         break
                     },
-                    Err(_) => {
-                        bad = true;
+                    Err(e) => {
+                        r = Err(e);
                         finished = Some(id);
                     },
                 }
@@ -459,8 +446,9 @@ impl<'a> Builders<'a> {
         }
         if jobs > 0 {
             log::error!("Jobs count is not 0 ({}) at the end", jobs);
+            r = Err(Error::ImpossibleLogic);
         }
-        if bad { Err(()) } else { Ok(()) }
+        r
     }
 }
 

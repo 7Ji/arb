@@ -177,3 +177,24 @@ pub(crate) fn create_dir_allow_existing<P: AsRef<Path>>(path: P) -> Result<()> {
     }
     Ok(())
 }
+
+pub(crate) fn prepare_pkgdir() -> Result<()> {
+    let mut path = PathBuf::from("pkgs");
+    for suffix in ["updated", "latest"] {
+        path.push(suffix);
+        if ! path.is_dir() {
+            log::error!("Existing '{}' is not folder", path.display());
+            return Err(Error::FilesystemConflict)
+        }
+        if let Err(e) = remove_dir_all(&path) {
+            log::error!("Failed to remove dir '{}': {}", path.display(), e);
+            return Err(e.into())
+        }
+        if let Err(e) = create_dir_all((&path)) {
+            log::error!("Failed to create dir '{}': {}", path.display(), e);
+            return Err(e.into())
+        }
+        path.pop();
+    }
+    Ok(())
+}

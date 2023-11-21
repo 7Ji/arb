@@ -12,6 +12,7 @@ use alpm::Package;
 use xxhash_rust::xxh3;
 
 use crate::{
+        child::output_and_check,
         config::DepHashStrategy,
         depend::DbHandle,
         error::{
@@ -65,7 +66,7 @@ impl Depends {
                 Some(dep) => dep,
                 None => {
                     log::error!("Warning: dep {} not found", dep);
-                    return Err(())
+                    return Err(Error::DependencyMissing(vec![dep.as_str().into()]))
                 },
             };
             self.needs.push(dep.name().to_string());
@@ -84,7 +85,7 @@ impl Depends {
                 Some(dep) => dep,
                 None => {
                     log::error!("Warning: dep {} not found", dep);
-                    return Err(())
+                    return Err(Error::DependencyMissing(vec![dep.as_str().into()]))
                 },
             };
             self.needs.push(dep.name().to_string());
@@ -95,7 +96,7 @@ impl Depends {
                 Some(dep) => dep,
                 None => {
                     log::error!("Warning: dep {} not found", dep);
-                    return Err(())
+                    return Err(Error::DependencyMissing(vec![dep.as_str().into()]))
                 },
             };
             self.needs.push(dep.name().to_string());
@@ -110,7 +111,7 @@ impl Depends {
                 Some(dep) => dep,
                 None => {
                     log::error!("Warning: dep {} not found", dep);
-                    return Err(())
+                    return Err(Error::DependencyMissing(vec![dep.as_str().into()]))
                 },
             };
             self.needs.push(dep.name().to_string());
@@ -149,6 +150,7 @@ impl Depends {
             return Ok(())
         }
         log::info!("Caching the following dependencies on host: {:?}", deps);
+
         let mut command = Command::new("/usr/bin/pacman");
         IdentityActual::set_root_command(
             &mut command
@@ -159,52 +161,19 @@ impl Depends {
                 .arg("--noconfirm")
                 .arg("--downloadonly")
                 .args(deps)
-                .stdin(Stdio::null())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
             );
-        let output = match command.output()
+        if let Err(e) = output_and_check(&mut command,
+            "to download packages on host") 
         {
-            Ok(output) => output,
-            Err(e) => {
-                log::error!("Failed to spawn child: {}", e);
-                return Err(());
-            },
-        };
-        match output.status.code() {
-            Some(code) => match code {
-                0 => Ok(()),
-                1 => {
-                    log::error!(
-                        "Download-only command failed to execute correctly, \
-                        bad return 1, maybe due to broken packages? Retrying");
-                    let output = match command.output()
-                    {
-                        Ok(output) => output,
-                        Err(e) => {
-                            log::error!("Failed to spawn child: {}", e);
-                            return Err(());
-                        },
-                    };
-                    if let Some(0) = output.status.code() {
-                        Ok(())
-                    } else {
-                        log::error!("Download-only command failed to execute \
-                                    correctly");
-                        Err(())
-                    }
-                },
-                _ => {
-                    log::error!(
-                        "Download-only command failed to execute correctly, \
-                        bad return {}", code);
-                    Err(())
-                }
-            },
-            None => {
-                log::error!("Download-only command failed to execute correctly");
-                Err(())
-            },
+            if let Error::BadChild { pid, code } = e {
+                if let Some(1) = code {
+                    output_and_check(&mut command,
+                        "to retry to download packages on host")?
+                }   
+            }
+            Err(e)
+        } else {
+            Ok(())
         }
     }
 

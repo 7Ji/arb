@@ -48,21 +48,6 @@ const REFSPECS_HEADS_TAGS: &[&str] = &[
 const _REFSPECS_MASTER_ONLY: &[&str] =
     &["+refs/heads/master:refs/heads/master"];
 
-// #[derive(Clone)]
-// pub(crate) enum Refspecs {
-//     HeadsTags,
-//     MasterOnly
-// }
-
-// impl Refspecs {
-//     fn get(&self) -> &[&str] {
-//         match self {
-//             Refspecs::HeadsTags => REFSPECS_HEADS_TAGS,
-//             Refspecs::MasterOnly => REFSPECS_MASTER_ONLY,
-//         }
-//     }
-// }
-
 pub(crate) struct Gmr {
     prefix: String,
 }
@@ -107,29 +92,17 @@ pub(crate) trait ToReposMap {
     fn to_repo(&self, parent: &str, gmr: Option<&Gmr>, branch: Option<String>)
         -> Result<Repo>
     {
-        let url = self.url();
-        let repo = match self.path() {
-            Some(path) => Repo::open_bare(path, url, gmr),
-            None => {
-                let mut path = PathBuf::from(parent);
-                path.push(format!("{:016x}", self.hash_url()));
-                Repo::open_bare(path, url, gmr)
-            },
-        };
-        match repo {
-            Ok(mut repo) => {
-                if let Some(branch) = branch {
-                    repo.branches.push(branch)
-                }
-                Ok(repo)
-            },
-            Err(()) => {
-                log::error!(
-                    "Failed to open bare repo for git source '{}'",
-                    url);
-                Err(())
-            },
+        let mut repo = match self.path() {
+            Some(path) => Repo::open_bare(path, self.url(), gmr),
+            None => Repo::open_bare(
+                PathBuf::from(format!("{}/{:016x}", 
+                                    parent, self.hash_url())),
+                self.url(), gmr),
+        }?;
+        if let Some(branch) = branch {
+            repo.branches.push(branch)
         }
+        Ok(repo)
     }
 
     fn to_repos_map(
@@ -175,19 +148,11 @@ pub(crate) trait ToReposMap {
                     existing_branches.push(new_branch);
                     continue
                 }
-                match source.to_repo(parent, gmr, new_branch) {
-                    Ok(repo) => repos.push(repo),
-                    Err(()) => {
-                        return Err(())
-                    },
-                }
+                repos.push(source.to_repo(parent, gmr, new_branch)?);
             }
-            match repos_map.insert(domain, repos) {
-                Some(_) => {
-                    log::error!("Duplicated key for repos map");
-                    return Err(())
-                },
-                None => (),
+            if let Some(_) = repos_map.insert(domain, repos) {
+                log::error!("Duplicated key for repos map");
+                return Err(Error::ImpossibleLogic)
             }
         }
         Ok(repos_map)
@@ -287,6 +252,7 @@ fn fetch_remote(
         Some(proxy) => (proxy.after, tries),
         None => (tries, 0),
     };
+    let mut last_error = Error::ImpossibleLogic;
     for _ in 0..tries_without_proxy {
         match remote.fetch(
             refspecs, Some(fetch_opts), None
@@ -295,6 +261,7 @@ fn fetch_remote(
             Err(e) => {
                 log::error!("Failed to fetch from remote '{}': {}",
                     remote_safe_url(&remote), e);
+                last_error = e.into();
             },
         }
     }
@@ -304,7 +271,7 @@ fn fetch_remote(
             log::error!("Failed to fetch from remote '{}' after {} tries and \
                 there's no proxy to retry, giving up", remote_safe_url(&remote),
                 tries_without_proxy);
-            return Err(())
+            return Err(last_error)
         },
     };
     if tries_without_proxy > 0 {
@@ -320,24 +287,28 @@ fn fetch_remote(
             Ok(_) => return Ok(()),
             Err(e) => {
                 log::error!("Failed to fetch from remote '{}': {}",
-                remote_safe_url(&remote), e);
+                    remote_safe_url(&remote), e);
+                last_error = e.into()
             },
         }
     };
     log::error!("Failed to fetch from remote '{}' even with proxy",
         remote_safe_url(&remote));
-    Err(())
+    Err(last_error)
 }
 
 impl Repo {
     fn add_remote(&self) -> Result<()> {
-        match &self.repo.remote_with_fetch(
+        match self.repo.remote_with_fetch(
             "origin", &self.url, "+refs/*:refs/*") {
             Ok(_) => Ok(()),
             Err(e) => {
                 log::error!("Failed to add remote {}: {}",
                             self.path.display(), e);
-                std::fs::remove_dir_all(&self.path).or(Err(()))
+                if let Err(e) = std::fs::remove_dir_all(&self.path) {
+                    return Err(e.into())
+                }
+                Err(e.into())
             }
         }
     }
@@ -354,15 +325,12 @@ impl Repo {
                     repo,
                     branches: vec![],
                 };
-                match repo.add_remote() {
-                    Ok(_) => Ok(repo),
-                    Err(_) => Err(()),
-                }
+                repo.add_remote().and(Ok(repo))
             },
             Err(e) => {
                 log::error!("Failed to create {}: {}",
                             &path.as_ref().display(), e);
-                Err(())
+                Err(e.into())
             }
         }
     }
@@ -386,7 +354,7 @@ impl Repo {
                 } else {
                     log::error!("Failed to open {}: {}",
                             path.as_ref().display(), e);
-                    Err(())
+                    Err(e.into())
                 }
             },
         }
@@ -405,7 +373,7 @@ impl Repo {
             Err(e) => {
                 log::error!("Failed to list remote '{}' for repo '{}': {}",
                     url, repo.path().display(), e);
-                return Err(())
+                return Err(e.into())
             },
         };
         for head in heads {
@@ -414,7 +382,7 @@ impl Repo {
                     match repo.set_head(target) {
                         Ok(_) => return Ok(()),
                         Err(e) => {
-                            log::error!("Failed to set head for '{}': {}",
+                            log::warn!("Failed to set head for '{}': {}",
                                         url, e);
                         },
                     }
@@ -425,17 +393,13 @@ impl Repo {
         Ok(())
     }
 
-    fn _update_head(&self, remote: &mut Remote) -> Result<()> {
-        Self::update_head_raw(&self.repo, remote)
-    }
-
     fn sync_raw(
         repo: &Repository, url: &str, proxy: Option<&Proxy>, refspecs: &[&str],
         tries: usize, terminal: bool
     ) -> Result<()>
     {
         let mut remote =
-            repo.remote_anonymous(url).or(Err(()))?;
+            repo.remote_anonymous(url).map_err(Error::from)?;
         let mut fetch_opts = fetch_opts_init(terminal);
         fetch_remote(&mut remote, &mut fetch_opts, proxy, refspecs, tries)?;
         Self::update_head_raw(repo, &mut remote)?;
@@ -477,7 +441,7 @@ impl Repo {
             Ok(branch) => Ok(branch),
             Err(e) => {
                 log::error!("Failed to find branch '{}': {}", branch, e);
-                Err(())
+                Err(e.into())
             }
         }
     }
@@ -488,7 +452,7 @@ impl Repo {
             Ok(commit) => Ok(commit),
             Err(e) => {
                 log::error!("Failed to peel branch '{}' to commit: {}", branch, e);
-                return Err(())
+                return Err(e.into())
             },
         }
     }
@@ -500,10 +464,13 @@ impl Repo {
     fn get_commit_tree<'a>(&'a self, commit: &Commit<'a>, subtree: Option<&Path>
     )   -> Result<Tree<'a>>
     {
-        let tree = commit.tree().or_else(|e| {
-            log::error!("Failed to get tree pointed by commit: {}", e);
-            Err(())
-        })?;
+        let tree = match commit.tree() {
+            Ok(tree) => tree,
+            Err(e) => {
+                log::error!("Failed to get tree pointed by commit: {}", e);
+                return Err(e.into())
+            },
+        };
         let subtree = match subtree {
             Some(subtree) => subtree,
             None => return Ok(tree),
@@ -512,17 +479,23 @@ impl Repo {
             Ok(entry) => entry,
             Err(e) => {
                 log::error!("Failed to get sub tree: {}", e);
-                return Err(())
+                return Err(e.into())
             },
         };
-        Ok(entry.to_object(&self.repo).or_else(|e|{
-            log::error!("Failed to convert entry to object: {}", e);
-            Err(())
-        })?
-        .as_tree()
-        .ok_or_else(||{
-            log::error!("Failed to convert object ot ree")})?
-        .to_owned())
+        let object = match entry.to_object(&self.repo) {
+            Ok(object) => object,
+            Err(e) => {
+                log::error!("Failed to convert tree entry to object: {}", e);
+                return Err(e.into())
+            },
+        };
+        match object.as_tree() {
+            Some(tree) => Ok(tree.to_owned()),
+            None => {
+                log::error!("Not a subtree : '{}'", subtree.display());
+                Err(Error::GitObjectMissing)
+            },
+        }
     }
 
     fn get_branch_tree<'a>(&'a self, branch: &str, subtree: Option<&Path>)
@@ -540,8 +513,7 @@ impl Repo {
         if let None = subtree {
             return Ok(commit.id())
         }
-        let tree = self.get_commit_tree(&commit, subtree)?;
-        Ok(tree.id())
+        Ok(self.get_commit_tree(&commit, subtree)?.id())
     }
 
     fn get_tree_entry_blob<'a>(&'a self, tree: &Tree, name: &str)
@@ -552,7 +524,7 @@ impl Repo {
                 Some(entry) => entry,
                 None => {
                     log::error!("Failed to find entry of {}", name);
-                    return Err(())
+                    return Err(Error::GitObjectMissing)
                 },
             };
         let object =
@@ -560,14 +532,14 @@ impl Repo {
                 Ok(object) => object,
                 Err(e) => {
                     log::error!("Failed to convert tree entry to object: {}", e);
-                    return Err(())
+                    return Err(e.into())
                 },
             };
         match object.into_blob() {
             Ok(blob) => Ok(blob),
-            Err(_) => {
-                log::error!("Failed to convert into a blob");
-                return Err(())
+            Err(object) => {
+                log::error!("Failed to convert object '{}' into a blob", object.id());
+                return Err(Error::GitObjectMissing)
             },
         }
     }
@@ -612,14 +584,15 @@ impl Repo {
         P: AsRef<Path>
     {
         let tree = self.get_branch_tree(branch, subtree)?;
-        self.repo.cleanup_state().or(Err(()))?;
+        self.repo.cleanup_state().map_err(Error::from)?;
         self.repo.set_workdir(
                     target.as_ref(),
-                    false).or(Err(()))?;
+                    false)
+                .map_err(Error::from)?;
         self.repo.checkout_tree(
                     tree.as_object(),
                     Some(CheckoutBuilder::new().force()))
-                    .or(Err(()))
+                .map_err(Error::from)
     }
 
     fn get_domain(&self) -> String {
@@ -644,9 +617,12 @@ impl Repo {
         //         repos.last().ok_or(())?.get_domain()));
         // let mut r = 
         let mut threads = Vec::new();
-        let job = format!("syncing git repos from domain '{}'",
-                repos.last().ok_or(())?.get_domain());
-        let mut bad = false;
+        let job = match repos.last() {
+            Some(repo) => format!("syncing git repos from domain '{}'", 
+                repo.get_domain()),
+            None => return Ok(()),
+        };
+        let mut r = Ok(());
         for repo in repos {
             if hold {
                 if repo.healthy() {
@@ -665,22 +641,18 @@ impl Repo {
             //             Err(_) => todo!(),
             //         }
 
-            if let Err(_) =
+            if let Err(e) =
                 threading::wait_if_too_busy(&mut threads, max_threads, &job) {
-                bad = true;
+                r = Err(e);
             }
             threads.push(thread::spawn(move ||{
                 repo.sync(proxy_thread.as_ref(), terminal)
             }));
         }
-        if let Err(_) = threading::wait_remaining(threads, &job) {
-            bad = true;
+        if let Err(e) = threading::wait_remaining(threads, &job) {
+            r = Err(e)
         }
-        if bad {
-            Err(())
-        } else {
-            Ok(())
-        }
+        r
     }
 
     fn sync_for_domain_st(
@@ -690,7 +662,7 @@ impl Repo {
         terminal: bool
     ) -> Result<()>
     {
-        let mut bad = false;
+        let mut r = Ok(());
         for repo in repos {
             if hold {
                 if repo.healthy() {
@@ -701,16 +673,12 @@ impl Repo {
                         repo.path.display());
                 }
             }
-            if repo.sync(proxy, terminal).is_err() {
+            if let Err(e) = repo.sync(proxy, terminal) {
                 log::error!("Failed to sync repo '{}'", &repo.url);
-                bad = true
+                r = Err(e);
             }
         }
-        if bad {
-            Err(())
-        } else {
-            Ok(())
-        }
+        r
     }
 
     fn sync_for_domain(
@@ -764,7 +732,7 @@ impl Repo {
                 Ok(url) => url,
                 Err(e) => {
                     log::error!("Failed to parse AUR url '{}': {}", &repo.url, e);
-                    return Err(());
+                    return Err(e.into());
                 },
             };
             let pkg = url.path()
@@ -773,13 +741,13 @@ impl Repo {
         }
         if pkgs.len() != repos.len() {
             log::error!("Pkgs and repos len mismatch");
-            return Err(())
+            return Err(Error::ImpossibleLogic)
         }
         let mut aur_result = match AurResult::from_pkgs(&pkgs) {
             Ok(aur_result) => aur_result,
-            Err(_) => {
+            Err(e) => {
                 log::error!("Failed to get result from AUR RPC");
-                return Err(())
+                return Err(e)
             },
         };
         if aur_result.results.len() == repos.len() {
@@ -789,14 +757,14 @@ impl Repo {
                     Some(repo) => repo,
                     None => {
                         log::error!("Failed to get repo");
-                        return Err(())
+                        return Err(Error::ImpossibleLogic)
                     },
                 };
                 let pkg = match aur_result.results.get(i) {
                     Some(pkg) => pkg,
                     None => {
                         log::error!("Failed to get pkg");
-                        return Err(())
+                        return Err(Error::ImpossibleLogic)
                     },
                 };
                 // leave a 1-min window
@@ -822,14 +790,14 @@ impl Repo {
                     Some(repo) => repo,
                     None => {
                         log::error!("Failed to get repo");
-                        return Err(())
+                        return Err(Error::ImpossibleLogic)
                     },
                 };
                 let pkg = match pkgs.get(i) {
                     Some(pkg) => pkg,
                     None => {
                         log::error!("Failed to get pkg");
-                        return Err(())
+                        return Err(Error::ImpossibleLogic)
                     },
                 };
                 if let Ok(j) = aur_result.results.binary_search_by(
@@ -841,7 +809,7 @@ impl Repo {
                         Some(result) => result,
                         None => {
                             log::error!("Failed to get result");
-                            return Err(())
+                            return Err(Error::ImpossibleLogic)
                         },
                     };
                     if repo.last_fetch() > result.last_modified + 60 {

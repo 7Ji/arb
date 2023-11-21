@@ -4,21 +4,27 @@ use std::{
     };
 use xxhash_rust::xxh3::xxh3_64;
 
-use crate::source::{
-        cksums::Sum,
-        netfile::push_source as push_netfile_source,
-        git::push_source as push_git_source,
-        Source,
-        VcsProtocol,
-        Protocol,
-        Cksum,
-        Md5sum,
-        Sha1sum,
-        Sha224sum,
-        Sha256sum,
-        Sha384sum,
-        Sha512sum,
-        B2sum
+use crate::{
+        error::{
+            Error,
+            Result,
+        },
+        source::{
+            cksums::Sum,
+            netfile::push_source as push_netfile_source,
+            git::push_source as push_git_source,
+            Source,
+            VcsProtocol,
+            Protocol,
+            Cksum,
+            Md5sum,
+            Sha1sum,
+            Sha224sum,
+            Sha256sum,
+            Sha384sum,
+            Sha512sum,
+            B2sum
+        }
     };
 
 fn push_source(
@@ -35,7 +41,7 @@ fn push_source(
     sha384: Option<Sha384sum>,// 384-bit SHA-2
     sha512: Option<Sha512sum>,// 512-bit SHA-2
     b2: Option<B2sum>,    // 512-bit Blake-2B
-) -> Result<(),()>
+) -> Result<()>
 {
     if let None = ck {
     if let None = md5 {
@@ -71,10 +77,10 @@ fn push_source(
         }
     };
     log::error!("Unfinished source definition");
-    Err(())
+    Err(Error::BrokenPKGBUILDs(vec![]))
 }
 
-pub(crate) fn get_sources<P> (pkgbuild: P) -> Option<Vec<Source>>
+pub(crate) fn get_sources<P> (pkgbuild: P) -> Result<Vec<Source>>
 where
     P: AsRef<Path>
 {
@@ -110,7 +116,7 @@ where
                     name, protocol, url, hash_url,
                     ck, md5, sha1,
                     sha224, sha256, sha384, sha512,
-                    b2).ok()?;
+                    b2)?;
                 name = None;
                 protocol = None;
                 url = None;
@@ -157,7 +163,7 @@ where
             b"b2sum" => b2 = B2sum::from_hex(value),
             &_ => {
                 log::error!("Unexpected line: {}", String::from_utf8_lossy(line));
-                return None
+                return Err(Error::BrokenPKGBUILDs(vec![]))
             }
         }
     }
@@ -165,13 +171,13 @@ where
         name, protocol, url, hash_url,
         ck, md5, sha1,
         sha224, sha256, sha384, sha512,
-        b2).ok()?;
-    Some(sources)
+        b2)?;
+    Ok(sources)
 }
 
 
 pub(crate) fn unique_sources(sources: &Vec<&Source>)
-    -> Option<(Vec<Source>, Vec<Source>, Vec<Source>)>
+    -> Result<(Vec<Source>, Vec<Source>, Vec<Source>)>
 {
     let mut local_sources: Vec<Source> = vec![];
     let mut git_sources: Vec<Source> = vec![];
@@ -179,7 +185,7 @@ pub(crate) fn unique_sources(sources: &Vec<&Source>)
     for source in sources.iter() {
         match &source.protocol {
             Protocol::Netfile { protocol: _ } =>
-                push_netfile_source(&mut netfile_sources, source).ok()?,
+                push_netfile_source(&mut netfile_sources, source)?,
             Protocol::Vcs { protocol } => {
                 match protocol {  // Ignore VCS sources we do not support
                     VcsProtocol::Bzr => (),
@@ -193,5 +199,5 @@ pub(crate) fn unique_sources(sources: &Vec<&Source>)
             Protocol::Local => local_sources.push(source.to_owned().to_owned())
         }
     }
-    Some((netfile_sources, git_sources, local_sources))
+    Ok((netfile_sources, git_sources, local_sources))
 }

@@ -31,10 +31,10 @@ impl BuildDir {
                 return Err(Error::FilesystemConflict)
             }
         } else {
-            create_dir_all(&path).or_else(|e|{
+            if let Err(e) = create_dir_all(&path) {
                 log::error!("Failed to create build dir: {}", e);
-                Err(Error::IoError(e))
-            })?;
+                return Err(e.into())
+            }
         }
         let log_path = path.clone();
         let mut build_dir = Self { path, log_path };

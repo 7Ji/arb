@@ -9,16 +9,10 @@ use std::{
             Path,
             PathBuf
         },
-        process::{
-            Command,
-            Stdio
-        },
+        process::Command,
     };
 
-use nix::mount::{
-        mount,
-        MsFlags
-    };
+use nix::mount::MsFlags;
 
 use crate::{
         error::{
@@ -230,18 +224,13 @@ pub(crate) trait CommonRoot {
     }
 
     fn home(&self, actual_identity: &IdentityActual) -> Result<PathBuf> {
-        Ok(self.path().join(actual_identity.home_suffix()?))
+        Ok(self.path().join(actual_identity.home_no_root()?))
     }
 
     fn builder_raw(root_path: &Path, actual_identity: &IdentityActual)
         -> Result<PathBuf>
     {
-        let suffix = actual_identity.cwd().strip_prefix("/").or_else(
-            |e|{
-                log::error!("Failed to strip suffix from cwd: {}", e);
-                Err(())
-            })?;
-        Ok(root_path.join(suffix))
+        Ok(root_path.join(actual_identity.cwd_no_root()?))
     }
 
     fn builder(&self, actual_identity: &IdentityActual) -> Result<PathBuf> {

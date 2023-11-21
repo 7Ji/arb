@@ -212,14 +212,17 @@ impl PKGBUILD {
         }
     }
     // If healthy, return the latest commit id
-    fn healthy(&self) -> Result<Oid> {
-        let repo = git::Repo::open_bare(
-            &self.git, &self.url, None).or_else(|_|
+    fn healthy_get_commit(&self) -> Result<Oid> {
+        let repo = match git::Repo::open_bare(
+            &self.git, &self.url, None) 
         {
-            log::error!("Failed to open or init bare repo {}",
+            Ok(repo) => repo,
+            Err(e) => {
+                log::error!("Failed to open or init bare repo {}",
                 self.git.display());
-            Err(())
-        })?;
+                return Err(e.into())
+            },
+        };
         let commit = repo.get_branch_commit_or_subtree_id(
             &self.branch, self.subtree.as_deref()
         )?;
@@ -228,22 +231,25 @@ impl PKGBUILD {
                         self.base, commit),
             None => log::info!("PKGBUILD '{}' at commit '{}'", self.base, commit),
         }
-        repo.get_pkgbuild_blob(&self.branch,
-                self.subtree.as_deref())
-            .or_else(|_|{
-                log::error!("Failed to get PKGBUILD blob");
-                Err(())
-            })?;
+        if let Err(e) = repo.get_pkgbuild_blob(&self.branch,
+                self.subtree.as_deref()) 
+        {
+            log::error!("Failed to get PKGBUILD blob");
+            return Err(e)
+        }
         Ok(commit)
     }
 
-    fn healthy_set_commit(&mut self) -> bool {
-        match self.healthy() {
+    fn healthy_set_commit(&mut self) -> Result<()> {
+        match self.healthy_get_commit() {
             Ok(commit) => {
                 self.commit = commit;
-                true
+                Ok(())
             },
-            Err(()) => false,
+            Err(e) => {
+                // log::error!("PKGBUILD '{}' is not healthy: {}", &self.base, e);
+                Err(Error::BrokenPKGBUILDs(vec![self.base.clone()]))
+            },
         }
     }
 
@@ -252,9 +258,20 @@ impl PKGBUILD {
             &self.git, &self.url, None)?;
         let blob = repo.get_pkgbuild_blob(&self.branch,
             self.subtree.as_deref())?;
-        let mut file =
-            std::fs::File::create(target).or(Err(()))?;
-        file.write_all(blob.content()).or(Err(()))
+        let mut file = match std::fs::File::create(&target) {
+            Ok(file) => file,
+            Err(e) => {
+                log::error!("Failed to create file '{}' to dump PKGBUILD",
+                    target.as_ref().display());
+                return Err(e.into())
+            },
+        };
+        if let Err(e) = file.write_all(blob.content()) {
+            log::error!("Failed to write all content of blob '{}' into '{}': {}",
+                blob.id(), target.as_ref().display(), e);
+            return Err(e.into())
+        }
+        Ok(())
     }
 
     fn dep_reader_file<P: AsRef<Path>> (
@@ -285,7 +302,7 @@ impl PKGBUILD {
     }
 
     fn get_sources_file<P: AsRef<Path>> (pkgbuild_file: P)
-        -> Option<Vec<source::Source>>
+        -> Result<Vec<source::Source>>
     {
         source::get_sources(pkgbuild_file)
     }
@@ -293,11 +310,11 @@ impl PKGBUILD {
     fn get_sources<P: AsRef<Path>> (&mut self, dir: P) -> Result<()> {
         let pkgbuild_file = dir.as_ref().join(&self.base);
         match Self::get_sources_file(&pkgbuild_file) {
-            Some(sources) => {
+            Ok(sources) => {
                 self.sources = sources;
                 Ok(())
             },
-            None => Err(()),
+            Err(_) => Err(Error::BrokenPKGBUILDs(vec![self.base.clone()])),
         }
     }
 
@@ -307,7 +324,7 @@ impl PKGBUILD {
         const SCRIPT: &str = include_str!("../scripts/extract_sources.bash");
         if let Err(e) = create_dir_all(&self.build) {
             log::error!("Failed to create build dir: {}", e);
-            return Err(());
+            return Err(Error::IoError(e));
         }
         let repo = git::Repo::open_bare(
             &self.git, &self.url, None)?;
@@ -318,7 +335,7 @@ impl PKGBUILD {
         let pkgbuild_dir = self.build.canonicalize().or_else(
         |e|{
             log::error!("Failed to canoicalize build dir path: {}", e);
-            Err(())
+            Err(Error::IoError(e))
         })?;
         let mut arg0 = OsString::from("[EXTRACTOR/");
         arg0.push(&self.base);
@@ -335,27 +352,9 @@ impl PKGBUILD {
             Ok(child) => Ok(child),
             Err(e) => {
                 log::error!("Faiiled to spawn extractor: {}", e);
-                Err(())
+                Err(Error::IoError(e))
             },
         }
-    }
-
-    fn _extract_source(&self, actual_identity: &IdentityActual) -> Result<()> {
-        if self.extractor_source(actual_identity).or_else(|_|{
-            log::error!("Failed to spawn child to extract source");
-            Err(())
-        })?
-            .wait().or_else(|e|{
-                log::error!("Failed to wait for extractor: {}", e);
-                Err(())
-            })?
-            .code().ok_or_else(||{
-                log::error!("Failed to get extractor return code");
-            })? == 0 {
-                Ok(())
-            } else {
-                Err(())
-            }
     }
 
     fn fill_id_dir(&mut self, dephash_strategy: &DepHashStrategy) {
@@ -384,7 +383,7 @@ impl PKGBUILD {
             Ok(_) => Ok(temp_pkgdir),
             Err(e) => {
                 log::error!("Failed to create temp pkgdir: {}", e);
-                Err(())
+                Err(e.into())
             },
         }
     }
@@ -397,7 +396,7 @@ impl PKGBUILD {
         -> Result<Command>
     {
         let cwd = actual_identity.cwd();
-        let cwd_no_root = actual_identity.cwd_no_root();
+        let cwd_no_root = actual_identity.cwd_no_root()?;
         let pkgdest = cwd.join(temp_pkgdir);
         let root = OverlayRoot::get_root_no_init(&self.base);
         let mut builder = cwd.join(&root);
@@ -434,18 +433,21 @@ impl PKGBUILD {
         let mut rel = PathBuf::from("..");
         rel.push(&self.pkgid);
         let updated = PathBuf::from("pkgs/updated");
-        let mut bad = false;
-        for entry in
-            self.pkgdir.read_dir().or_else(|e|{
+        // let mut bad = false;
+        let readdir = match self.pkgdir.read_dir() {
+            Ok(readdir) => readdir,
+            Err(e) => {
                 log::error!("Failed to read pkg dir: {}", e);
-                Err(())
-            })?
-        {
+                return Err(e.into())
+            },
+        };
+        let mut r = Ok(());
+        for entry in readdir {
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(e) => {
                     log::error!("Failed to read entry from pkg dir: {}", e);
-                    bad = true;
+                    r = Err(e.into());
                     continue
                 },
             };
@@ -454,10 +456,10 @@ impl PKGBUILD {
             if let Err(e) = symlink(&original, &link) {
                 log::error!("Failed to symlink '{}' => '{}': {}",
                     link.display(), original.display(), e);
-                bad = true
+                r = Err(e.into());
             }
         }
-        if bad { Err(()) } else { Ok(()) }
+        r
     }
 
     pub(crate) fn finish_build(&self,
@@ -469,7 +471,7 @@ impl PKGBUILD {
         if self.pkgdir.exists() {
             if let Err(e) = remove_dir_all(&self.pkgdir) {
                 log::error!("Failed to remove existing pkgdir: {}", e);
-                return Err(())
+                return Err(e.into())
             }
         }
         if let Some(key) = sign {
@@ -478,7 +480,7 @@ impl PKGBUILD {
         if let Err(e) = rename(&temp_pkgdir, &self.pkgdir) {
             log::error!("Failed to rename temp pkgdir '{}' to persistent pkgdir \
                 '{}': {}", temp_pkgdir.display(), self.pkgdir.display(), e);
-            return Err(())
+            return Err(e.into())
         }
         self.link_pkgs()?;
         log::info!("Finished building '{}'", &self.pkgid);
@@ -576,21 +578,28 @@ impl PKGBUILDs {
                 map, "sources/PKGBUILD", gmr)
         {
             Ok(repos_map) => repos_map,
-            Err(_) => {
-                log::error!("Failed to convert to repos map");
-                return Err(())
+            Err(e) => {
+                log::error!("Failed to convert PKGBUILDs to repos map");
+                return Err(e.into())
             },
         };
         git::Repo::sync_mt(repos_map, hold, proxy, terminal)
     }
 
-    fn healthy_set_commit(&mut self) -> bool {
+    fn healthy_set_commit(&mut self) -> Result<()> {
+        let mut broken = vec![];
         for pkgbuild in self.0.iter_mut() {
-            if ! pkgbuild.healthy_set_commit() {
-                return false
+            if let Err(e) = pkgbuild.healthy_set_commit() {
+                if let Error::BrokenPKGBUILDs(mut pkgbuilds) = e {
+                    broken.append(&mut pkgbuilds)
+                }
             }
         }
-        true
+        if broken.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::BrokenPKGBUILDs(broken))
+        }
     }
 
     pub(crate) fn from_config_healthy(
@@ -601,14 +610,14 @@ impl PKGBUILDs {
     {
         let mut pkgbuilds = Self::from_config(config, home_binds)?;
         let update_pkg = if hold {
-            if pkgbuilds.healthy_set_commit(){
+            if let Err(e) = pkgbuilds.healthy_set_commit() {
+                log::error!("Warning: holdpkg set, but PKGBUILDs unhealthy, \
+                           need update: {}", e);
+                true
+            } else {
                 log::info!(
                     "Holdpkg set and all PKGBUILDs healthy, no need to update");
                 false
-            } else {
-                log::error!("Warning: holdpkg set, but PKGBUILDs unhealthy, \
-                           need update");
-                true
             }
         } else {
             true
@@ -624,13 +633,13 @@ impl PKGBUILDs {
                         source::remove_unused("sources/PKGBUILD", &used))),
         };
         if update_pkg {
-            if pkgbuilds.sync(hold, proxy, gmr, terminal).is_err() {
-                log::error!("Failed to sync PKGBUILDs");
-                return Err(())
+            if let Err(e) = pkgbuilds.sync(hold, proxy, gmr, terminal) {
+                log::error!("Failed to sync PKGBUILDs: {}", e);
+                return Err(e)
             }
-            if ! pkgbuilds.healthy_set_commit() {
-                log::error!("Updating broke some of our PKGBUILDs");
-                return Err(())
+            if let Err(e) = pkgbuilds.healthy_set_commit() {
+                log::error!("Updating broke some of our PKGBUILDs: {}", e);
+                return Err(e)
             }
         }
         if let Some(cleaner) = cleaner {
@@ -642,16 +651,16 @@ impl PKGBUILDs {
 
     fn dump<P: AsRef<Path>> (&self, dir: P) -> Result<()> {
         let dir = dir.as_ref();
-        let mut bad = false;
+        let mut r = Ok(());
         for pkgbuild in self.0.iter() {
             let target = dir.join(&pkgbuild.base);
-            if pkgbuild.dump(&target).is_err() {
+            if let Err(e) = pkgbuild.dump(&target) {
                 log::error!("Failed to dump PKGBUILD '{}' to '{}'",
                     pkgbuild.base, target.display());
-                bad = true
+                r = Err(e)
             }
         }
-        if bad { Err(()) } else { Ok(()) }
+        r
     }
 
     fn get_deps<P: AsRef<Path>> (
@@ -659,7 +668,7 @@ impl PKGBUILDs {
         dephash_strategy: &DepHashStrategy
     ) -> Result<()>
     {
-        let mut bad = false;
+        let mut r = Ok(());
         let mut children = vec![];
         for pkgbuild in self.0.iter() {
             match pkgbuild.dep_reader(actual_identity, &dir) {
@@ -668,19 +677,22 @@ impl PKGBUILDs {
                     log::error!(
                         "Failed to spawn dep reader for PKGBUILD '{}': {}",
                         pkgbuild.base, e);
-                    bad = true
+                    r = Err(e.into())
                 },
             }
         }
-        if bad {
+        if r.is_err() {
             for mut child in children {
                 if let Err(e) = child.kill() {
-                    log::error!("Failed to kill child: {}", e)
+                    log::error!("Failed to kill child: {}", e);
+                    r = Err(e.into())
                 }
             }
-            return Err(())
+            return r
         }
-        assert!(self.0.len() == children.len());
+        if self.0.len() != children.len() {
+            return Err(Error::ImpossibleLogic)
+        }
         // let mut all_deps = vec![];
         for (pkgbuild, child) in
             zip(self.0.iter_mut(), children)
@@ -718,21 +730,15 @@ impl PKGBUILDs {
                                 &pkgbuild.base, pkgbuild.depends.hash,
                                 &pkgbuild.depends.needs);
                     }
-                    // for need in pkgbuild.depends.needs.iter() {
-                    //     all_deps.push(need.clone())
-                    // }
                 },
-                Err(_) => {
+                Err(e) => {
                     log::error!("Failed to get needed deps for package '{}'",
                             &pkgbuild.base);
-                    bad = true
+                    r = Err(e.into())
                 },
             }
         }
-        if bad { Err(()) } else { Ok(()) }
-        // all_deps.sort_unstable();
-        // all_deps.dedup();
-        // Ok(all_deps)
+        r
 
     }
 
@@ -746,26 +752,22 @@ impl PKGBUILDs {
     }
 
     fn get_all_sources<P: AsRef<Path>> (&mut self, dir: P)
-      -> Option<(Vec<source::Source>, Vec<source::Source>, Vec<source::Source>)>
+      -> Result<(Vec<source::Source>, Vec<source::Source>, Vec<source::Source>)>
     {
         let mut sources_non_unique = vec![];
         let mut bad = false;
         for pkgbuild in self.0.iter_mut() {
-            if pkgbuild.get_sources(&dir).is_err() {
+            if let Err(e) = pkgbuild.get_sources(&dir) {
                 log::error!("Failed to get sources for PKGBUILD '{}'",
                     pkgbuild.base);
-                bad = true
+                return Err(e);
             } else {
                 for source in pkgbuild.sources.iter() {
                     sources_non_unique.push(source);
                 }
             }
         }
-        if bad {
-            None
-        } else {
-            source::unique_sources(&sources_non_unique)
-        }
+        source::unique_sources(&sources_non_unique)
     }
 
     fn filter_with_pkgver_func<P: AsRef<Path>>(
@@ -800,23 +802,27 @@ impl PKGBUILDs {
             Ok(child) => child,
             Err(e) => {
                 log::error!("Failed to spawn child to read pkgver types: {}", e);
-                return Err(())
+                return Err(e.into())
             },
         };
         let mut child_in = match child.stdin.take() {
             Some(stdin) => stdin,
             None => {
-                log::error!("Failed to open stdin");
-                child.kill().expect("Failed to kill child");
-                return Err(())
+                log::error!("Failed to take child stdin");
+                if let Err(e) = child.kill() {
+                    log::error!("Failed to kill child: {}", e);
+                }
+                return Err(Error::ImpossibleLogic)
             },
         };
         let mut child_out = match child.stdout.take() {
             Some(stdout) => stdout,
             None => {
-                log::error!("Failed to open stdin");
-                child.kill().expect("Failed to kill child");
-                return Err(())
+                log::error!("Failed to take child stdout");
+                if let Err(e) = child.kill() {
+                    log::error!("Failed to kill child: {}", e);
+                }
+                return Err(Error::ImpossibleLogic)
             },
         };
         let mut output = vec![];
@@ -832,8 +838,10 @@ impl PKGBUILDs {
                 Ok(written_this) => written += written_this,
                 Err(e) => {
                     log::error!("Failed to write buffer to child: {}", e);
-                    child.kill().expect("Failed to kill child");
-                    return Err(())
+                    if let Err(e) = child.kill() {
+                        log::error!("Failed to kill child: {}", e);
+                    }
+                    return Err(e.into())
                 },
             }
             match child_out.read(&mut output_buffer[..]) {
@@ -841,8 +849,10 @@ impl PKGBUILDs {
                     output.extend_from_slice(&output_buffer[0..read_this]),
                 Err(e) => {
                     log::error!("Failed to read stdout child: {}", e);
-                    child.kill().expect("Failed to kill child");
-                    return Err(())
+                    if let Err(e) = child.kill() {
+                        log::error!("Failed to kill child: {}", e);
+                    }
+                    return Err(e.into())
                 },
             }
         }
@@ -851,25 +861,33 @@ impl PKGBUILDs {
             Ok(_) => (),
             Err(e) => {
                 log::error!("Failed to read stdout child: {}", e);
-                child.kill().expect("Failed to kill child");
-                return Err(())
+                if let Err(e) = child.kill() {
+                    log::error!("Failed to kill child: {}", e);
+                }
+                return Err(e.into())
             },
         }
-        if child
-            .wait()
-            .or_else(|e|{
+        let status = match child.wait() {
+            Ok(status) => status,
+            Err(e) => {
                 log::error!(
                     "Failed to wait for child reading pkgver type: {}", e);
-                Err(())
-            })?
-            .code()
-            .ok_or_else(||{
+                return Err(e.into())
+            },
+        };
+        match status.code() {
+            Some(code) => {
+                if code != 0 {
+                    log::error!("Reader bad return");
+                    return Err(Error::BadChild { pid: None, code: Some(code) })
+                }
+            },
+            None => {
                 log::error!("Failed to get return code from child reading \
-                        pkgver type")
-            })? != 0 {
-                log::error!("Reader bad return");
-                return Err(())
-            }
+                        pkgver type");
+                return Err(Error::ImpossibleLogic)
+            },
+        }
         let types: Vec<&[u8]> =
             output.split(|byte| *byte == b'|').collect();
         let types = &types[0..self.0.len()];
@@ -892,20 +910,23 @@ impl PKGBUILDs {
         -> Result<()>
     {
         let mut children = vec![];
-        let mut bad = false;
+        let mut r = Ok(());
         for pkgbuild in pkgbuilds.iter_mut() {
-            if let Ok(child) =
-                pkgbuild.extractor_source(actual_identity)
-            {
-                children.push(child);
-            } else {
-                bad = true;
+            match pkgbuild.extractor_source(actual_identity) {
+                Ok(child) => children.push(child),
+                Err(e) => {
+                    log::error!("Failed to spawn source extractor: {}", e);
+                    r = Err(e)
+                },
             }
         }
         for mut child in children {
-            child.wait().expect("Failed to wait for child");
+            if let Err(e) = child.wait() {
+                log::error!("Failed to wait for child: {}", e);
+                r = Err(e.into())
+            }
         }
-        if bad { Err(()) } else { Ok(()) }
+        r
     }
 
     fn fill_all_pkgvers<P: AsRef<Path>>(
@@ -955,7 +976,7 @@ impl PKGBUILDs {
         -> Result<u32>
     {
         let mut cleaners = vec![];
-        let mut bad = false;
+        let mut r = Ok(0);
         let mut need_build = 0;
         for pkgbuild in self.0.iter_mut() {
             let mut built = false;
@@ -971,26 +992,28 @@ impl PKGBUILDs {
                 if pkgbuild.extracted {
                     pkgbuild.extracted = false;
                     let dir = pkgbuild.build.clone();
-                    if let Err(_) = wait_if_too_busy(
+                    if let Err(e) = wait_if_too_busy(
                         &mut cleaners, 30,
                         "cleaning builddir") {
-                        bad = true
+                        r = Err(e);
                     }
                     cleaners.push(thread::spawn(||
-                        remove_dir_all_try_best(dir)
-                        .or(Err(()))));
+                        remove_dir_all_try_best(dir)));
                 }
             } else {
                 pkgbuild.need_build = true;
                 need_build += 1;
             }
         }
-        if let Err(_) = threading::wait_remaining(
+        if let Err(e) = threading::wait_remaining(
             cleaners, "cleaning builddirs")
         {
-            bad = true
+            r = Err(e)
         }
-        if bad { Err(()) } else { Ok(need_build) }
+        if r.is_ok() {
+            r = Ok(need_build)
+        }
+        r
     }
 
     pub(crate) fn prepare_sources(
@@ -1007,10 +1030,13 @@ impl PKGBUILDs {
     ) -> Result<Option<BaseRoot>>
     {
 
-        let dir = tempfile::tempdir().or_else(|e| {
-            log::error!("Failed to create temp dir to dump PKGBUILDs: {}", e);
-            Err(())
-        })?;
+        let dir = match tempfile::tempdir() {
+            Ok(dir) => dir,
+            Err(e) => {
+                log::error!("Failed to create temp dir to dump PKGBUILDs: {}", e);
+                return Err(e.into())
+            },
+        };
         let cleaner = match
             PathBuf::from("build").exists()
         {
@@ -1019,17 +1045,21 @@ impl PKGBUILDs {
         };
         self.dump(&dir)?;
         let (netfile_sources, git_sources, _)
-            = self.get_all_sources(&dir).ok_or(())?;
+            = self.get_all_sources(&dir)?;
         source::cache_sources_mt(
             &netfile_sources, &git_sources, actual_identity,
             holdgit, skipint, proxy, gmr, terminal)?;
         if let Some(cleaner) = cleaner {
-            cleaner.join()
-                .expect("Failed to join build dir cleaner thread")
-                .or_else(|_| {
-                    log::error!("Build dir cleaner thread panicked");
-                    Err(())
-                })?;
+            match cleaner.join() {
+                Ok(r) => if let Err(e) = r {
+                    log::error!("Build dir cleaner failed: {}", e);
+                    return Err(e)
+                },
+                Err(e) => {
+                    log::error!("Failed to join build dir cleaner thread");
+                    return Err(Error::ThreadFailure(Some(e)));
+                },
+            }
         }
         let cleaners = match noclean {
             true => None,

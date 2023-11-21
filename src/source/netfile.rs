@@ -26,7 +26,7 @@ pub(super) fn ensure_parents() -> Result<()>
         ["ck", "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "b2"]
     {
         name.push_str(integ);
-        path.push(name);
+        path.push(&name);
         create_dir_allow_existing(&path)?;
         if ! path.pop() {
             return Err(Error::ImpossibleLogic)

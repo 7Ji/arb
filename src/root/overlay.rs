@@ -104,7 +104,7 @@ impl OverlayRoot {
         I: IntoIterator<Item = S>,
         S: AsRef<str>
     {
-        let host_home = actual_identity.home_path();
+        let host_home = actual_identity.home();
         let chroot_home = self.home(actual_identity)?;
         let uid = actual_identity.uid().into();
         let gid = actual_identity.gid().into();
@@ -258,9 +258,9 @@ impl BootstrappingOverlayRoot {
     pub(crate) fn wait_noop(&mut self) -> Result<Option<Result<()>>>{
         assert!(self.status.is_none());
         let r = self.child.wait_noop();
-        if let Ok(r) = r {
+        if let Ok(r) = &r {
             if let Some(r) = r {
-                self.status = Some(r)
+                self.status = Some(r.clone())
             }
         }
         r
