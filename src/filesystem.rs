@@ -194,8 +194,8 @@ pub(crate) fn remove_dir_allow_non_existing<P: AsRef<Path>>(path: P) -> Result<(
                 is not a dir", path.display());
             return Err(Error::FilesystemConflict)
         }
-        if let Err(e) = remove_dir(&path) {
-            log::error!("Failed to create dir at '{}': {}", path.display(), e);
+        if let Err(e) = remove_dir_all_try_best(&path) {
+            log::error!("Failed to remove dir at '{}': {}", path.display(), e);
             return Err(e.into())
         }
     }
