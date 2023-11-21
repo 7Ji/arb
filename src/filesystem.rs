@@ -81,7 +81,7 @@ pub(crate) fn remove_dir_all_try_best<P: AsRef<Path>>(dir: P)
     Ok(())
 }
 
-pub(crate) fn file_to_stdout<P: AsRef<Path>>(file: P) -> Result<()> {
+pub(crate) fn _file_to_stdout<P: AsRef<Path>>(file: P) -> Result<()> {
     let file_p = file.as_ref();
     let mut file = match File::open(&file) {
         Ok(file) => file,

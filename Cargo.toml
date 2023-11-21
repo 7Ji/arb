@@ -42,3 +42,7 @@ features = ["json"]
 [dependencies.xxhash-rust]
 version = "0.8"
 features = ["xxh3"]
+
+[dependencies.time]
+version = "0.3"
+features = ["formatting", "macros"]

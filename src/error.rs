@@ -21,6 +21,7 @@ pub(crate) enum Error {
     NixErrno (nix::errno::Errno),
     ProcError (procfs::ProcError),
     ThreadFailure (Option<Box<dyn std::any::Any + Send + 'static>>),
+    TimeError (time::Error),
     UreqError (ureq::Error),
     UrlParseError (url::ParseError),
 }
@@ -53,6 +54,7 @@ impl std::fmt::Display for Error {
             Error::NixErrno(e) => write!(f, "Nix Errno: {}", e),
             Error::ProcError(e) => write!(f, "Proc Error: {}", e),
             Error::ThreadFailure(artifact) => write!(f, "Thread Failure, artifact: {:?}", artifact),
+            Error::TimeError(e) => write!(f, "Time Error: {}", e),
             Error::UreqError(e) => write!(f, "Ureq Error: {}", e),
             Error::UrlParseError(e) => write!(f, "URL Parse Error: {}", e),
         }
@@ -101,6 +103,12 @@ impl From<url::ParseError> for Error {
     }
 }
 
+impl From<time::Error> for Error {
+    fn from(value: time::Error) -> Self {
+        Self::TimeError(value)
+    }
+}
+
 impl Into<std::io::Error> for Error {
     fn into(self) -> std::io::Error {
         match self {
@@ -131,6 +139,7 @@ impl Clone for Error {
             Self::NixErrno(arg0) => Self::NixErrno(*arg0),
             Self::ProcError(arg0) => Self::Collapsed(format!("From Proc Error: {}", arg0)),
             Self::ThreadFailure(arg0) => Self::Collapsed(format!("From Thread Failure: {:?}", arg0)),
+            Self::TimeError(arg0) => Self::Collapsed(format!("From Time Error: {}", arg0)),
             Self::UreqError(arg0) => Self::Collapsed(format!("From Ureq Error: {}", arg0)),
             Self::UrlParseError(arg0) => Self::UrlParseError(arg0.clone()),
         }

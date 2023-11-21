@@ -4,6 +4,7 @@ mod config;
 mod depend;
 mod error;
 mod filesystem;
+mod logfile;
 mod identity;
 mod pkgbuild;
 mod root;

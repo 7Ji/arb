@@ -16,6 +16,10 @@ use crate::{
         },
         filesystem::remove_dir_all_try_best,
         identity::IdentityActual,
+        logfile::{
+            LogFile,
+            LogType,
+        },
         pkgbuild::{
             PKGBUILD,
             PKGBUILDs,
@@ -67,7 +71,8 @@ struct Builder<'a> {
     command: Command,
     tries: usize,
     root_state: RootState,
-    build_state: BuildState
+    build_state: BuildState,
+    log_path: PathBuf,
 }
 
 impl <'a> Builder<'a> {
@@ -92,6 +97,7 @@ impl <'a> Builder<'a> {
             tries: 0,
             root_state: RootState::default(),
             build_state,
+            log_path: PathBuf::new(),
         })
     }
 
@@ -147,9 +153,11 @@ impl <'a> Builder<'a> {
                 },
             BuildState::Extracted =>
                 if ! heavy_load {
-                    let log_file = self.builddir.get_log_file()?;
+                    let log_file = LogFile::new(
+                        LogType::Build, &self.pkgbuild.pkgid)?;
+                    self.log_path = log_file.path;
                     let child = match self.command
-                        .stdout(log_file).spawn()
+                        .stdout(log_file.file).spawn()
                     {
                         Ok(child) => child,
                         Err(e) => {
@@ -163,20 +171,15 @@ impl <'a> Builder<'a> {
                     *jobs += 1;
                     log::info!("Start building '{}', try {} of {}",
                         &self.pkgbuild.base, self.tries, Self::BUILD_MAX_TRIES);
-                    self.builddir.hint_log()
                 },
             BuildState::Building { child } =>
                 match child.try_wait() {
                     Ok(r) => match r {
                         Some(r) => {
                             *jobs -= 1;
-                            log::info!("Log of building '{}':",
-                                &self.pkgbuild.base);
-                            if self.builddir.read_log().is_err() {
-                                log::error!("Failed to read log")
-                            }
-                            log::info!("End of log for building '{}'",
-                                &self.pkgbuild.base);
+                            log::info!(
+                                "Log of building '{}' was written to '{}'",
+                                &self.pkgbuild.pkgid, self.log_path.display());
                             if let Some(0) = r.code() {
                                 self.pkgbuild.finish_build(actual_identity,
                                     &self.temp_pkgdir, sign)?;

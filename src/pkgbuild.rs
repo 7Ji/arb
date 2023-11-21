@@ -72,7 +72,7 @@ pub(crate) struct PKGBUILD {
     home_binds: Vec<String>,
     names: Vec<String>,
     pub(crate) need_build: bool,
-    pkgid: String,
+    pub(crate) pkgid: String,
     pkgdir: PathBuf,
     pkgver: Pkgver,
     provides: Vec<String>,
@@ -340,6 +340,15 @@ impl PKGBUILD {
         let mut arg0 = OsString::from("[EXTRACTOR/");
         arg0.push(&self.base);
         arg0.push("] /bin/bash");
+        let log_file = crate::logfile::LogFile::new(
+            crate::logfile::LogType::Extract, &self.pkgid)?;
+        let dup_file = match log_file.file.try_clone() {
+            Ok(dup_file) => dup_file,
+            Err(e) => {
+                log::error!("Failed to duplicate log file handle: {}", e);
+                return Err(e.into())
+            },
+        };
         match actual_identity.set_root_drop_command(
             Command::new("/bin/bash")
                 .arg0(&arg0)
@@ -347,6 +356,8 @@ impl PKGBUILD {
                 .arg(SCRIPT)
                 .arg("Source extractor")
                 .arg(&pkgbuild_dir))
+                .stdout(dup_file)
+                .stderr(log_file.file)
             .spawn()
         {
             Ok(child) => Ok(child),
