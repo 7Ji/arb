@@ -14,6 +14,11 @@ mod threading;
 
 use std::collections::HashMap;
 
+use error::{
+        Error,
+        Result
+    };
+
 struct Settings {
     actual_identity: crate::identity::IdentityActual,
     pkgbuilds_config: HashMap<String, config::Pkgbuild>,
@@ -32,29 +37,20 @@ struct Settings {
     terminal: bool
 }
 
-fn log_setup() {
-    env_logger::Builder::from_env(
-        env_logger::Env::default().filter_or(
-            "ARB_LOG_LEVEL", "info")
-        ).target(env_logger::Target::Stdout).init();
-}
-
-fn prepare() -> Result<Settings, &'static str> {
-    log_setup();
+fn prepare() -> Result<Settings> {
     let arg: config::Arg = clap::Parser::parse();
     let actual_identity =
-    identity::IdentityActual::new_and_drop(arg.drop.as_deref())
-        .or_else(|_|Err("Failed to get actual identity"))?;
+    identity::IdentityActual::new_and_drop(arg.drop.as_deref())?;
     let mut config: config::Config = serde_yaml::from_reader(
-        std::fs::File::open(&arg.config).or_else(
+        std::fs::File::open(&arg.config).map_err(
         |e|{
             log::error!("Failed to open config file '{}': {}", arg.config, e);
-            Err("Failed to open config file")
+            Error::IoError(e)
         })?)
     .or_else(
     |e|{
         log::error!("Failed to parse YAML: {}", e);
-        Err("Failed to parse YAML config")
+        Err(Error::InvalidConfig)
     })?;
     if ! arg.build.is_empty() {
         log::warn!("Only build the following packages: {:?}", arg.build);
@@ -88,21 +84,19 @@ fn prepare() -> Result<Settings, &'static str> {
     })
 }
 
-fn work(settings: Settings) -> Result<(), &'static str> {
+fn work(settings: Settings) -> Result<()> {
     let gmr = settings.gmr.and_then(|gmr|
         Some(crate::source::git::Gmr::init(gmr.as_str())));
-    filesystem::create_layout().or(Err("Failed to create layout"))?;
+    filesystem::create_layout()?;
     let mut pkgbuilds =
         pkgbuild::PKGBUILDs::from_config_healthy(
             &settings.pkgbuilds_config, settings.holdpkg,
             settings.noclean, settings.proxy.as_ref(),
-            gmr.as_ref(), &settings.home_binds, settings.terminal
-        ).or_else(|_|Err("Failed to prepare PKGBUILDs list"))?;
+            gmr.as_ref(), &settings.home_binds, settings.terminal)?;
     let root = pkgbuilds.prepare_sources(
         &settings.actual_identity, &settings.basepkgs, settings.holdgit,
         settings.skipint, settings.noclean, settings.proxy.as_ref(),
-        gmr.as_ref(), &settings.dephash_strategy, settings.terminal
-        ).or_else(|_|Err("Failed to prepare sources"))?;
+        gmr.as_ref(), &settings.dephash_strategy, settings.terminal)?;
     let r = build::maybe_build(&pkgbuilds,
         root, &settings.actual_identity, settings.nobuild, settings.nonet,
          settings.sign.as_deref());
@@ -111,13 +105,40 @@ fn work(settings: Settings) -> Result<(), &'static str> {
     if ! settings.noclean {
         pkgbuilds.clean_pkgdir();
     }
-    if r.is_err() {
-        Err("Failed to build")
-    } else {
-        Ok(())
-    }
+    r
 }
 
-fn main() -> Result<(), &'static str> {
+fn main_arb() -> Result<()> {
     work(prepare()?)
+}
+
+fn main_init() -> Result<()> {
+    Ok(())
+}
+
+fn main() -> Result<()> {
+    env_logger::Builder::from_env(
+        env_logger::Env::default().filter_or(
+            "ARB_LOG_LEVEL", "info")
+        ).target(env_logger::Target::Stdout).init();
+    match std::env::args().nth(0) {
+        Some(arg0) => {
+            let applet = match arg0.rsplit_once('/') {
+                Some((_prefix, applet)) => applet,
+                None => arg0.as_str(),
+            };
+            match applet {
+                "arch_repo_builder" | "arb" => main_arb(),
+                "init" => main_init(),
+                _ => {
+                    log::error!("Invalid applet {}", arg0.as_str());
+                    Err(Error::BrokenEnvironment)
+                },
+            }
+        },
+        None => {
+            log::error!("Could not get arg0 from environment");
+            Err(Error::BrokenEnvironment)
+        },
+    }
 }
