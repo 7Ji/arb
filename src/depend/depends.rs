@@ -162,11 +162,9 @@ impl Depends {
         if let Err(e) = output_and_check(&mut command,
             "to download packages on host") 
         {
-            if let Error::BadChild { pid: _, code } = e {
-                if let Some(1) = code {
-                    output_and_check(&mut command,
-                        "to retry to download packages on host")?
-                }   
+            if let Error::BadChild { pid: _, code: Some(1) } = e {
+                return output_and_check(&mut command,
+                    "to retry to download packages on host")
             }
             Err(e)
         } else {
