@@ -418,6 +418,7 @@ impl PKGBUILD {
         command
             .current_dir(&builder)
             .arg0(format!("[BUILDER/{}] /bin/bash", self.pkgid))
+            .arg("--login")
             .arg("/usr/bin/makepkg")
             .arg("--holdver")
             .arg("--nodeps")
@@ -426,6 +427,7 @@ impl PKGBUILD {
             .arg("--nosign")
             .env("PKGDEST", &pkgdest);
         actual_identity.set_root_chroot_drop_command(&mut command, chroot);
+        command.env_remove("PATH");
         Ok(command)
     }
 
