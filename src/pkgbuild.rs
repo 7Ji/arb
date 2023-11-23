@@ -1,7 +1,7 @@
 // TODO: Split this into multiple modules
 // Progress: already splitted part into pkgbuild/parse.rs, add mod parse to enable part of that
 use crate::{
-        config::Pkgbuild as PkgbuildConfig,
+        arb::ConfigPkgbuild as PkgbuildConfig,
         error::{
             Error,
             Result
@@ -20,7 +20,7 @@ use crate::{
         threading::{
             self,
             wait_if_too_busy,
-        }, filesystem::remove_dir_all_try_best, sign::sign_pkgs, depend::{Depends, DbHandle}, config::DepHashStrategy
+        }, filesystem::remove_dir_all_try_best, sign::sign_pkgs, depend::{DepHashStrategy, Depends, DbHandle}
     };
 use git2::Oid;
 use std::{

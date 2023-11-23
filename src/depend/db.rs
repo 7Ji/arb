@@ -41,7 +41,7 @@ impl DbHandle {
                 return Err(Error::IoError(e))
             },
         };
-        let config = crate::config::PacmanConfig::
+        let config = crate::depend::paconfig::Config::
             from_pacman_conf_content(&content)?;
         let _new_config = config.with_cusrepo(
             "arch_repo_builder_internal_do_not_use",

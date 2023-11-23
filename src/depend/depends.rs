@@ -10,8 +10,10 @@ use xxhash_rust::xxh3;
 
 use crate::{
         child::output_and_check,
-        config::DepHashStrategy,
-        depend::DbHandle,
+        depend::{
+            DbHandle,
+            DepHashStrategy,
+        },
         error::{
             Error,
             Result,
