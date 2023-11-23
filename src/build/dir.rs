@@ -29,6 +29,10 @@ impl BuildDir {
         }
         Ok(Self { path })
     }
+
+    pub(super) fn prepare() -> Result<()> {
+        crate::filesystem::create_dir_allow_existing("build")
+    }
 }
 
 impl Drop for BuildDir {

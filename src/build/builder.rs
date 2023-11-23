@@ -353,6 +353,7 @@ impl<'a> Builders<'a> {
         nonet: bool, sign: Option<&'a str>
     ) -> Result<Self>
     {
+        BuildDir::prepare()?;
         let mut builders = vec![];
         for pkgbuild in pkgbuilds.0.iter() {
             if ! pkgbuild.need_build {
@@ -379,6 +380,7 @@ impl<'a> Builders<'a> {
         nonet: bool, sign: Option<&'a str>
     ) -> Result<Self>
     {
+        BuildDir::prepare()?;
         let mut builders = vec![];
         for pkgbuild in pkgbuild_layer.iter() {
             if ! pkgbuild.need_build {
