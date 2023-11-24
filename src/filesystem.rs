@@ -12,7 +12,7 @@ use std::{
             stdout,
             Write
         },
-        os::unix::fs::chown,
+        os::unix::fs::{chown, symlink},
         path::Path,
     };
 
@@ -224,4 +224,43 @@ pub(crate) fn create_layout() -> Result<()> {
         "file-ck", "file-md5", "file-sha1", "file-sha224", "file-sha256",
         "file-sha384", "file-sha512", "file-b2", "git", "PKGBUILD"], 
         "sources")
+}
+
+pub(crate) fn symlink_force<P, Q>(original: P, link: Q) -> Result<()>
+where
+    P: AsRef<Path>,
+    Q: AsRef<Path>,
+{
+    match symlink(&original, &link) {
+        Ok(()) => Ok(()),
+        Err(e) => if e.kind() == std::io::ErrorKind::AlreadyExists {
+            log::warn!("Symlink target '{}' exists, trying to remove it",
+                                link.as_ref().display());
+            let metadata = match original.as_ref().metadata() {
+                Ok(metadata) => metadata,
+                Err(e) => {
+                    log::error!("Failed to get metadata of '{}': {}",
+                        original.as_ref().display(), e);
+                    return Err(e.into())
+                },
+            };
+            if metadata.is_dir() {
+                remove_dir_all_try_best(&original)?;
+            } else if metadata.is_file() {
+                remove_file(&link).map_err(|e|Error::IoError(e))?
+            }
+            if let Err(e) = symlink(&original, &link) {
+                log::error!("Failed to force symlink '{}' to '{}': {}",
+                    original.as_ref().display(), link.as_ref().display(), e);
+                Err(e.into())
+            } else {
+                Ok(())
+            }
+        } else {
+            log::error!("Failed to symlink '{}' to '{}': {}", 
+                original.as_ref().display(), link.as_ref().display(), e);
+            Err(e.into())
+        },
+    }
+
 }

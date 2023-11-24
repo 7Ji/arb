@@ -331,7 +331,7 @@ impl PKGBUILD {
         repo.checkout(
             &self.build, &self.branch, self.subtree.as_deref()
         )?;
-        source::extract(&self.build, &self.sources);
+        source::extract(&self.build, &self.sources)?;
         let pkgbuild_dir = self.build.canonicalize().or_else(
         |e|{
             log::error!("Failed to canoicalize build dir path: {}", e);

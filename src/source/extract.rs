@@ -1,21 +1,21 @@
-use std::{
-        os::unix::fs::symlink,
-        path::{
-            Path,
-            PathBuf,
-        }
+use std::path::{
+        Path,
+        PathBuf,
     };
 
 use xxhash_rust::xxh3::xxh3_64;
 
-use crate::source::{
-    VcsProtocol,
-    Protocol,
-    Source,
-    IntegFile,
-};
+use crate::{
+        error::Result,
+        source::{
+            VcsProtocol,
+            Protocol,
+            Source,
+            IntegFile,
+        }
+    };
 
-pub(crate) fn extract<P: AsRef<Path>>(dir: P, sources: &Vec<Source>) {
+pub(crate) fn extract<P: AsRef<Path>>(dir: P, sources: &Vec<Source>) -> Result<()> {
     let rel = PathBuf::from("../..");
     for source in sources.iter() {
         let mut original = None;
@@ -35,11 +35,11 @@ pub(crate) fn extract<P: AsRef<Path>>(dir: P, sources: &Vec<Source>) {
             Protocol::Local => (),
         }
         if let Some(original) = original {
-            symlink(original,
-                dir.as_ref().join(&source.name))
-                .expect("Failed to symlink")
+            crate::filesystem::symlink_force(original, 
+                dir.as_ref().join(&source.name))?
         }
     }
+    Ok(())
 }
 
 // makepkg loves abslute link, but as we use chroot, that breaks up a lot
