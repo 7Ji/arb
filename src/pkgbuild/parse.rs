@@ -4,6 +4,11 @@ use std::{path::Path, process::{Command, Stdio}, io::{Write, Read}};
 
 use crate::identity::IdentityActual;
 
+use crate::error::{
+        Error,
+        Result,
+    };
+
 struct PackageBorrowed<'a> {
     name: &'a [u8],
     deps: Vec<&'a [u8]>,
@@ -49,8 +54,15 @@ impl<'a> PkgbuildBorrowed<'a> {
                 break
             }
         }
-        pkg.ok_or_else(||log::error!("Failed to find pkg {}",
-            String::from_utf8_lossy(name)))
+        match pkg {
+            Some(pkg) => Ok(pkg),
+            None => {
+                log::error!("Failed to find pkg {}",
+                    String::from_utf8_lossy(name));
+                Err(Error::BrokenPKGBUILDs(
+                    vec![String::from_utf8_lossy(self.base).to_string()]))
+            },
+        }
     }
     fn push_pkg_dep(&'a mut self, pkg_name: &[u8], dep: &'a [u8])
         -> Result<()>
@@ -97,7 +109,7 @@ struct PkgbuildsBorrowed<'a> {
 
 impl<'a> PkgbuildsBorrowed<'a> {
     fn from_parser_output(output: &'a Vec<u8>) -> Result<Self> {
-        let mut pkgbuilds = vec![];
+        let mut pkgbuilds = Vec::new();
         let mut pkgbuild = PkgbuildBorrowed::default();
         let mut started = false;
         for line in output.split(|byte| *byte == b'\n') {
@@ -105,10 +117,27 @@ impl<'a> PkgbuildsBorrowed<'a> {
             if line.contains(&b':') {
                 let mut it =
                     line.splitn(2, |byte| byte == &b':');
-                let key = it.next().ok_or_else(
-                    ||log::error!("Failed to get key"))?;
-                let value = it.next().ok_or_else(
-                    ||log::error!("Failed to get value"))?;
+                let key = match it.next() {
+                    Some(key) => key,
+                    None => {
+                        log::error!("Failed to get key from PKGBUILD, at line: \
+                            '{}'", String::from_utf8_lossy(line));
+                        return Err(Error::BrokenPKGBUILDs(Vec::new()));
+                    },
+                };
+                let value = match it.next() {
+                    Some(value) => value,
+                    None => {
+                        log::error!("Failed to get value from PKGBUILD, at line\
+                            : '{}'", String::from_utf8_lossy(line));
+                        return Err(Error::BrokenPKGBUILDs(Vec::new()));
+                    },
+                };
+                if it.next().is_some() {
+                    log::error!("PKGBUILD parsing line not sustained: '{}'", 
+                        String::from_utf8_lossy(line));
+                    return Err(Error::ImpossibleLogic);
+                }
                 match key {
                     b"base" => pkgbuild.base = value,
                     b"name" => {
@@ -135,7 +164,7 @@ impl<'a> PkgbuildsBorrowed<'a> {
                         _ => {
                             log::error!("Unexpected value: {}",
                                 String::from_utf8_lossy(value));
-                            return Err(())
+                            return Err(Error::BrokenPKGBUILDs(Vec::new()))
                         }
                     }
                     _ => {
@@ -145,7 +174,7 @@ impl<'a> PkgbuildsBorrowed<'a> {
                         else {
                             log::error!("Unexpected line: {}",
                                 String::from_utf8_lossy(line));
-                            return Err(())
+                            return Err(Error::BrokenPKGBUILDs(Vec::new()))
                         };
                         let name = &key[offset..];
                         let mut pkg = None;
@@ -157,9 +186,14 @@ impl<'a> PkgbuildsBorrowed<'a> {
                                 break
                             }
                         }
-                        let pkg = pkg.ok_or_else(
-                            ||log::error!("Failed to find pkg {}",
-                            String::from_utf8_lossy(name)))?;
+                        let pkg = match pkg {
+                            Some(pkg) => pkg,
+                            None => {
+                                log::error!("Failed to find pkg {}",
+                                    String::from_utf8_lossy(name));
+                                return Err(Error::BrokenPKGBUILDs(Vec::new()))
+                            },
+                        };
                         if is_dep {
                             pkg.deps.push(value)
                         } else {
@@ -176,7 +210,7 @@ impl<'a> PkgbuildsBorrowed<'a> {
                 }
             } else {
                 log::error!("Illegal line: {}", String::from_utf8_lossy(line));
-                return Err(())
+                return Err(Error::BrokenPKGBUILDs(Vec::new()))
             }
         }
         pkgbuilds.push(pkgbuild);
@@ -192,7 +226,7 @@ struct PackageOwned {
     provides: Vec<String>,
 }
 
-struct PkgbuildOwned {
+pub(crate) struct PkgbuildOwned {
     base: String,
     pkgs: Vec<PackageOwned>,
     deps: Vec<String>,
@@ -209,7 +243,7 @@ struct PkgbuildOwned {
     b2sums: Vec<String>,
     pkgver_func: bool,
 }
-struct PkgbuildsOwned {
+pub(crate) struct PkgbuildsOwned {
     entries: Vec<PkgbuildOwned>
 }
 
@@ -291,23 +325,27 @@ impl PkgbuildsOwned {
             Ok(child) => child,
             Err(e) => {
                 log::error!("Failed to spawn child to parse pkgbuilds: {}", e);
-                return Err(())
+                return Err(e.into())
             },
         };
         let mut child_in = match child.stdin.take() {
             Some(stdin) => stdin,
             None => {
                 log::error!("Failed to open stdin");
-                child.kill().expect("Failed to kill child");
-                return Err(())
+                if let Err(e) = child.kill() {
+                    log::error!("Faile to kill child: {}", e)
+                }
+                return Err(Error::BadChild { pid: None, code: None })
             },
         };
         let mut child_out = match child.stdout.take() {
             Some(stdout) => stdout,
             None => {
                 log::error!("Failed to open stdin");
-                child.kill().expect("Failed to kill child");
-                return Err(())
+                if let Err(e) = child.kill() {
+                    log::error!("Faile to kill child: {}", e)
+                }
+                return Err(Error::BadChild { pid: None, code: None })
             },
         };
         let mut output = vec![];
@@ -323,8 +361,10 @@ impl PkgbuildsOwned {
                 Ok(written_this) => written += written_this,
                 Err(e) => {
                     log::error!("Failed to write buffer to child: {}", e);
-                    child.kill().expect("Failed to kill child");
-                    return Err(())
+                    if let Err(e) = child.kill() {
+                        log::error!("Faile to kill child: {}", e)
+                    }
+                    return Err(e.into())
                 },
             }
             match child_out.read(&mut output_buffer[..]) {
@@ -333,34 +373,30 @@ impl PkgbuildsOwned {
                 Err(e) => {
                     log::error!("Failed to read stdout child: {}", e);
                     child.kill().expect("Failed to kill child");
-                    return Err(())
+                    return Err(e.into())
                 },
             }
         }
         drop(child_in);
-        match child_out.read_to_end(&mut output) {
-            Ok(_) => (),
-            Err(e) => {
-                log::error!("Failed to read stdout child: {}", e);
-                child.kill().expect("Failed to kill child");
-                return Err(())
-            },
+        if let Err(e) = child_out.read_to_end(&mut output) {
+            log::error!("Failed to read stdout child: {}", e);
+            child.kill().expect("Failed to kill child");
+            return Err(e.into())
         }
-        if child
-            .wait()
-            .or_else(|e|{
-                log::error!(
-                    "Failed to wait for child parsing PKGBUILDs: {}", e);
-                Err(())
-            })?
-            .code()
-            .ok_or_else(||{
-                log::error!("Failed to get return code from child parsing \
-                        PKGBUILD type")
-            })? != 0 {
-                log::error!("Reader bad return");
-                return Err(())
-            }
+        let status = match child.wait() {
+            Ok(status) => status,
+            Err(e) => {
+                log::error!("Failed to wait for child parsing PKGBUILDs: {}", e);
+                return Err(e.into());
+            },
+        };
+        if ! status.success() {
+            log::error!("PKGBUILD reader bad return");
+            return Err(Error::BadChild { 
+                pid: Some(nix::unistd::Pid::from_raw(
+                    child.id() as libc::pid_t)), 
+                code: status.code() })
+        }
         Ok(Self::from_borrowed(PkgbuildsBorrowed::from_parser_output(&output)?))
     }
 }
