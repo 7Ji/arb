@@ -49,11 +49,31 @@ impl LogFile {
         let path = PathBuf::from(format!("logs/{}_{}_{}.log", 
             time_formatted, log_type, id.as_ref()));
         let file = File::create(&path).map_err(Error::from)?;
-        log::info!("Log to {} '{}' is stored at '{}'", log_type, id.as_ref(), 
-                    path.display());
+        log::info!("New log file created at '{}'", path.display());
         Ok(Self {
             path,
             file,
         })
     }
 }
+
+// pub(crate) struct TimedLogFile {
+//     start: Instant,
+//     childout: ChildStdout,
+//     childerr: ChildStderr,
+//     inner: LogFile,
+// }
+
+// impl TimedLogFile {
+//     pub(crate) fn new<S: AsRef<str>>(log_type: LogType, id: S) -> Result<Self> {
+//         let inner = LogFile::new(log_type, id)?;
+//         Ok(Self{
+//             start: Instant::now(),
+//             inner,
+//         })
+//     }
+//     fn take_child(child: &mut Child) {
+        
+//     }
+
+// }
