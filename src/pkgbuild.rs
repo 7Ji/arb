@@ -5,9 +5,18 @@ mod parse;
 mod unused;
 
 pub(crate) struct PKGBUILD {
-    inner: parse::PkgbuildOwned
+    inner: parse::PkgbuildOwned,
+    url: String,
+    branch: String,
+    commit: git2::Oid,
 }
 
 pub(crate) struct PKGBUILDs {
     inner: parse::PkgbuildsOwned
+}
+
+impl PKGBUILDs {
+    fn from_config() {
+
+    }
 }
