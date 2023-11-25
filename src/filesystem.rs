@@ -236,7 +236,7 @@ where
         Err(e) => if e.kind() == std::io::ErrorKind::AlreadyExists {
             log::warn!("Symlink target '{}' exists, trying to remove it",
                                 link.as_ref().display());
-            let metadata = match original.as_ref().symlink_metadata() {
+            let metadata = match link.as_ref().symlink_metadata() {
                 Ok(metadata) => metadata,
                 Err(e) => {
                     log::error!("Failed to get metadata of '{}': {}",
