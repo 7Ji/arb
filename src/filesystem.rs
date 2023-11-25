@@ -236,7 +236,7 @@ where
         Err(e) => if e.kind() == std::io::ErrorKind::AlreadyExists {
             log::warn!("Symlink target '{}' exists, trying to remove it",
                                 link.as_ref().display());
-            let metadata = match original.as_ref().metadata() {
+            let metadata = match link.as_ref().symlink_metadata() {
                 Ok(metadata) => metadata,
                 Err(e) => {
                     log::error!("Failed to get metadata of '{}': {}",
@@ -246,7 +246,8 @@ where
             };
             if metadata.is_dir() {
                 remove_dir_all_try_best(&original)?;
-            } else if metadata.is_file() {
+            // } else if metadata.is_file() || metadata.is_symlink() {
+            } else {
                 remove_file(&link).map_err(|e|Error::IoError(e))?
             }
             if let Err(e) = symlink(&original, &link) {
