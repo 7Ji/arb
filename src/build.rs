@@ -9,14 +9,14 @@ pub(crate) fn maybe_build(
     actual_identity: &crate::identity::IdentityActual,
     nobuild: bool,
     nonet: bool,
-    sign: Option<&str>
+    sign: &str
 ) -> Result<()>
 {
     if let Some(_root) = root {
         if nobuild {
             return Ok(())
         }
-        match crate::depend::split_pkgbuilds(pkgbuilds) {
+        match crate::pacman::split_pkgbuilds(pkgbuilds) {
             Ok(layers) => {
                 for layer in layers {
                     builder::build_any_needed_layer(

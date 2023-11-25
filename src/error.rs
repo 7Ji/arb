@@ -15,6 +15,7 @@ pub(crate) enum Error {
     GitObjectMissing,
     ImpossibleLogic,
     IntegrityError,
+    InvalidArgument,
     InvalidConfig,
     // MappingFailure,
     IoError (std::io::Error),
@@ -24,6 +25,7 @@ pub(crate) enum Error {
     TimeError (time::Error),
     UreqError (ureq::Error),
     UrlParseError (url::ParseError),
+    YAMLParseError (serde_yaml::Error),
 }
 
 pub(crate) type Result<T> = std::result::Result<T, Error>;
@@ -37,26 +39,28 @@ impl Default for Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::AlpmError(e) => write!(f, "Alpm Error: {}", e),
-            Error::BadChild { pid, code } => write!(f, "Bad child, pid {:?}, code {:?}", pid, code),
-            Error::BrokenEnvironment => write!(f, "Broken Environment"),
-            Error::BrokenPKGBUILDs(pkgbuilds) => write!(f, "Broken PKGBUILDs: {:?}", pkgbuilds),
-            Error::BuildFailure => write!(f, "Build Failure"),
-            Error::Collapsed(s) => write!(f, "Collapsed {}", s),
-            Error::DependencyMissing( deps ) => write!(f, "Dependency missing: {:?}", deps),
-            Error::FilesystemConflict => write!(f, "Filesystem Conflict"),
-            Error::GitObjectMissing => write!(f, "Git Object Missing"),
-            Error::GitError(e) => write!(f, "Git Error: {}", e),
-            Error::ImpossibleLogic => write!(f, "Impossible Logic"),
-            Error::IntegrityError => write!(f, "Integrity Error"),
-            Error::InvalidConfig => write!(f, "Invalid Config"),
-            Error::IoError(e) => write!(f, "IO Error: {}", e),
-            Error::NixErrno(e) => write!(f, "Nix Errno: {}", e),
-            Error::ProcError(e) => write!(f, "Proc Error: {}", e),
-            Error::ThreadFailure(artifact) => write!(f, "Thread Failure, artifact: {:?}", artifact),
-            Error::TimeError(e) => write!(f, "Time Error: {}", e),
-            Error::UreqError(e) => write!(f, "Ureq Error: {}", e),
-            Error::UrlParseError(e) => write!(f, "URL Parse Error: {}", e),
+            Self::AlpmError(e) => write!(f, "Alpm Error: {}", e),
+            Self::BadChild { pid, code } => write!(f, "Bad child, pid {:?}, code {:?}", pid, code),
+            Self::BrokenEnvironment => write!(f, "Broken Environment"),
+            Self::BrokenPKGBUILDs(pkgbuilds) => write!(f, "Broken PKGBUILDs: {:?}", pkgbuilds),
+            Self::BuildFailure => write!(f, "Build Failure"),
+            Self::Collapsed(s) => write!(f, "Collapsed {}", s),
+            Self::DependencyMissing( deps ) => write!(f, "Dependency missing: {:?}", deps),
+            Self::FilesystemConflict => write!(f, "Filesystem Conflict"),
+            Self::GitObjectMissing => write!(f, "Git Object Missing"),
+            Self::GitError(e) => write!(f, "Git Error: {}", e),
+            Self::ImpossibleLogic => write!(f, "Impossible Logic"),
+            Self::IntegrityError => write!(f, "Integrity Error"),
+            Self::InvalidArgument => write!(f, "Invalid Argument"),
+            Self::InvalidConfig => write!(f, "Invalid Config"),
+            Self::IoError(e) => write!(f, "IO Error: {}", e),
+            Self::NixErrno(e) => write!(f, "Nix Errno: {}", e),
+            Self::ProcError(e) => write!(f, "Proc Error: {}", e),
+            Self::ThreadFailure(artifact) => write!(f, "Thread Failure, artifact: {:?}", artifact),
+            Self::TimeError(e) => write!(f, "Time Error: {}", e),
+            Self::UreqError(e) => write!(f, "Ureq Error: {}", e),
+            Self::UrlParseError(e) => write!(f, "URL Parse Error: {}", e),
+            Self::YAMLParseError(e) => write!(f, "YAML Parse Error: {}", e),
         }
     }
 }
@@ -109,11 +113,17 @@ impl From<time::Error> for Error {
     }
 }
 
+impl From<serde_yaml::Error> for Error {
+    fn from(value: serde_yaml::Error) -> Self {
+        Self::YAMLParseError(value)
+    }
+}
+
 impl Into<std::io::Error> for Error {
     fn into(self) -> std::io::Error {
         match self {
-            Error::IoError(e) => e,
-            Error::NixErrno(e) => e.into(),
+            Self::IoError(e) => e,
+            Self::NixErrno(e) => e.into(),
             _ => std::io::Error::new(std::io::ErrorKind::Other, "Unmappable Error")
         }
     }
@@ -134,6 +144,7 @@ impl Clone for Error {
             Self::GitObjectMissing => Self::GitObjectMissing,
             Self::ImpossibleLogic => Self::ImpossibleLogic,
             Self::IntegrityError => Self::IntegrityError,
+            Self::InvalidArgument => Self::InvalidArgument,
             Self::InvalidConfig => Self::InvalidConfig,
             Self::IoError(arg0) => Self::IoError(std::io::Error::from(arg0.kind())),
             Self::NixErrno(arg0) => Self::NixErrno(*arg0),
@@ -142,6 +153,7 @@ impl Clone for Error {
             Self::TimeError(arg0) => Self::Collapsed(format!("From Time Error: {}", arg0)),
             Self::UreqError(arg0) => Self::Collapsed(format!("From Ureq Error: {}", arg0)),
             Self::UrlParseError(arg0) => Self::UrlParseError(arg0.clone()),
+            Self::YAMLParseError(arg0) => Self::Collapsed(format!("From YAML Parse Error: {}", arg0))
         }
     }
 }

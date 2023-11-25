@@ -10,8 +10,8 @@ use xxhash_rust::xxh3;
 
 use crate::{
         child::output_and_check,
-        config::DepHashStrategy,
-        depend::DbHandle,
+        config::DepHash,
+        pacman::db::DbHandle,
         error::{
             Error,
             Result,
@@ -118,15 +118,15 @@ impl Depends {
     }
 
     pub(crate) fn needed_and_hash(
-        &mut self, db_handle: &DbHandle, hash_strategy: &DepHashStrategy
+        &mut self, db_handle: &DbHandle, hash_strategy: &DepHash
     )
         -> Result<()>
     {
         self.needs.clear();
         let r = match hash_strategy {
-            DepHashStrategy::Strict => self.needed_and_strict_hash(db_handle),
-            DepHashStrategy::Loose => self.needed_and_loose_hash(db_handle),
-            DepHashStrategy::None => self.needed_and_no_hash(db_handle),
+            DepHash::Strict => self.needed_and_strict_hash(db_handle),
+            DepHash::Loose => self.needed_and_loose_hash(db_handle),
+            DepHash::None => self.needed_and_no_hash(db_handle),
         };
         self.needs.sort_unstable();
         self.needs.dedup();

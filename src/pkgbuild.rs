@@ -20,7 +20,7 @@ use crate::{
         threading::{
             self,
             wait_if_too_busy,
-        }, filesystem::remove_dir_all_try_best, sign::sign_pkgs, depend::{Depends, DbHandle}, config::DepHashStrategy
+        }, filesystem::remove_dir_all_try_best, sign::sign_pkgs, pacman::{Depends, DbHandle}, config::DepHash
     };
 use git2::Oid;
 use std::{
@@ -49,7 +49,7 @@ use std::{
         iter::zip,
     };
 use xxhash_rust::xxh3::xxh3_64;
-// use super::{depend::Depends, DepHashStrategy};
+// use super::{depend::Depends, DepHash};
 // use super::depend::DbHandle;
 // mod parse;
 
@@ -368,8 +368,8 @@ impl PKGBUILD {
         }
     }
 
-    fn fill_id_dir(&mut self, dephash_strategy: &DepHashStrategy) {
-        let mut pkgid = if let DepHashStrategy::None = dephash_strategy
+    fn fill_id_dir(&mut self, dephash_strategy: &DepHash) {
+        let mut pkgid = if let DepHash::None = dephash_strategy
         {
             format!("{}-{}", self.base, self.commit)
         } else {
@@ -465,7 +465,7 @@ impl PKGBUILD {
     }
 
     pub(crate) fn finish_build(&self,
-        actual_identity: &IdentityActual, temp_pkgdir: &Path, sign: Option<&str>
+        actual_identity: &IdentityActual, temp_pkgdir: &Path, sign: &str
     )
         -> Result<()>
     {
@@ -476,8 +476,8 @@ impl PKGBUILD {
                 return Err(e.into())
             }
         }
-        if let Some(key) = sign {
-            sign_pkgs(actual_identity, temp_pkgdir, key)?;
+        if ! sign.is_empty() {
+            sign_pkgs(actual_identity, temp_pkgdir, sign)?;
         }
         if let Err(e) = rename(&temp_pkgdir, &self.pkgdir) {
             log::error!("Failed to rename temp pkgdir '{}' to persistent pkgdir \
@@ -667,7 +667,7 @@ impl PKGBUILDs {
 
     fn get_deps<P: AsRef<Path>> (
         &mut self, actual_identity: &IdentityActual, dir: P, db_handle: &DbHandle,
-        dephash_strategy: &DepHashStrategy
+        dephash_strategy: &DepHash
     ) -> Result<()>
     {
         let mut r = Ok(());
@@ -723,7 +723,7 @@ impl PKGBUILDs {
                 db_handle, dephash_strategy)
             {
                 Ok(_) => {
-                    if let DepHashStrategy::None = dephash_strategy {
+                    if let DepHash::None = dephash_strategy {
                         log::info!("PKGBUILD '{}' needed dependencies: {:?}",
                                 &pkgbuild.base, &pkgbuild.depends.needs);
                     } else {
@@ -746,7 +746,7 @@ impl PKGBUILDs {
 
     fn check_deps<P: AsRef<Path>> (
         &mut self, actual_identity: &IdentityActual, dir: P, root: P,
-        dephash_strategy: &DepHashStrategy
+        dephash_strategy: &DepHash
     )   -> Result<()>
     {
         let db_handle = DbHandle::new(root)?;
@@ -967,7 +967,7 @@ impl PKGBUILDs {
         Ok(())
     }
 
-    fn fill_all_ids_dirs(&mut self, dephash_strategy: &DepHashStrategy) {
+    fn fill_all_ids_dirs(&mut self, dephash_strategy: &DepHash) {
         for pkgbuild in self.0.iter_mut() {
             pkgbuild.fill_id_dir(dephash_strategy)
         }
@@ -1026,7 +1026,7 @@ impl PKGBUILDs {
         noclean: bool,
         proxy: Option<&Proxy>,
         gmr: Option<&git::Gmr>,
-        dephash_strategy: &DepHashStrategy,
+        dephash_strategy: &DepHash,
         terminal: bool
     ) -> Result<Option<BaseRoot>>
     {

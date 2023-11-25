@@ -416,12 +416,13 @@ impl IdentityActual {
         }
     }
 
-    pub(crate) fn new_and_drop(id_pair: Option<&str>) -> Result<Self> {
-        let identity = match match id_pair {
-            Some(id_pair) =>
-                Self::new_from_id_pair(id_pair),
-            None => Self::new_from_sudo(),
-        } {
+    pub(crate) fn new_and_drop(id_pair: &str) -> Result<Self> {
+        let r = if id_pair.is_empty() {
+            Self::new_from_sudo()
+        } else {
+            Self::new_from_id_pair(id_pair)
+        };
+        let identity = match r {
             Ok(identity) => identity,
             Err(e) => {
                 log::error!("Failed to get actual identity, did you start the \

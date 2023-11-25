@@ -118,7 +118,7 @@ impl <'a> Builder<'a> {
     }
 
     fn step_build(&mut self,  heavy_load: bool, actual_identity: &IdentityActual,
-        sign: Option<&str>, jobs: &mut usize ) -> Result<()>
+        sign: &str, jobs: &mut usize ) -> Result<()>
     {
         match &mut self.build_state {
             BuildState::None =>
@@ -236,7 +236,7 @@ impl <'a> Builder<'a> {
     }
 
     fn step(&mut self, heavy_load: bool, actual_identity: &IdentityActual,
-            nonet: bool, sign: Option<&str>, jobs: &mut usize ) -> Result<()>
+            nonet: bool, sign: &str, jobs: &mut usize ) -> Result<()>
     {
         match &mut self.root_state {
             RootState::None => if ! heavy_load {
@@ -344,13 +344,13 @@ struct Builders<'a> {
     builders: Vec<Builder<'a>>,
     actual_identity: &'a IdentityActual,
     nonet: bool,
-    sign: Option<&'a str>
+    sign: &'a str
 }
 
 impl<'a> Builders<'a> {
     fn from_pkgbuilds(
         pkgbuilds: &'a PKGBUILDs, actual_identity: &'a IdentityActual,
-        nonet: bool, sign: Option<&'a str>
+        nonet: bool, sign: &'a str
     ) -> Result<Self>
     {
         BuildDir::prepare()?;
@@ -377,7 +377,7 @@ impl<'a> Builders<'a> {
 
     fn from_pkgbuild_layer(
         pkgbuild_layer: &Vec<&'a PKGBUILD>, actual_identity: &'a IdentityActual,
-        nonet: bool, sign: Option<&'a str>
+        nonet: bool, sign: &'a str
     ) -> Result<Self>
     {
         BuildDir::prepare()?;
@@ -464,7 +464,7 @@ impl<'a> Builders<'a> {
 
 pub(super) fn build_any_needed(
     pkgbuilds: &PKGBUILDs,  actual_identity: &IdentityActual,
-    nonet: bool, sign: Option<&str>
+    nonet: bool, sign: &str
 ) -> Result<()>
 {
     Builders::from_pkgbuilds(pkgbuilds, actual_identity, nonet, sign)?
@@ -474,7 +474,7 @@ pub(super) fn build_any_needed(
 
 pub(super) fn build_any_needed_layer(
     pkgbuild_layer: &Vec<&PKGBUILD>,  actual_identity: &IdentityActual,
-    nonet: bool, sign: Option<&str>
+    nonet: bool, sign: &str
 ) -> Result<()>
 {
     Builders::from_pkgbuild_layer(pkgbuild_layer, actual_identity, nonet, sign)?
