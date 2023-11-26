@@ -1,28 +1,26 @@
-use std::ffi::OsString;
+use std::ffi::OsStr;
 
-use crate::error::{
-        Error,
-        Result
-    };
+use nix::unistd::pivot_root;
 
+/// Init: A dummy init implementation that just passes its args to downstream
+/// But wait, it does more:
+/// - It also pivot_root while it still has the perm, path is hardcoded
+/// - It then drop perms by setuid
+/// 
+/// Those are also done by other init-able applets
+// fn main() {
+//     pivot_root()
+// }
 
-pub(crate) fn main<I, S>(_args: I) -> Result<()>
+fn main<I, S>(args: I) 
 where
-    I: Iterator<Item = S>,
-    S: Into<OsString> + Clone,
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>
 {
-    // unshare(CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNS | CloneFlags::CLONE_NEWPID).unwrap();
-    // wait_root();
-    // let args = Args::parse_from(args);
-    // let mut command = std::process::Command::new("/bin/bash");
-    // if ! args.command.is_empty() {
-    //     command.arg("-c")
-    //         .arg(args.command);
-    // };
-    // command
-    //     .spawn()
-    //     .unwrap()
-    //     .wait()
-    //     .unwrap();
-    Err(Error::ImpossibleLogic)
+    crate::init::prepare_and_drop();
+    
+
+
+
+    crate::init::finish()
 }

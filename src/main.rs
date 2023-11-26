@@ -2,14 +2,18 @@ use std::{env::ArgsOs, ffi::OsString, path::PathBuf, os::unix::ffi::OsStrExt};
 
 mod applet_arb;
 mod applet_builder;
+mod applet_broker;
 mod applet_init;
+mod applet_pkgreader;
 
+mod broker;
 mod build;
 mod child;
 mod config;
 mod pacman;
 mod error;
 mod filesystem;
+mod init;
 mod logfile;
 mod identity;
 mod pkgbuild;
@@ -32,7 +36,7 @@ fn log_setup() {
 }
 
 
-fn private_args(args: ArgsOs) -> impl Iterator<Item = OsString> {
+fn clap_args(args: ArgsOs) -> impl Iterator<Item = OsString> {
     std::iter::once(OsString::new()).chain(args.into_iter())
 }
 
@@ -56,8 +60,10 @@ fn dispatch(mut args: ArgsOs) -> Result<()> {
     match name.as_bytes() {
         b"arb_multi" | b"arb-multi" | b"multi"  => dispatch(args),
         b"arb" | b"arch_repo_builder" | b"arch-repo-builder" => 
-                    applet_arb::main(private_args(args)),
-        b"init" => applet_init::main(private_args(args)),
+                    applet_arb::main(clap_args(args)),
+        b"broker" => applet_broker::main(),
+        b"pkgreader" => applet_pkgreader::main(args),
+        b"init" => applet_init::main(args),
         other => {
             log::error!("Unknown applet {}", String::from_utf8_lossy(other));
             Err(Error::InvalidArgument)

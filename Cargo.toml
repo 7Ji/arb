@@ -33,7 +33,7 @@ features = ["derive"]
 
 [dependencies.nix]
 version = "0.27"
-features = [ "mount", "process", "user" ]
+features = [ "fs", "mount", "process", "user", "sched" ]
 
 [dependencies.ureq]
 version = "2.8"
