@@ -25,10 +25,10 @@ where
     I: Iterator<Item = S>,
     S: Into<OsString> + Clone,
 {
+    crate::init::prepare_and_drop()?;
+    
 
-    crate::init::prepare()?;
 
     crate::init::finish()?;
-
     Err(Error::ImpossibleLogic)
 }

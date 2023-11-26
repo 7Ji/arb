@@ -3,7 +3,7 @@
 use std::{
         fmt::Display,
         fs::File,
-        path::PathBuf,
+        path::PathBuf, time::Instant, process::{ChildStdout, ChildStderr, Child}, thread::JoinHandle,
     };
 
 use time;
@@ -59,21 +59,32 @@ impl LogFile {
 
 // pub(crate) struct TimedLogFile {
 //     start: Instant,
-//     childout: ChildStdout,
-//     childerr: ChildStderr,
+//     childout: Option<ChildStdout>,
+//     childerr: Option<ChildStderr>,
 //     inner: LogFile,
 // }
 
 // impl TimedLogFile {
-//     pub(crate) fn new<S: AsRef<str>>(log_type: LogType, id: S) -> Result<Self> {
+//     pub(crate) fn new<S: AsRef<str>>(log_type: LogType, id: S, child: &mut Child) -> Result<Self> {
 //         let inner = LogFile::new(log_type, id)?;
+//         let childout = child.stdout.take().unwrap();
+//         let childerr = child.stderr.take().unwrap();
 //         Ok(Self{
 //             start: Instant::now(),
+//             childout,
+//             childerr,
 //             inner,
 //         })
 //     }
-//     fn take_child(child: &mut Child) {
-        
+
+//     fn read() -> Result<()> {
+
+
 //     }
 
+
+//     pub(crate) fn threaded(self) -> JoinHandle<Result<()>> {
+
+
+//     }
 // }
