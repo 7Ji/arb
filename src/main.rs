@@ -15,7 +15,7 @@ mod error;
 mod filesystem;
 mod init;
 mod logfile;
-mod identity;
+mod environment;
 mod pkgbuild;
 mod root;
 mod sign;
@@ -57,17 +57,27 @@ fn dispatch(mut args: ArgsOs) -> Result<()> {
             return Err(Error::InvalidArgument)
         },
     };
-    match name.as_bytes() {
+    let name = name.as_bytes();
+    match name {
         b"arb_multi" | b"arb-multi" | b"multi"  => dispatch(args),
         b"arb" | b"arch_repo_builder" | b"arch-repo-builder" => 
                     applet_arb::main(clap_args(args)),
-        b"broker" => applet_broker::main(),
-        b"pkgreader" => applet_pkgreader::main(args),
-        b"init" => applet_init::main(args),
-        other => {
-            log::error!("Unknown applet {}", String::from_utf8_lossy(other));
-            Err(Error::InvalidArgument)
-        },
+        _ => {
+            // For any other applet, we want to die with our parent
+            if let Err(e) = nix::sys::prctl::set_pdeathsig(nix::sys::signal::Signal::SIGTERM) {
+                log::error!("Failed to set parent detach signal to kill");
+                return Err(e.into())
+            }
+            match name {
+                b"broker" => applet_broker::main(),
+                b"pkgreader" => applet_pkgreader::main(args),
+                b"init" => applet_init::main(args),
+                other => {
+                    log::error!("Unknown applet {}", String::from_utf8_lossy(other));
+                    Err(Error::InvalidArgument)
+                },
+            }
+        }
     }
 }
 
