@@ -26,6 +26,7 @@ log = "0.4.20"
 env_logger = "0.10.0"
 is-terminal = "0.4.9"
 pwd = "1.4.0"
+pkgbuild = { git = "https://github.com/7Ji/pkgbuild-rs.git" }
 
 [dependencies.clap]
 version = "4.3"

@@ -61,7 +61,7 @@ impl Protocol {
     // fn setup() -> Result<()> {
 
     // }
-
+    // Note: for efficient, always prefer the MessagePack format when serde
     fn call(&self) -> Result<()> {
         let (mut command, arg1) = match self.delegation {
             Delegation::External(command) => (Command::new(command), ""),
