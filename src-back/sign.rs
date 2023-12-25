@@ -8,15 +8,12 @@ use std::{
         },
     };
 
-use crate::{
-        error::{
-            Error,
-            Result
-        },
-        identity::IdentityActual
+use crate::error::{
+        Error,
+        Result
     };
 
-fn sign_pkg(actual_identity: &IdentityActual, file: &Path, key: &str)
+fn sign_pkg(file: &Path, key: &str)
     -> Result<()>
 {
     crate::child::output_and_check(

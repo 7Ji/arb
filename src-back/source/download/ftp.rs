@@ -1,5 +1,4 @@
 pub(crate) fn ftp(
-    actual_identity: &crate::identity::IdentityActual,
     url: &str,
     path: &std::path::Path
 ) -> crate::error::Result<()>

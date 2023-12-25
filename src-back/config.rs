@@ -2,7 +2,10 @@ use std::{collections::HashMap, fs::File, path::Path};
 
 use serde::Deserialize;
 
-use crate::error::Result;
+use crate::error::{
+    Error,
+    Result
+};
 
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -24,12 +27,16 @@ pub(crate) enum Pkgbuild {
     Simple (String),
     Complex {
         url: String,
-        branch: Option<String>,
-        subtree: Option<String>,
-        deps: Option<Vec<String>>,
-        makedeps: Option<Vec<String>>,
-        home_binds: Option<Vec<String>>,
-        binds: Option<HashMap<String, String>>
+        #[serde(default)]
+        branch: String,
+        #[serde(default)]
+        subtree: String,
+        #[serde(default)]
+        deps: Vec<String>,
+        #[serde(default)]
+        makedeps: Vec<String>,
+        #[serde(default)]
+        homebinds: Vec<String>,
     },
 }
 
@@ -59,8 +66,9 @@ pub(crate) struct Config {
     pub(crate) basepkgs: Vec<String>,
     #[serde(default)]
     pub(crate) dephash: DepHash,
-    pub(crate) pkgbuilds: std::collections::HashMap<String, Pkgbuild>,
-    #[serde(default = "default_home_binds")]
+    #[serde(default)]
+    pub(crate) pkgbuilds: HashMap<String, Pkgbuild>,
+    #[serde(default)]
     pub(crate) homebinds: Vec<String>,
 }
 
@@ -68,17 +76,15 @@ fn default_basepkgs() -> Vec<String> {
     vec![String::from("base-devel")]
 }
 
-fn default_home_binds() -> Vec<String> {
-    Vec::new()
-}
+impl TryFrom<&Path> for Config {
+    type Error = Error;
 
-impl Config {
-    pub(crate) fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = match File::open(&path) {
+    fn try_from(path: &Path) -> Result<Self> {
+        let file = match File::open(path) {
             Ok(file) => file,
             Err(e) => {
                 log::error!("Failed to open config file '{}': {}", 
-                        path.as_ref().display(), e);
+                        path.display(), e);
                 return Err(e.into())
             },
         };
@@ -86,9 +92,15 @@ impl Config {
             Ok(config) => Ok(config),
             Err(e) => {
                 log::error!("Failed to parse YAML config file '{}': {}", 
-                    path.as_ref().display(), e);
+                    path.display(), e);
                 Err(e.into())
             },
         }
+    }
+}
+
+impl Config {
+    pub(crate) fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
+        path.as_ref().try_into()
     }
 }

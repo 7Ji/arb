@@ -15,7 +15,6 @@ use crate::{
             Result
         },
         filesystem::remove_dir_all_try_best,
-        identity::IdentityActual,
         logfile::{
             LogFile,
             LogType,
@@ -77,7 +76,7 @@ struct Builder<'a> {
 
 impl <'a> Builder<'a> {
     const BUILD_MAX_TRIES: usize = 3;
-    fn from_pkgbuild(pkgbuild: &'a PKGBUILD, actual_identity: &IdentityActual)
+    fn from_pkgbuild(pkgbuild: &'a PKGBUILD)
         -> Result<Self>
     {
         let builddir = BuildDir::new(&pkgbuild.base)?;
@@ -101,7 +100,7 @@ impl <'a> Builder<'a> {
         })
     }
 
-    fn start_extract(&mut self, actual_identity: &IdentityActual) -> Result<()> {
+    fn start_extract(&mut self) -> Result<()> {
         match self.pkgbuild.extractor_source(actual_identity) {
             Ok(child) => {
                 log::info!("Start extracting for pkgbuild '{}'",
