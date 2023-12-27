@@ -21,57 +21,6 @@ impl Default for DepHash {
     }
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
-#[serde(untagged)]
-pub(crate) enum Pkgbuild {
-    Simple (String),
-    Complex {
-        url: String,
-        #[serde(default)]
-        branch: String,
-        #[serde(default)]
-        subtree: String,
-        #[serde(default)]
-        deps: Vec<String>,
-        #[serde(default)]
-        makedeps: Vec<String>,
-        #[serde(default)]
-        homebinds: Vec<String>,
-    },
-}
-
-#[derive(Debug, PartialEq, Deserialize)]
-pub(crate) struct Config {
-    #[serde(default)]
-    pub(crate) holdpkg: bool,
-    #[serde(default)]
-    pub(crate) holdgit: bool,
-    #[serde(default)]
-    pub(crate) skipint: bool,
-    #[serde(default)]
-    pub(crate) nobuild: bool,
-    #[serde(default)]
-    pub(crate) noclean: bool,
-    #[serde(default)]
-    pub(crate) nonet: bool,
-    #[serde(default)]
-    pub(crate) sign: String,
-    #[serde(default)]
-    pub(crate) gmr: String,
-    #[serde(default)]
-    pub(crate) proxy: String,
-    #[serde(default)]
-    pub(crate) lazyproxy: usize,
-    #[serde(default = "default_basepkgs")]
-    pub(crate) basepkgs: Vec<String>,
-    #[serde(default)]
-    pub(crate) dephash: DepHash,
-    #[serde(default)]
-    pub(crate) pkgbuilds: HashMap<String, Pkgbuild>,
-    #[serde(default)]
-    pub(crate) homebinds: Vec<String>,
-}
-
 fn default_basepkgs() -> Vec<String> {
     vec![String::from("base-devel")]
 }

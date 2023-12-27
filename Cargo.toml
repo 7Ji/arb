@@ -3,4 +3,30 @@ name = "arch_repo_builder"
 version = "0.2.0"
 edition = "2021"
 
+[dependencies]
+env_logger = "0.10"
+gix = "0.56"
+log = "0.4"
+serde_yaml = "0.9"
+
+[dependencies.clap]
+version = "4.4"
+features = ["derive"]
+
+[dependencies.nix]
+version = "0.27"
+features = ["process"]
+
+[dependencies.pkgbuild]
+version = "0.1"
+path = "../../library/pkgbuild-rs"
+features = ["serde"]
+
+[dependencies.serde]
+version = "1.0"
+features = ["derive"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+log_stderr = []
