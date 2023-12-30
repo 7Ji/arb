@@ -5,13 +5,19 @@ edition = "2021"
 
 [dependencies]
 env_logger = "0.10"
-gix = "0.56"
 log = "0.4"
+rmp-serde = "1.1"
 serde_yaml = "0.9"
+url = "2.5"
 
 [dependencies.clap]
 version = "4.4"
 features = ["derive"]
+
+[dependencies.git2]
+version = "0.18"
+default-features = false
+features = ["https"]
 
 [dependencies.nix]
 version = "0.27"
@@ -26,7 +32,12 @@ features = ["serde"]
 version = "1.0"
 features = ["derive"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies.ureq]
+version = "2.9"
+features = ["json"]
 
-[features]
-log_stderr = []
+[dependencies.xxhash-rust]
+version = "0.8"
+features = ["xxh3"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

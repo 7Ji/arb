@@ -44,7 +44,7 @@ impl AurResult {
                 Ok(response) => response,
                 Err(e) => {
                     log::error!("Failed to call AUR: {}", e);
-                    last_error = Error::UreqError(e);
+                    last_error = e.into();
                     continue
                 },
             };
@@ -52,7 +52,7 @@ impl AurResult {
                 Ok(result) => return Ok(result),
                 Err(e) => {
                     log::error!("Failed to parse response: {}", e);
-                    last_error = Error::IoError(e)
+                    last_error = e.into()
                 },
             }
         }

@@ -15,6 +15,8 @@ use git2::{
         Tree, AutotagOption, FetchPrune, ErrorClass, ErrorCode, BranchType,
     };
 use url::Url;
+use xxhash_rust::xxh3::xxh3_64;
+// use url::Url;
 use std::{
         collections::HashMap,
         fs::metadata,
@@ -25,166 +27,141 @@ use std::{
         },
         os::unix::fs::MetadataExt,
         str::FromStr,
-        thread,
+        thread::{self, spawn, JoinHandle}, borrow::Cow, fmt::format,
     };
 
-use crate::{
-        error::{
-            Error,
-            Result
-        },
-        source::{
-            aur::AurResult,
-            Proxy
-        },
-        threading
-    };
+use crate::{Error, Result, proxy::{Proxy, NOPROXY}, pkgbuild::{Pkgbuild, Pkgbuilds}, aur::AurResult};
 
 const REFSPECS_HEADS_TAGS: &[&str] = &[
     "+refs/heads/*:refs/heads/*",
     "+refs/tags/*:refs/tags/*"
 ];
 
-const _REFSPECS_MASTER_ONLY: &[&str] =
-    &["+refs/heads/master:refs/heads/master"];
-
-pub(crate) struct Gmr {
-    prefix: String,
+struct Gmr<'a> {
+    prefix: &'a str,
 }
 
-impl Gmr {
-    pub(crate) fn init(gmr: &str) -> Self {
+impl<'a> From<&'a str> for Gmr<'a> {
+    fn from(value: &'a str) -> Self {
         Self {
-            prefix: gmr.to_owned()
+            prefix: value
         }
     }
-
-    fn get_mirror_url(&self, orig: &str) -> Option<String> {
-        let orig_url = Url::from_str(orig).ok()?;
-        let mut mirror_url = self.prefix.clone();
-        mirror_url.push('/');
-        mirror_url.push_str(orig_url.host_str()?);
-        mirror_url.push_str(orig_url.path());
-        Some(mirror_url)
-    }
 }
 
-fn optional_gmr(gmr: Option<&Gmr>, orig: &str) -> Option<String> {
-    match gmr {
-        Some(gmr) => gmr.get_mirror_url(orig),
-        None => None,
+impl<'a> Gmr<'a> {
+    fn convert(&self, orig: &str) -> String {
+        let orig_url = match Url::from_str(orig) {
+            Ok(url) => url,
+            Err(e) => {
+                log::warn!("Cannot parse original URL '{}': {}", orig, e);
+                return Default::default()
+            },
+        };
+        let host_str = match orig_url.host_str() {
+            Some(host) => host,
+            None => {
+                log::warn!("Cannot get host str from original URL '{}'", orig);
+                return Default::default()
+            },
+        };
+        format!("{}/{}{}", self.prefix, host_str, orig_url.path())
+    }
+
+    fn once(gmr: &str, orig: &str) -> String {
+        Self::from(gmr).convert(orig)
     }
 }
 
 pub(crate) struct Repo {
-    path: PathBuf,
-    url: String,
-    mirror: Option<String>,
-    repo: Repository,
-    branches: Vec<String>,
+    pub(crate) path: PathBuf,
+    pub(crate) url: String,
+    pub(crate) repo: Repository,
+    pub(crate) branches: Vec<String>,
 }
 
-pub(crate) trait ToReposMap {
-    fn branch(&self) -> Option<String>;
-    fn url(&self) -> &str;
-    fn hash_url(&self) -> u64;
-    fn path(&self) -> Option<&Path>;
-    fn to_repo(&self, parent: &str, gmr: Option<&Gmr>, branch: Option<String>)
-        -> Result<Repo>
-    {
-        let mut repo = match self.path() {
-            Some(path) => Repo::open_bare(path, self.url(), gmr),
-            None => Repo::open_bare(
-                PathBuf::from(format!("{}/{:016x}", 
-                                    parent, self.hash_url())),
-                self.url(), gmr),
-        }?;
-        if let Some(branch) = branch {
-            repo.branches.push(branch)
+impl TryFrom<&Pkgbuild> for Repo {
+    type Error = Error;
+
+    fn try_from(pkgbuild: &Pkgbuild) -> Result<Self> {
+        if pkgbuild.branch.is_empty() {
+            log::error!("PKGBUILD has empty branch");
+            return Err(Error::InvalidConfig)
         }
+        let path = format!("sources/PKGBUILD/{:016x}", 
+            xxh3_64(pkgbuild.url.as_bytes()));
+        let mut repo = Self::open_bare_init_if_non_existing(
+            path, &pkgbuild.url)?;
+        repo.branches.push(pkgbuild.branch);
         Ok(repo)
     }
+}
 
-    fn to_repos_map(
-        map: HashMap<u64, Vec<Self>>, parent: &str, gmr: Option<&Gmr>
-    ) -> Result<HashMap<u64, Vec<Repo>>>
-    where Self: Sized
-    {
-        let mut repos_map = HashMap::new();
-        for (domain, sources) in map {
-            let mut repos: Vec<Repo> = vec![];
-            for source in sources.iter() {
-                let source_url = source.url();
-                let mut existing = None;
-                for repo in repos.iter_mut() {
-                    if repo.url == source_url {
-                        existing = Some(repo)
-                    }
-                }
-                let new_branch = source.branch();
-                if let Some(existing) = existing {
-                    let existing_branches =
-                        &mut existing.branches;
-                    if existing_branches.len() == 0 {
-                        continue
-                    }
-                    let new_branch = match new_branch {
-                        Some(branch) => branch,
-                        None => {
-                            existing_branches.clear();
-                            continue
-                        },
-                    };
-                    let mut branch_found = false;
-                    for branch in existing_branches.iter() {
-                        if &new_branch == branch {
-                            branch_found = true;
-                            break
-                        }
-                    }
-                    if branch_found {
-                        continue
-                    }
-                    existing_branches.push(new_branch);
-                    continue
-                }
-                repos.push(source.to_repo(parent, gmr, new_branch)?);
-            }
-            if let Some(_) = repos_map.insert(domain, repos) {
-                log::error!("Duplicated key for repos map");
-                return Err(Error::ImpossibleLogic)
-            }
-        }
-        Ok(repos_map)
+type ReposVec = Vec<Repo>;
+
+pub(crate) struct ReposList {
+    pub(crate) entries: ReposVec
+}
+
+impl From<Vec<Repo>> for ReposList {
+    fn from(entries: Vec<Repo>) -> Self {
+        Self {entries}
     }
 }
 
-impl ToReposMap for super::Source {
-
-    fn url(&self) -> &str {
-        self.url.as_str()
-    }
-
-    fn hash_url(&self) -> u64 {
-        self.hash_url
-    }
-
-    fn path(&self) -> Option<&Path> {
-        None
-    }
-
-    fn branch(&self) -> Option<String> {
-        None
+impl Into<Vec<Repo>> for ReposList {
+    fn into(self) -> Vec<Repo> {
+        self.entries
     }
 }
 
-pub(super) fn push_source(sources: &mut Vec<super::Source>, source: &super::Source) {
-    for source_cmp in sources.iter() {
-        if source.hash_url == source_cmp.hash_url {
-            return
+type ReposHashMap = HashMap<u64, ReposList>;
+
+#[derive(Default)]
+pub(crate) struct ReposMap {
+    pub(crate) map: ReposHashMap
+}
+
+impl TryFrom<&Pkgbuilds> for ReposMap {
+    type Error = Error;
+
+    fn try_from(pkgbuilds: &Pkgbuilds) -> Result<Self> {
+        let mut map = ReposHashMap::new();
+        for pkgbuild in pkgbuilds.entries.iter() {
+            let repo = match Repo::try_from(pkgbuild) {
+                Ok(repo) => repo,
+                Err(e) => {
+                    log::error!("Failed to convert PKGBUILD to Repo when \
+                        trying to conver PKGBUILDs to ReposMap");
+                    return Err(e.into())
+                },
+            };
+            let key = match Url::parse(&pkgbuild.url) {
+                Ok(url) => if let Some(domain) = url.domain() {
+                    xxh3_64(domain.as_bytes())
+                } else {
+                    log::warn!("PKGBUILD URL '{}' does not have domain",
+                        &pkgbuild.url);
+                    0
+                },
+                Err(e) => {
+                    log::warn!("Failed to parse PKGBUILD URL '{}': {}", 
+                            &pkgbuild.url, e);
+                    0
+                },
+            };
+            match map.get_mut(&key) {
+                Some(list) => list.entries.push(repo),
+                None => if let Some(list) = 
+                        map.insert(key, vec![repo].into()) 
+                    {
+                        log::error!("Impossible key {} already in map", key);
+                        return Err(Error::ImpossibleLogic)
+                    },
+            }
         }
+        Ok(Self{map})
     }
-    sources.push(source.clone())
 }
 
 fn gcb_transfer_progress(progress: Progress<'_>) -> bool {
@@ -243,15 +220,13 @@ fn remote_safe_url<'a>(remote: &'a Remote) -> &'a str {
 fn fetch_remote(
     remote: &mut Remote,
     fetch_opts: &mut FetchOptions,
-    proxy: Option<&Proxy>,
+    proxy: &Proxy,
     refspecs: &[&str],
     tries: usize
 ) -> Result<()>
 {
-    let (tries_without_proxy, tries_with_proxy) = match proxy {
-        Some(proxy) => (proxy.after, tries),
-        None => (tries, 0),
-    };
+    let (tries_without_proxy, tries_with_proxy) = 
+        proxy.get_tries(tries);
     let mut last_error = Error::ImpossibleLogic;
     for _ in 0..tries_without_proxy {
         match remote.fetch(
@@ -265,17 +240,14 @@ fn fetch_remote(
             },
         }
     }
-    let proxy = match proxy {
-        Some(proxy) => proxy,
-        None => {
-            log::error!("Failed to fetch from remote '{}' after {} tries and \
-                there's no proxy to retry, giving up", remote_safe_url(&remote),
-                tries_without_proxy);
-            return Err(last_error)
-        },
-    };
+    if proxy.url.is_empty() {
+        log::error!("Failed to fetch from remote '{}' after {} tries and \
+            there's no proxy to retry, giving up", remote_safe_url(&remote),
+            tries_without_proxy);
+        return Err(last_error)
+    }
     if tries_without_proxy > 0 {
-        log::error!("Failed to fetch from remote '{}' after {} tries, will use \
+        log::warn!("Failed to fetch from remote '{}' after {} tries, will use \
             proxy to retry", remote_safe_url(&remote), tries_without_proxy);
     }
     let mut proxy_opts = ProxyOptions::new();
@@ -313,7 +285,7 @@ impl Repo {
         }
     }
 
-    fn init_bare<P: AsRef<Path>>(path: P, url: &str, gmr: Option<&Gmr>)
+    fn init_bare<P: AsRef<Path>>(path: P, url: &str)
         -> Result<Self>
     {
         match Repository::init_bare(&path) {
@@ -321,7 +293,6 @@ impl Repo {
                 let repo = Self {
                     path: path.as_ref().to_owned(),
                     url: url.to_owned(),
-                    mirror: optional_gmr(gmr, url),
                     repo,
                     branches: vec![],
                 };
@@ -335,22 +306,20 @@ impl Repo {
         }
     }
 
-    pub(crate) fn open_bare<P: AsRef<Path>>(
-        path: P, url: &str, gmr: Option<&Gmr>
-    ) -> Result<Self>
+    pub(crate) fn open_bare_init_if_non_existing<P: AsRef<Path>>(
+        path: P, url: &str) -> Result<Self>
     {
         match Repository::open_bare(&path) {
             Ok(repo) => Ok(Self {
                 path: path.as_ref().to_owned(),
                 url: url.to_owned(),
-                mirror: optional_gmr(gmr, url),
                 repo,
                 branches: vec![],
             }),
             Err(e) => {
                 if e.class() == ErrorClass::Os &&
                 e.code() == ErrorCode::NotFound {
-                    Self::init_bare(path, url, gmr)
+                    Self::init_bare(path, url)
                 } else {
                     log::error!("Failed to open {}: {}",
                             path.as_ref().display(), e);
@@ -358,10 +327,6 @@ impl Repo {
                 }
             },
         }
-    }
-
-    fn _with_gmr(&mut self, gmr: &Gmr) {
-        self.mirror = gmr.get_mirror_url(&self.url)
     }
 
     fn update_head_raw(repo: &Repository, remote: &mut Remote)
@@ -394,7 +359,7 @@ impl Repo {
     }
 
     fn sync_raw(
-        repo: &Repository, url: &str, proxy: Option<&Proxy>, refspecs: &[&str],
+        repo: &Repository, url: &str, proxy: &Proxy, refspecs: &[&str],
         tries: usize, terminal: bool
     ) -> Result<()>
     {
@@ -406,7 +371,7 @@ impl Repo {
         Ok(())
     }
 
-    pub(crate) fn sync(&self, proxy: Option<&Proxy>, terminal: bool)
+    pub(crate) fn sync(&self, proxy: &Proxy, terminal: bool)
         -> Result<()>
     {
         let mut refspecs_dynamic = vec![];
@@ -426,7 +391,7 @@ impl Repo {
             log::info!("Syncing repo '{}' with gmr '{}' before actual remote",
                         &self.path.display(), &mirror);
             if let Ok(_) = Self::sync_raw(
-                &self.repo, &mirror, None, refspecs, 1, terminal
+                &self.repo, &mirror, &NOPROXY, refspecs, 1, terminal
             ) {
                 return Ok(())
             }
@@ -604,6 +569,135 @@ impl Repo {
         format!("of url {}", &self.url)
     }
 
+    
+
+    fn last_fetch(&self) -> i64 {
+        let path_fetch_head = self.path.join("FETCH_HEAD");
+        let metadata = match metadata(&path_fetch_head) {
+            Ok(metadata) => metadata,
+            Err(e) => {
+                log::error!("Failed to get metadata of fetch time, \
+                    consider 0: {}", e);
+                return 0
+            },
+        };
+        metadata.mtime()
+    }
+}
+
+impl ReposList {
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn filter_aur(&mut self) -> Result<()> {
+        let mut pkgs: Vec<String> = Vec::new();
+        for repo in self.entries.iter() {
+            let url = match Url::parse(&repo.url) {
+                Ok(url) => url,
+                Err(e) => {
+                    log::error!("Failed to parse AUR url '{}': {}", &repo.url, e);
+                    return Err(e.into());
+                },
+            };
+            let pkg = url.path()
+                .trim_start_matches('/').trim_end_matches(".git");
+            pkgs.push(pkg.into());
+        }
+        if pkgs.len() != self.len() {
+            log::error!("Pkgs and repos len mismatch");
+            return Err(Error::ImpossibleLogic)
+        }
+        let mut aur_result = match AurResult::from_pkgs(&pkgs) {
+            Ok(aur_result) => aur_result,
+            Err(e) => {
+                log::error!("Failed to get result from AUR RPC");
+                return Err(e)
+            },
+        };
+        if aur_result.results.len() == self.len() {
+            let mut i = 0;
+            while i < self.len() {
+                let repo = match self.entries.get(i) {
+                    Some(repo) => repo,
+                    None => {
+                        log::error!("Failed to get repo");
+                        return Err(Error::ImpossibleLogic)
+                    },
+                };
+                let pkg = match aur_result.results.get(i) {
+                    Some(pkg) => pkg,
+                    None => {
+                        log::error!("Failed to get pkg");
+                        return Err(Error::ImpossibleLogic)
+                    },
+                };
+                // leave a 1-min window
+                if repo.last_fetch() > pkg.last_modified + 60 {
+                    log::info!(
+                        "Repo '{}' last fetch later than AUR last modified, \
+                        skippping it", &repo.url);
+                    self.entries.swap_remove(i);
+                    aur_result.results.swap_remove(i);
+                } else {
+                    log::info!("Repo '{}' needs update from AUR",
+                        &repo.url);
+                    i += 1
+                }
+            }
+        } else {
+            aur_result.results.sort_unstable_by(
+                |result_a, result_b|
+                    result_a.name.cmp(&result_b.name));
+            let mut i = 0;
+            while i < self.len() {
+                let repo = match self.entries.get(i) {
+                    Some(repo) => repo,
+                    None => {
+                        log::error!("Failed to get repo");
+                        return Err(Error::ImpossibleLogic)
+                    },
+                };
+                let pkg = match pkgs.get(i) {
+                    Some(pkg) => pkg,
+                    None => {
+                        log::error!("Failed to get pkg");
+                        return Err(Error::ImpossibleLogic)
+                    },
+                };
+                if let Ok(j) = aur_result.results.binary_search_by(
+                    |result|result.name.cmp(pkg))
+                {
+                    let result = match
+                        aur_result.results.get(j)
+                    {
+                        Some(result) => result,
+                        None => {
+                            log::error!("Failed to get result");
+                            return Err(Error::ImpossibleLogic)
+                        },
+                    };
+                    if repo.last_fetch() > result.last_modified + 60 {
+                        log::info!("Repo '{}' last fetch later than AUR last \
+                            modified, skippping it", &repo.url);
+                        self.entries.swap_remove(i);
+                        pkgs.swap_remove(i);
+                    } else {
+                        log::info!("Repo '{}' needs update from AUR",
+                            &repo.url);
+                        i += 1
+                    }
+                } else { // Can not find
+                    log::info!("Repo '{}' not found, needs update from AUR",
+                        &repo.url);
+                    i += 1
+                }
+            }
+        }
+        log::info!("Filtered AUR repos");
+        Ok(())
+    }
+
     fn sync_for_domain_mt(
         repos: Vec<Self>,
         max_threads: usize,
@@ -712,151 +806,53 @@ impl Repo {
         Self::sync_for_domain(repos, 1, hold, proxy, terminal)
     }
 
-    fn last_fetch(&self) -> i64 {
-        let path_fetch_head = self.path.join("FETCH_HEAD");
-        let metadata = match metadata(&path_fetch_head) {
-            Ok(metadata) => metadata,
-            Err(e) => {
-                log::error!("Failed to get metadata of fetch time, \
-                    consider 0: {}", e);
-                return 0
-            },
-        };
-        metadata.mtime()
-    }
-
-    fn filter_aur(repos: &mut Vec<Self>) -> Result<()> {
-        let mut pkgs: Vec<String> = Vec::new();
-        for repo in repos.iter() {
-            let url = match Url::parse(&repo.url) {
-                Ok(url) => url,
-                Err(e) => {
-                    log::error!("Failed to parse AUR url '{}': {}", &repo.url, e);
-                    return Err(e.into());
-                },
-            };
-            let pkg = url.path()
-                .trim_start_matches('/').trim_end_matches(".git");
-            pkgs.push(pkg.to_string());
-        }
-        if pkgs.len() != repos.len() {
-            log::error!("Pkgs and repos len mismatch");
-            return Err(Error::ImpossibleLogic)
-        }
-        let mut aur_result = match AurResult::from_pkgs(&pkgs) {
-            Ok(aur_result) => aur_result,
-            Err(e) => {
-                log::error!("Failed to get result from AUR RPC");
-                return Err(e)
-            },
-        };
-        if aur_result.results.len() == repos.len() {
-            let mut i = 0;
-            while i < repos.len() {
-                let repo = match repos.get(i) {
-                    Some(repo) => repo,
-                    None => {
-                        log::error!("Failed to get repo");
-                        return Err(Error::ImpossibleLogic)
-                    },
-                };
-                let pkg = match aur_result.results.get(i) {
-                    Some(pkg) => pkg,
-                    None => {
-                        log::error!("Failed to get pkg");
-                        return Err(Error::ImpossibleLogic)
-                    },
-                };
-                // leave a 1-min window
-                if repo.last_fetch() > pkg.last_modified + 60 {
-                    log::info!(
-                        "Repo '{}' last fetch later than AUR last modified, \
-                        skippping it", &repo.url);
-                    repos.swap_remove(i);
-                    aur_result.results.swap_remove(i);
-                } else {
-                    log::info!("Repo '{}' needs update from AUR",
-                        &repo.url);
-                    i += 1
-                }
-            }
-        } else {
-            aur_result.results.sort_unstable_by(
-                |result_a, result_b|
-                    result_a.name.cmp(&result_b.name));
-            let mut i = 0;
-            while i < repos.len() {
-                let repo = match repos.get(i) {
-                    Some(repo) => repo,
-                    None => {
-                        log::error!("Failed to get repo");
-                        return Err(Error::ImpossibleLogic)
-                    },
-                };
-                let pkg = match pkgs.get(i) {
-                    Some(pkg) => pkg,
-                    None => {
-                        log::error!("Failed to get pkg");
-                        return Err(Error::ImpossibleLogic)
-                    },
-                };
-                if let Ok(j) = aur_result.results.binary_search_by(
-                    |result|result.name.cmp(pkg))
-                {
-                    let result = match
-                        aur_result.results.get(j)
-                    {
-                        Some(result) => result,
-                        None => {
-                            log::error!("Failed to get result");
-                            return Err(Error::ImpossibleLogic)
-                        },
-                    };
-                    if repo.last_fetch() > result.last_modified + 60 {
-                        log::info!("Repo '{}' last fetch later than AUR last \
-                            modified, skippping it", &repo.url);
-                        repos.swap_remove(i);
-                        pkgs.swap_remove(i);
-                    } else {
-                        log::info!("Repo '{}' needs update from AUR",
-                            &repo.url);
-                        i += 1
-                    }
-                } else { // Can not find
-                    log::info!("Repo '{}' not found, needs update from AUR",
-                        &repo.url);
-                    i += 1
-                }
-            }
-        }
-        log::info!("Filtered AUR repos");
+    fn sync_generic(&mut self, gmr: &str, holdpkg: bool, proxy: &Proxy) -> Result<()> {
+        if self.entries.is_empty() { return Ok(()) }
         Ok(())
     }
 
-    pub(crate) fn sync_mt(
-        repos_map: HashMap<u64, Vec<Self>>,
-        hold: bool,
-        proxy: Option<&Proxy>,
-        terminal: bool
-    ) -> Result<()>
-    {
-        log::info!("Syncing repos with {} groups", repos_map.len());
-        let mut threads = vec![];
-        for (domain, repos) in repos_map {
-            let proxy_thread = proxy.and_then(
-                |proxy_actual|Some(proxy_actual.to_owned()));
-            if domain == 0xb463cbdec08d6265 {
-                threads.push(thread::spawn(move || {
-                    Self::sync_for_aur(
-                        repos, hold, proxy_thread.as_ref(), terminal)}))
 
-            } else {
-                threads.push(thread::spawn(move || {
-                    Self::sync_for_domain(
-                        repos, 10, hold,
-                        proxy_thread.as_ref(), terminal)}))
+    fn sync_aur(&mut self, gmr: &str, holdpkg: bool, proxy: &Proxy) -> Result<()> {
+        if self.entries.is_empty() { return Ok(()) }
+        self.filter_aur();
+        if self.entries.is_empty() { return Ok(()) }
+        Ok(())
+    }
+}
+
+impl ReposMap {
+    pub(crate) fn sync_mt(self, gmr: &str, holdpkg: bool, proxy: &Proxy) 
+        -> Result<()> 
+    {
+        let mut threads = Vec::new();
+        for (key, list) in self.map {
+            if list.entries.is_empty() { continue }
+            let gmr = gmr.to_owned();
+            let proxy = proxy.clone();
+            let thread = spawn(move ||
+                if key == 0xb463cbdec08d6265 {
+                    list.sync_aur(&gmr, holdpkg, &proxy)
+                } else {
+                    list.sync_generic(&gmr, holdpkg, &proxy)
+                });
+            threads.push(thread)
+        }
+        let mut r = Ok(());
+        for thread in threads {
+            match thread.join() {
+                Ok(tr) => if let Err(e) = tr {
+                    log::error!("A git sync thread has bad return");
+                    r = tr
+                },
+                Err(e) => {
+                    // Prefer non-thread error error
+                    if r.is_ok() {
+                        log::error!("A git sync thread has panicked");
+                        r = Err(e.into())
+                    }
+                },
             }
         }
-        threading::wait_remaining(threads, "syncing git repo groups")
+        r
     }
 }

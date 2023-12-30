@@ -1,6 +1,10 @@
-mod arb;
+mod arch_repo_builder;
+mod aur;
 mod error;
+mod filesystem;
+mod git;
 mod pkgbuild;
+mod proxy;
 
 use std::{env::ArgsOs, path::PathBuf, os::unix::ffi::OsStrExt, ffi::OsString};
 
@@ -13,7 +17,7 @@ fn clap_args(args: ArgsOs) -> impl Iterator<Item = OsString> {
 }
 
 /// Dispatch multi-call applet based on `arg0`, strip one arg and shift args
-/// to the left if `arg0` appears to be a multi-call applet.
+/// to the left if `arg0` appears to be a dispatcher itself.
 fn dispatch(mut args: ArgsOs) -> Result<()> {
     let path: PathBuf = match args.nth(0) {
         Some(arg0) => arg0.into(),
@@ -30,14 +34,14 @@ fn dispatch(mut args: ArgsOs) -> Result<()> {
             return Err(Error::InvalidArgument)
         },
     };
-    match name.as_bytes() {
+    let name_bytes = name.as_bytes();
+    match name_bytes {
         // The ancestor 'applet', we should continue dispatching
         b"arb_multi" | b"arb-multi" | b"multi" => 
             return dispatch(args),
         // The builder applet, the main applet responsible for creating others
         b"arb" | b"arch_repo_builder" | b"arch-repo-builder" => 
-            return arb::applet(clap_args(args)),
-        // Let's break out for shorter ident
+            return arch_repo_builder::applet(clap_args(args)),
         _ => ()
     }
     // Other applet are all considered child, we want to die with our parent
@@ -47,25 +51,21 @@ fn dispatch(mut args: ArgsOs) -> Result<()> {
         log::error!("Failed to set parent detach signal to kill");
         return Err(e.into())
     }
-    // match name {
-    //     b"broker" => applet_broker::main(),
-    //     b"pkgreader" => applet_pkgreader::main(args),
-    //     b"init" => applet_init::main(args),
-    //     other => {
-    //         log::error!("Unknown applet {}", String::from_utf8_lossy(other));
-    //         Err(Error::InvalidArgument)
-    //     },
-    // }
-    Ok(())
+    match name_bytes {
+        // b"broker" => applet_broker::main(),
+        b"pkgbuild_reader" => pkgbuild::reader::applet(),
+        // b"init" => applet_init::main(args),
+        _ => {
+            log::error!("Unknown applet {}", name.to_string_lossy());
+            Err(Error::InvalidArgument)
+        },
+    }
 }
 
 fn main() -> Result<()> {
-    let mut logger = env_logger::Builder::from_env(
+    env_logger::Builder::from_env(
         env_logger::Env::default()
-            .filter_or("ARB_LOG_LEVEL", "info"));
-    #[cfg(feature = "log_stderr")]
-    logger.target(env_logger::Target::Stderr).init();
-    #[cfg(not(feature = "log_stderr"))]
-    logger.target(env_logger::Target::Stdout).init();
+            .filter_or("ARB_LOG_LEVEL", "info")
+    ).target(env_logger::Target::Stderr).init();
     dispatch(std::env::args_os())
 }

@@ -1,10 +1,9 @@
 use std::{env::ArgsOs, ffi::{OsString, OsStr}, collections::HashMap, fs::File};
 
 use clap::Parser;
-use pkgbuild::Pkgbuild;
 use serde::Deserialize;
 
-use crate::{Error, Result, pkgbuild::{PkgbuildConfig, PkgbuildsConfig}};
+use crate::{Error, Result, pkgbuild::{PkgbuildConfig, PkgbuildsConfig, Pkgbuild, Pkgbuilds}, filesystem, proxy::Proxy};
 
 // Note: a lot of options is Option<T> instead of T, e.g. Option<String>, this
 // is to differentiate them from undefined values so we could later combine
@@ -117,12 +116,11 @@ pub(crate) struct Config {
     pub(crate) holdpkg: bool,
     pub(crate) homebinds: Vec<String>,
     pub(crate) lazyint: bool,
-    pub(crate) lazyproxy: usize,
     pub(crate) nobuild: bool,
     pub(crate) noclean: bool,
     pub(crate) nonet: bool,
-    pub(crate) pkgbuilds: Vec<Pkgbuild>,
-    pub(crate) proxy: String,
+    pub(crate) pkgbuilds: Pkgbuilds,
+    pub(crate) proxy: Proxy,
     pub(crate) sign: String,
 }
 
@@ -135,7 +133,7 @@ impl Config {
     fn from_args_and_persistent(args: Args, persistent: PersistentConfig) 
         -> Result<Self>
     {
-        let config = Self {
+        let mut config = Self {
             basepkgs: persistent.basepkgs.unwrap_or_default(),
             build: args.build.unwrap_or_default(),
             gmr: args.gmr.unwrap_or(persistent.gmr.unwrap_or_default()),
@@ -146,20 +144,19 @@ impl Config {
             homebinds: persistent.homebinds.unwrap_or_default(),
             lazyint: args.lazyint.unwrap_or(
                 persistent.lazyint.unwrap_or_default()),
-            lazyproxy: args.lazyproxy.unwrap_or(
-                persistent.lazyproxy.unwrap_or_default()),
             nobuild: args.nobuild.unwrap_or(
                 persistent.nobuild.unwrap_or_default()),
             noclean: args.noclean.unwrap_or(
                 persistent.noclean.unwrap_or_default()),
             nonet: args.nonet.unwrap_or(persistent.nonet.unwrap_or_default()),
-            pkgbuilds: Default::default(),
-            proxy: args.proxy.unwrap_or(persistent.proxy.unwrap_or_default()),
+            pkgbuilds: persistent.pkgbuilds.into(),
+            proxy: Proxy {
+                url:args.proxy.unwrap_or(persistent.proxy.unwrap_or_default()), 
+                after: args.lazyproxy.unwrap_or(
+                    persistent.lazyproxy.unwrap_or_default())
+            },
             sign: args.sign.unwrap_or(persistent.sign.unwrap_or_default()),
         };
-        if persistent.pkgbuilds.is_empty() {
-            return Ok(config)
-        }
         Ok(config)
     }
 
@@ -176,10 +173,16 @@ pub(crate) fn applet<I>(args: I) -> Result<()>
 where 
     I: Iterator<Item = OsString>
 {
+    // Basic layout
+    filesystem::create_layout()?;
+    // Read arg, read persistent config, and combine them into runtime config
     let config = Config::from_args(args)?;
     if config.pkgbuilds.is_empty() { 
-        log::warn!("No PKGBUILDs defined, early quit");
-        return Ok(()) 
+        log::error!("No PKGBUILDs defined");
+        return Err(Error::InvalidConfig)
     }
+    // Sync PKGBUILDs
+    // config.pkgbuilds.sy
+    
     Ok(())
 }
