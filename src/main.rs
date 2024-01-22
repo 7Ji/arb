@@ -5,6 +5,7 @@ mod filesystem;
 mod git;
 mod pkgbuild;
 mod proxy;
+mod io;
 
 use std::{env::ArgsOs, path::PathBuf, os::unix::ffi::OsStrExt, ffi::OsString};
 

@@ -4,15 +4,30 @@ pub(crate) struct Proxy {
     pub(crate) after: usize,
 }
 
-pub(crate) const NOPROXY: Proxy = Default::default();
+pub(crate) const NOPROXY: Proxy = Proxy { url: String::new(), after: 0 };
 
 impl Proxy {
-    /// Get the amount of tries we should do without/with proxy
-    pub(crate) fn get_tries(&self, base: usize) -> (usize, usize) {
+    pub(crate) fn tries_without_and_with(&self, base: usize) -> (usize, usize) {
         if self.url.is_empty() {
             (base, 0)
         } else {
             (self.after, base)
+        }
+    }
+
+    pub(crate) fn tries_without(&self, base: usize) -> usize {
+        if self.url.is_empty() {
+            base
+        } else {
+            self.after
+        }
+    }
+
+    pub(crate) fn tries_with(&self, base: usize) -> usize {
+        if self.url.is_empty() {
+            0
+        } else {
+            base
         }
     }
 }

@@ -130,10 +130,11 @@ impl Pkgbuilds {
         self.entries.is_empty()
     }
 
-
     /// Sync the PKGBUILDs repos from remote
-    pub(crate) fn sync(&self, gmr: &str, holdpkg: bool, proxy: &Proxy) -> Result<()> {
-        ReposMap::try_from(self as &Self)?.sync_mt(gmr, holdpkg, proxy)?;
+    pub(crate) fn sync(&self, gmr: &str, holdpkg: bool, proxy: &Proxy) 
+        -> Result<()> 
+    {
+        ReposMap::try_from(self)?.sync_mt(gmr, proxy, holdpkg)?;
         Ok(())
     }
 }
