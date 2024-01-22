@@ -32,7 +32,7 @@ use std::{
     };
 
 
-use crate::{Error, Result, proxy::{Proxy, NOPROXY}, pkgbuild::{Pkgbuild, Pkgbuilds}, aur::AurResult};
+use crate::{aur::AurResult, pkgbuild::{Pkgbuild, Pkgbuilds}, proxy::{Proxy, NOPROXY}, threading, Error, Result};
 
 const REFSPECS_HEADS_TAGS: &[&str] = &[
     "+refs/heads/*:refs/heads/*",
@@ -681,17 +681,38 @@ impl ReposList {
         if max_threads <= 1 {
             return self.sync_single_thread(gmr, proxy, hold)
         }
-        let pool = threadpool::ThreadPool::new(max_threads);
+        let mut pool = match self.entries.first() {
+            Some(repo) => 
+                threading::ThreadPool::new(max_threads, 
+                format!("syncing repos from domain '{}'", 
+                                repo.get_domain_safe())),
+            None => threading::ThreadPool::new(max_threads, 
+                    "syncing repos"),
+        };
+        let mut r = Ok(());
         for repo in self.entries {
             let gmr = gmr.to_owned();
             let proxy = proxy.clone();
-            pool.execute(move||
-                if let Err(e) = repo.sync(&gmr, &proxy) {
-                    log::error!("Failed to sync repo '{}': {}", repo.url, e);
-                    panic!("Failed to sync repo")
-                })
+            match pool.push(move||repo.sync(&gmr, &proxy)) {
+                Ok(lastr) => 
+                    if let Some(lastr) = lastr {
+                        if let Err(e) = lastr {
+                            log::error!("A previous repo syncer failed: {}", e);
+                            r = Err(e)
+                        }
+                    },
+                Err(e) => {
+                    log::error!("Failed to add repo syncing: {}", e);
+                    r = Err(e)
+                },
+            }
         }
-        Ok(())
+        let (_, lastr) = pool.wait_all_check();
+        if let Err(e) = lastr {
+            log::error!("A previous repo syncer failed: {}", e);
+            r = Err(e)
+        }
+        r
     }
 
     fn sync_generic(self, gmr: &str, proxy: &Proxy, hold: bool) 
@@ -711,7 +732,7 @@ impl ReposList {
 }
 
 impl ReposMap {
-    pub(crate) fn sync_mt(self, gmr: &str, proxy: &Proxy, hold: bool) 
+    pub(crate) fn sync(self, gmr: &str, proxy: &Proxy, hold: bool) 
         -> Result<()> 
     {
         let mut threads = Vec::new();

@@ -182,7 +182,7 @@ where
         return Err(Error::InvalidConfig)
     }
     // Sync PKGBUILDs
-    // config.pkgbuilds.sy
+    config.pkgbuilds.sync(&config.gmr, &config.proxy, config.holdpkg)?;
     
     Ok(())
 }

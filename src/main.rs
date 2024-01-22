@@ -3,9 +3,10 @@ mod aur;
 mod error;
 mod filesystem;
 mod git;
+mod io;
 mod pkgbuild;
 mod proxy;
-mod io;
+mod threading;
 
 use std::{env::ArgsOs, path::PathBuf, os::unix::ffi::OsStrExt, ffi::OsString};
 
