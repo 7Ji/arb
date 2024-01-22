@@ -6,6 +6,7 @@ mod git;
 mod io;
 mod pkgbuild;
 mod proxy;
+mod rootless;
 mod threading;
 
 use std::{env::ArgsOs, path::PathBuf, os::unix::ffi::OsStrExt, ffi::OsString};

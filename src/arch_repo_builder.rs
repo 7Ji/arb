@@ -183,7 +183,7 @@ where
     // Basic layout
     filesystem::create_layout()?;
     // Read arg, read persistent config, and combine them into runtime config
-    let config = Config::from_args(args)?;
+    let mut config = Config::from_args(args)?;
     if config.pkgbuilds.is_empty() { 
         log::error!("No PKGBUILDs defined");
         return Err(Error::InvalidConfig)
@@ -193,6 +193,6 @@ where
     }
     // Sync PKGBUILDs
     config.pkgbuilds.sync(&config.gmr, &config.proxy, config.holdpkg)?;
-    
+    config.pkgbuilds.complete()?;
     Ok(())
 }

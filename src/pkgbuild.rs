@@ -138,6 +138,11 @@ impl Pkgbuilds {
         }
     }
 
+    /// Complete the inner `PKGBUILD` for each PKGBUILD
+    pub(crate) fn complete(&mut self) -> Result<()> {
+        Ok(())
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

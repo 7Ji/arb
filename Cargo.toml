@@ -7,6 +7,7 @@ edition = "2021"
 env_logger = "0.10"
 is-terminal = "0.4"
 log = "0.4"
+passwd = "0.0"
 rmp-serde = "1.1"
 serde_yaml = "0.9"
 url = "2.5"
@@ -22,7 +23,7 @@ features = ["https"]
 
 [dependencies.nix]
 version = "0.27"
-features = ["process"]
+features = ["process", "sched", "user"]
 
 [dependencies.pkgbuild]
 version = "0.1"
