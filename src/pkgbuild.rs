@@ -126,6 +126,18 @@ impl Into<Vec<Pkgbuild>> for Pkgbuilds {
 }
 
 impl Pkgbuilds {
+    /// Generate a 7Ji/git-mirroer config
+    pub(crate) fn gengmr(&self) {
+        log::info!("Generateing 7Ji/git-mirrorer config...");
+        let mut repos: Vec<String> = self.entries.iter().map(
+            |repo|repo.url.clone()).collect();
+        repos.sort_unstable();
+        println!("repos:");
+        for repo in repos.iter() {
+            println!("  - {}", repo)
+        }
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

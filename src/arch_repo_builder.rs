@@ -20,6 +20,11 @@ struct Args {
     #[arg(short, long, default_value_t = String::from("config.yaml"))]
     config: String,
 
+    /// Generate a list of Git repos that could be used by 7Ji/git-mirrorer on
+    /// stdout
+    #[arg(long)]
+    gengmr: bool,
+
     /// Prefix of a 7Ji/git-mirrorer instance, e.g. git://gmr.lan,
     /// the mirror would be tried first before actual git remotes
     #[arg(short='g', long)]
@@ -111,6 +116,7 @@ impl TryFrom<&OsStr> for PersistentConfig {
 pub(crate) struct Config {
     pub(crate) basepkgs: Vec<String>,
     pub(crate) build: Vec<String>,
+    pub(crate) gengmr: bool,
     pub(crate) gmr: String,
     pub(crate) holdgit: bool,
     pub(crate) holdpkg: bool,
@@ -136,6 +142,7 @@ impl Config {
         let mut config = Self {
             basepkgs: persistent.basepkgs.unwrap_or_default(),
             build: args.build.unwrap_or_default(),
+            gengmr: args.gengmr,
             gmr: args.gmr.unwrap_or(persistent.gmr.unwrap_or_default()),
             holdgit: args.holdgit.unwrap_or(
                 persistent.holdgit.unwrap_or_default()),
@@ -180,6 +187,9 @@ where
     if config.pkgbuilds.is_empty() { 
         log::error!("No PKGBUILDs defined");
         return Err(Error::InvalidConfig)
+    }
+    if config.gengmr {
+        config.pkgbuilds.gengmr()
     }
     // Sync PKGBUILDs
     config.pkgbuilds.sync(&config.gmr, &config.proxy, config.holdpkg)?;
