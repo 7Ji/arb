@@ -180,8 +180,6 @@ pub(crate) fn applet<I>(args: I) -> Result<()>
 where 
     I: Iterator<Item = OsString>
 {
-    // Basic layout
-    filesystem::create_layout()?;
     // Read arg, read persistent config, and combine them into runtime config
     let mut config = Config::from_args(args)?;
     if config.pkgbuilds.is_empty() { 
@@ -191,8 +189,13 @@ where
     if config.gengmr {
         config.pkgbuilds.gengmr()
     }
+    // Basic layout
+    filesystem::create_layout()?;
     // Sync PKGBUILDs
     config.pkgbuilds.sync(&config.gmr, &config.proxy, config.holdpkg)?;
+    // Get Idmaps
+    let idmaps = crate::rootless::IdMaps::new()?;
+    log::info!("ID maps for the current session: {}", &idmaps);
     config.pkgbuilds.complete()?;
     Ok(())
 }
