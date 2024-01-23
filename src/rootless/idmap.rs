@@ -6,13 +6,13 @@ use crate::{Error, Result};
 
 // Assumption: uid_t == gid_t, on x86_64 they're both u32, on aarch64 both i32
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct IdMap {
     out_self: uid_t,
     out_sub: uid_t,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct IdMaps {
     uid_map: IdMap,
     gid_map: IdMap
