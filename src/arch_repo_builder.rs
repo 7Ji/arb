@@ -1,4 +1,4 @@
-use std::{env::ArgsOs, ffi::{OsString, OsStr}, collections::HashMap, fs::File};
+use std::{env::ArgsOs, ffi::{OsString, OsStr}, collections::HashMap, fs::{read_link, File}};
 
 use clap::Parser;
 use serde::Deserialize;
@@ -194,8 +194,7 @@ where
     // Sync PKGBUILDs
     config.pkgbuilds.sync(&config.gmr, &config.proxy, config.holdpkg)?;
     // Get Idmaps
-    let idmaps = crate::rootless::IdMaps::new()?;
-    log::info!("ID maps for the current session: {}", &idmaps);
+    let rootless_handler = crate::rootless::Handler::new()?;
     config.pkgbuilds.complete()?;
     Ok(())
 }

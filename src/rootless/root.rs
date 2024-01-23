@@ -3,7 +3,7 @@
 use std::{ffi::OsStr, path::{Path, PathBuf}};
 use crate::{filesystem::remove_dir_all_try_best, Error, Result};
 
-use super::IdMaps;
+use super::idmap::IdMaps;
 
 /// An Arch Linux root, 
 pub(crate) struct Root {

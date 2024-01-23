@@ -1,10 +1,10 @@
 #[derive(Debug)]
 pub(crate) enum Error {
     // AlpmError (alpm::Error),
-    // BadChild {
-    //     pid: Option<nix::unistd::Pid>,
-    //     code: Option<i32>,
-    // },
+    BadChild {
+        pid: Option<nix::unistd::Pid>,
+        code: Option<i32>,
+    },
     BrokenEnvironment,
     BrokenPKGBUILDs (Vec<String>),
     BuildFailure,
@@ -43,7 +43,7 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             // Self::AlpmError(e) => write!(f, "Alpm Error: {}", e),
-            // Self::BadChild { pid, code } => write!(f, "Bad child, pid {:?}, code {:?}", pid, code),
+            Self::BadChild { pid, code } => write!(f, "Bad child, pid {:?}, code {:?}", pid, code),
             Self::BrokenEnvironment => write!(f, "Broken Environment"),
             Self::BrokenPKGBUILDs(pkgbuilds) => write!(f, "Broken PKGBUILDs: {:?}", pkgbuilds),
             Self::BuildFailure => write!(f, "Build Failure"),
@@ -164,7 +164,7 @@ impl Clone for Error {
     fn clone(&self) -> Self {
         match self {
             // Self::AlpmError(arg0) => Self::AlpmError(arg0.clone()),
-            // Self::BadChild { pid, code } => Self::BadChild { pid: pid.clone(), code: code.clone() },
+            Self::BadChild { pid, code } => Self::BadChild { pid: pid.clone(), code: code.clone() },
             Self::BrokenEnvironment => Self::BrokenEnvironment,
             Self::BrokenPKGBUILDs(arg0) => Self::BrokenPKGBUILDs(arg0.clone()),
             Self::BuildFailure => Self::BuildFailure,

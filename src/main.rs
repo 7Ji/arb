@@ -58,6 +58,7 @@ fn dispatch(mut args: ArgsOs) -> Result<()> {
         // b"broker" => applet_broker::main(),
         b"pkgbuild_reader" => pkgbuild::reader::applet(),
         // b"init" => applet_init::main(args),
+        b"map_assert" => rootless::map_assert_applet(),
         _ => {
             log::error!("Unknown applet {}", name.to_string_lossy());
             Err(Error::InvalidArgument)

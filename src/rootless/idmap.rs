@@ -1,4 +1,4 @@
-use std::{fs::File, path::Path, io::{BufRead, BufReader, Read}, ffi::{OsStr, OsString}, os::unix::ffi::OsStrExt, fmt::{format, Display}, process::Command};
+use std::{fs::File, path::Path, io::{BufRead, BufReader, Read}, ffi::{OsStr, OsString}, os::unix::ffi::OsStrExt, fmt::{format, Display}, process::{Child, Command}};
 
 use nix::{unistd::{Uid, getuid, getgid}, libc::{uid_t, gid_t, pid_t}};
 
@@ -144,7 +144,10 @@ impl IdMap {
         if output.status.success() {
             Ok(())
         } else {
-            log::error!("Failed to map ids for pid {}", pid);
+            log::error!("Failed to map ids for pid {}, output from mapper:\n{}\
+                error from mapper:\n{}", pid, 
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr) );
             Err(Error::MappingFailure)
         }
     }
@@ -201,6 +204,10 @@ impl IdMaps {
     pub(crate) fn set_pid(&self, pid: pid_t) -> Result<()> {
         self.gid_map.set_pid(pid, "/usr/bin/newgidmap")?;
         self.uid_map.set_pid(pid, "/usr/bin/newuidmap")
+    }
+
+    pub(crate) fn set_child(&self, child: &Child) -> Result<()> {
+        self.set_pid(child.id() as pid_t)
     }
 }
 
