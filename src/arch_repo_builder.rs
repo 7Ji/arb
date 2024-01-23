@@ -189,12 +189,11 @@ where
     if config.gengmr {
         config.pkgbuilds.gengmr()
     }
+    let rootless_handler = crate::rootless::Handler::new()?;
     // Basic layout
     filesystem::create_layout()?;
     // Sync PKGBUILDs
     config.pkgbuilds.sync(&config.gmr, &config.proxy, config.holdpkg)?;
-    // Get Idmaps
-    let rootless_handler = crate::rootless::Handler::new()?;
     config.pkgbuilds.complete()?;
     Ok(())
 }

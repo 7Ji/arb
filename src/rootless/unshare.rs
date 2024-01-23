@@ -3,6 +3,8 @@ use std::{fs::read_link, thread::sleep, time::Duration};
 use nix::{libc::pid_t, sched::{unshare, CloneFlags}, unistd::{getpid, getresgid, getresuid}};
 use crate::{Error, Result};
 
+use super::id::ResUidGid;
+
 const WAIT_INTERVAL: Duration = Duration::from_millis(10);
 
 pub(crate) fn wait_as_parent(child: pid_t) -> Result<()> {
@@ -33,32 +35,13 @@ pub(crate) fn wait_as_parent(child: pid_t) -> Result<()> {
 
 fn wait_as_child() -> Result<()> {
     for i in 0..1000 {
-        let uid = match getresuid() {
-            Ok(uid) => uid,
-            Err(e) => {
-                log::error!("Failed to get current real, effective, saved uid");
-                return Err(e.into())
-            },
-        };
-        let gid = match getresgid() {
-            Ok(gid) => gid,
-            Err(e) => {
-                log::error!("Failed to get current real, effective, saved gid");
-                return Err(e.into())
-            },
-        };
-        if uid.real.is_root() && uid.effective.is_root() && uid.saved.is_root()
-            && gid.real.as_raw() == 0 && gid.effective.as_raw() == 0 && 
-            gid.saved.as_raw() == 0 
-        {
+        let res_uid_gid = ResUidGid::new()?;
+        if res_uid_gid.is_root() {
             return Ok(())
         }
         if i == 999 {
-            log::error!("Child {}: We were not mapped to root: uid: real {}, \
-                effective {}, saved {}; gid: real {}, effective {}, saved {}", 
-                getpid(),
-                uid.real, uid.effective, uid.saved, 
-                gid.real, gid.effective, gid.saved);
+            log::error!("Child {}: We were not mapped to root: {}", getpid(),
+                        res_uid_gid);
             break
         }
         sleep(WAIT_INTERVAL)

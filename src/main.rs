@@ -5,6 +5,7 @@ mod filesystem;
 mod git;
 mod io;
 mod pkgbuild;
+mod pacman;
 mod proxy;
 mod rootless;
 mod threading;

@@ -1,3 +1,4 @@
+mod id;
 mod idmap;
 mod root;
 mod unshare;
@@ -15,6 +16,8 @@ pub(crate) struct Handler {
 
 impl Handler {
     pub(crate) fn new() -> Result<Self> {
+        id::ensure_no_root()?;
+        IdMaps::ensure_not_mapped()?;
         let idmaps = IdMaps::new()?;
         let exe = match read_link("/proc/self/exe") {
             Ok(exe) => exe,
