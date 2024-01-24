@@ -59,6 +59,10 @@ struct Args {
     #[arg(short='N', long)]
     nonet: Option<bool>,
 
+    /// Path to pacman.conf
+    #[arg(long)]
+    paconf: Option<String>,
+
     /// Proxy for git updating and http(s), currently support only http
     #[arg(short, long)]
     proxy: Option<String>,
@@ -84,6 +88,7 @@ pub(crate) struct PersistentConfig {
     nobuild: Option<bool>,
     noclean: Option<bool>,
     nonet: Option<bool>,
+    paconf: Option<String>,
     pkgbuilds: PkgbuildsConfig,
     proxy: Option<String>,
     sign: Option<String>,
@@ -125,6 +130,7 @@ pub(crate) struct Config {
     pub(crate) nobuild: bool,
     pub(crate) noclean: bool,
     pub(crate) nonet: bool,
+    pub(crate) paconf: String,
     pub(crate) pkgbuilds: Pkgbuilds,
     pub(crate) proxy: Proxy,
     pub(crate) sign: String,
@@ -139,7 +145,7 @@ impl Config {
     fn from_args_and_persistent(args: Args, persistent: PersistentConfig) 
         -> Result<Self>
     {
-        let mut config = Self {
+        let config = Self {
             basepkgs: persistent.basepkgs.unwrap_or_default(),
             build: args.build.unwrap_or_default(),
             gengmr: args.gengmr,
@@ -156,6 +162,9 @@ impl Config {
             noclean: args.noclean.unwrap_or(
                 persistent.noclean.unwrap_or_default()),
             nonet: args.nonet.unwrap_or(persistent.nonet.unwrap_or_default()),
+            paconf: args.paconf.unwrap_or(
+                persistent.paconf.unwrap_or(
+                    "/etc/pacman.conf".into())),
             pkgbuilds: persistent.pkgbuilds.into(),
             proxy: Proxy {
                 url:args.proxy.unwrap_or(persistent.proxy.unwrap_or_default()), 
@@ -192,7 +201,9 @@ where
     let rootless_handler = crate::rootless::Handler::new()?;
     // Basic layout
     filesystem::prepare_layout()?;
-    let pacman_config = crate::pacman::Config::from_file("/etc/pacman.conf")?;
+    let mut pacman_config = crate::pacman::Config::from_file(&config.paconf)?;
+    pacman_config.set_cache_dir_here();
+    pacman_config.to_file("build/pacman.cache.conf")?;
     println!("{}", pacman_config);
     // Sync PKGBUILDs
     config.pkgbuilds.sync(&config.gmr, &config.proxy, config.holdpkg)?;
