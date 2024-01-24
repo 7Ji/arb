@@ -191,7 +191,9 @@ where
     }
     let rootless_handler = crate::rootless::Handler::new()?;
     // Basic layout
-    filesystem::create_layout()?;
+    filesystem::prepare_layout()?;
+    let pacman_config = crate::pacman::Config::from_file("/etc/pacman.conf")?;
+    println!("{}", pacman_config);
     // Sync PKGBUILDs
     config.pkgbuilds.sync(&config.gmr, &config.proxy, config.holdpkg)?;
     config.pkgbuilds.complete()?;

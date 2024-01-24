@@ -216,11 +216,17 @@ where
 pub(crate) fn create_layout() -> Result<()> {
     create_dirs_allow_existing(["build", "logs", "pkgs", "sources"])?;
     remove_dirs_allow_non_existing(["pkgs/updated", "pkgs/latest"])?;
-    create_dirs_under_allow_existing(["updated", "latest"], "pkgs")?;
+    create_dirs_under_allow_existing(
+        ["updated", "latest", "cache"], "pkgs")?;
     create_dirs_under_allow_existing([
         "file-ck", "file-md5", "file-sha1", "file-sha224", "file-sha256",
         "file-sha384", "file-sha512", "file-b2", "git", "PKGBUILD", "pkg"], 
         "sources")
+}
+
+pub(crate) fn prepare_layout() -> Result<()> {
+    create_layout()?;
+    remove_dir_recursively("pkgs/cache")
 }
 
 pub(crate) fn symlink_force<P, Q>(original: P, link: Q) -> Result<()>
