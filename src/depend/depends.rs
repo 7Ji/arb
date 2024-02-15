@@ -9,7 +9,7 @@ use alpm::Package;
 use xxhash_rust::xxh3;
 
 use crate::{
-        child::output_and_check,
+        child::no_output_check,
         config::DepHashStrategy,
         depend::DbHandle,
         error::{
@@ -163,11 +163,11 @@ impl Depends {
                 .args(deps)
             )?
         );
-        if let Err(e) = output_and_check(&mut command,
+        if let Err(e) = no_output_check(&mut command,
             "to download packages on host") 
         {
             if let Error::BadChild { pid: _, code: Some(1) } = e {
-                return output_and_check(&mut command,
+                return no_output_check(&mut command,
                     "to retry to download packages on host")
             }
             Err(e)

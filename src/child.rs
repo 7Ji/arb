@@ -84,8 +84,6 @@ impl ForkedChild {
     }
 }
 
-
-
 pub(crate) fn output_and_check(command: &mut Command, job: &str)
     -> Result<()>
 {
@@ -93,6 +91,35 @@ pub(crate) fn output_and_check(command: &mut Command, job: &str)
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
+        .output()
+    {
+        Ok(output) => {
+            match output.status.code() {
+                Some(code) =>
+                    if code == 0 {
+                        Ok(())
+                    } else {
+                        log::error!("Child {} bad return {}", &job, code);
+                        Err(Error::BadChild { pid: None, code: Some(code) })
+                    },
+                None => {
+                    log::error!("Failed to get return code of child {}", &job);
+                    Err(Error::BadChild { pid: None, code: None })
+                },
+            }
+        },
+        Err(e) => {
+            log::error!("Failed to spawn child to {}: {}", &job, e);
+            Err(Error::IoError(e))
+        },
+    }
+}
+
+pub(crate) fn no_output_check(command: &mut Command, job: &str)
+    -> Result<()>
+{
+    match command
+        .stdin(Stdio::null())
         .output()
     {
         Ok(output) => {

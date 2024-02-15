@@ -155,7 +155,7 @@ pub(crate) trait CommonRoot {
 
     // Todo: split out common wait child parts
     fn refresh_dbs(&self) -> Result<&Self> {
-        crate::child::output_and_check(
+        crate::child::no_output_check(
             crate::logfile::LogFile::new(
                 crate::logfile::LogType::Pacman, "refresh DB")?
                 .set_command(
@@ -192,7 +192,7 @@ pub(crate) trait CommonRoot {
         if ! has_pkg {
             return Ok(self)
         }
-        crate::child::output_and_check(
+        crate::child::no_output_check(
             crate::logfile::LogFile::new(
                 crate::logfile::LogType::Pacman, "install packages")?
                 .set_command(&mut command)?,
