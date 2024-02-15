@@ -156,11 +156,15 @@ pub(crate) trait CommonRoot {
     // Todo: split out common wait child parts
     fn refresh_dbs(&self) -> Result<&Self> {
         crate::child::output_and_check(
-            Command::new("/usr/bin/pacman")
-                .env("LANG", "C")
-                .arg("-Sy")
-                .arg("--root")
-                .arg(self.path_absolute()?),
+            crate::logfile::LogFile::new(
+                crate::logfile::LogType::Pacman, "refresh DB")?
+                .set_command(
+                    Command::new("/usr/bin/pacman")
+                    .env("LANG", "C")
+                    .arg("-Sy")
+                    .arg("--root")
+                    .arg(self.path_absolute()?)
+                )?,
             "refresh pacman DB").and(Ok(self))
     }
 
@@ -189,7 +193,9 @@ pub(crate) trait CommonRoot {
             return Ok(self)
         }
         crate::child::output_and_check(
-            &mut command,
+            crate::logfile::LogFile::new(
+                crate::logfile::LogType::Pacman, "install packages")?
+                .set_command(&mut command)?,
             "install pkgs").and(Ok(self))
     }
 

@@ -50,8 +50,6 @@ pub(crate) fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
             remove_file(&path).map_err(|e|Error::IoError(e))?
         }
     }
-    let a = nix::errno::Errno::E2BIG;
-    println!("{}", a);
     Ok(())
 }
 

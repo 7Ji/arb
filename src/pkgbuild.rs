@@ -342,22 +342,15 @@ impl PKGBUILD {
         arg0.push("] /bin/bash");
         let log_file = crate::logfile::LogFile::new(
             crate::logfile::LogType::Extract, &self.base)?;
-        let dup_file = match log_file.file.try_clone() {
-            Ok(dup_file) => dup_file,
-            Err(e) => {
-                log::error!("Failed to duplicate log file handle: {}", e);
-                return Err(e.into())
-            },
-        };
         match actual_identity.set_root_drop_command(
-            Command::new("/bin/bash")
-                .arg0(&arg0)
-                .arg("-ec")
-                .arg(SCRIPT)
-                .arg("Source extractor")
-                .arg(&pkgbuild_dir))
-                .stdout(dup_file)
-                .stderr(log_file.file)
+            log_file.set_command(
+                Command::new("/bin/bash")
+                    .arg0(&arg0)
+                    .arg("-ec")
+                    .arg(SCRIPT)
+                    .arg("Source extractor")
+                    .arg(&pkgbuild_dir))?
+            )
             .spawn()
         {
             Ok(child) => Ok(child),

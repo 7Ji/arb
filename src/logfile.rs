@@ -3,7 +3,8 @@
 use std::{
         fmt::Display,
         fs::File,
-        path::PathBuf,
+        path::PathBuf, 
+        process::Command,
     };
 
 use time;
@@ -16,13 +17,15 @@ use crate::error::{
 pub(crate) enum LogType {
     Build,
     Extract,
+    Pacman,
 }
 
 impl Display for LogType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", match self {
             Self::Build => "build",
-            Self::Extract => "extract"
+            Self::Extract => "extract",
+            Self::Pacman => "pacman"
         })
     }
 }
@@ -49,11 +52,24 @@ impl LogFile {
         let path = PathBuf::from(format!("logs/{}_{}_{}.log", 
             time_formatted, log_type, id.as_ref()));
         let file = File::create(&path).map_err(Error::from)?;
-        log::info!("Log to {} '{}' is stored at '{}'", log_type, id.as_ref(), 
+        log::info!("Log for {} '{}' is stored at '{}'", log_type, id.as_ref(), 
                     path.display());
         Ok(Self {
             path,
             file,
         })
+    }
+
+    pub(crate) fn set_command(self, command: &mut Command) 
+        -> Result<&mut Command> 
+    {
+        let dup_file = match self.file.try_clone() {
+            Ok(dup_file) => dup_file,
+            Err(e) => {
+                log::error!("Failed to dup log file handle: {}", e);
+                return Err(e.into())
+            },
+        };
+        Ok(command.stderr(dup_file).stdout(self.file))
     }
 }
