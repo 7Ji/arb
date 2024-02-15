@@ -150,7 +150,10 @@ impl Depends {
 
         let mut command = Command::new("/usr/bin/pacman");
         IdentityActual::set_root_command(
-            &mut command
+            crate::logfile::LogFile::new(
+                crate::logfile::LogType::Pacman, "refresh DB"
+            )?.set_command(
+                command
                 .env("LANG", "C")
                 .arg("-S")
                 .arg("--dbpath")
@@ -158,7 +161,8 @@ impl Depends {
                 .arg("--noconfirm")
                 .arg("--downloadonly")
                 .args(deps)
-            );
+            )?
+        );
         if let Err(e) = output_and_check(&mut command,
             "to download packages on host") 
         {
