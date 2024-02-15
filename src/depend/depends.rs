@@ -151,7 +151,7 @@ impl Depends {
         let mut command = Command::new("/usr/bin/pacman");
         IdentityActual::set_root_command(
             crate::logfile::LogFile::new(
-                crate::logfile::LogType::Pacman, "refresh DB"
+                crate::logfile::LogType::Pacman, "cache-packages"
             )?.set_command(
                 command
                 .env("LANG", "C")

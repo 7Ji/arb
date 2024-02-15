@@ -157,7 +157,7 @@ pub(crate) trait CommonRoot {
     fn refresh_dbs(&self) -> Result<&Self> {
         crate::child::no_output_check(
             crate::logfile::LogFile::new(
-                crate::logfile::LogType::Pacman, "refresh DB")?
+                crate::logfile::LogType::Pacman, "refresh-DB")?
                 .set_command(
                     Command::new("/usr/bin/pacman")
                     .env("LANG", "C")
@@ -194,7 +194,7 @@ pub(crate) trait CommonRoot {
         }
         crate::child::no_output_check(
             crate::logfile::LogFile::new(
-                crate::logfile::LogType::Pacman, "install packages")?
+                crate::logfile::LogType::Pacman, "install-packages")?
                 .set_command(&mut command)?,
             "install pkgs").and(Ok(self))
     }
