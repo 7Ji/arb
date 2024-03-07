@@ -652,7 +652,9 @@ impl ReposList {
         for index in (0..self.len()).rev() {
             let mtime_repo = self.entries[index].get_last_fetch();
             let mtime_pkg = aur_result.results[index].last_modified;
-            if mtime_repo >= mtime_pkg + 60 { 
+            let (mtime_pkg_delayed, overflowed) = 
+                mtime_pkg.overflowing_add(60);
+            if overflowed || mtime_repo >= mtime_pkg_delayed{ 
                 let repo = self.entries.swap_remove(index);
                 log::info!("Repo '{}' last fetch later than AUR last modified, \
                     skippping it", &repo.url);
