@@ -10,7 +10,7 @@ use crate::{Error, Result, pkgbuild::{PkgbuildConfig, PkgbuildsConfig, Pkgbuild,
 // config and args to get a joint settings.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
-struct Args {
+pub(crate) struct Args {
     /// Only build the specified package(s), can be specified multiple times,
     /// implies --noclean
     #[arg(short, long)]
