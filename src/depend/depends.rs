@@ -32,7 +32,7 @@ pub(crate) struct Depends {
 }
 
 
-fn update_hash_from_pkg(hash: &mut xxh3::Xxh3, pkg: Package<'_>) {
+fn update_hash_from_pkg(hash: &mut xxh3::Xxh3, pkg: &Package) {
     if let Some(sig) = pkg.base64_sig() {
         hash.update(sig.as_bytes());
         return
@@ -67,7 +67,7 @@ impl Depends {
                 },
             };
             self.needs.push(dep.name().to_string());
-            update_hash_from_pkg(hash, dep);
+            update_hash_from_pkg(hash, &dep);
         }
         self.hash = hash.finish();
         Ok(())
@@ -86,7 +86,7 @@ impl Depends {
                 },
             };
             self.needs.push(dep.name().to_string());
-            update_hash_from_pkg(hash, dep);
+            update_hash_from_pkg(hash, &dep);
         }
         for dep in self.makedeps.iter() {
             let dep = match db_handle.find_satisfier(dep) {

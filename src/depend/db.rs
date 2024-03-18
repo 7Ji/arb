@@ -62,12 +62,12 @@ impl DbHandle {
     }
 
     pub(super) fn find_satisfier<S: AsRef<str>>(&self, dep: S)
-        -> Option<Package>
+        -> Option<&Package>
     {
         let mut pkg_satisfier = None;
         for db in self.alpm_handle.syncdbs() {
             if let Ok(pkg) = db.pkg(dep.as_ref()) {
-                return Some(pkg)
+                return Some(&pkg)
             }
             if let Some(pkg) =
                 db.pkgs().find_satisfier(dep.as_ref())
