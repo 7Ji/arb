@@ -17,7 +17,7 @@ use error::{Error, Result};
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
     /// The all-in-one builder, an end-user should only run this
-    Arb (arch_repo_builder::Args),
+    Main (arch_repo_builder::Args),
     #[clap(subcommand, hide = true)]
     Broker,
     #[clap(subcommand, hide = true)]
