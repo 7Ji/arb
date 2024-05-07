@@ -1,12 +1,16 @@
 #[derive(Default, Clone)]
 pub(crate) struct Proxy {
-    pub(crate) url: String,
-    pub(crate) after: usize,
+    url: String,
+    after: usize,
 }
 
 pub(crate) const NOPROXY: Proxy = Proxy { url: String::new(), after: 0 };
 
 impl Proxy {
+    pub(crate) fn get_url(&self) -> &str {
+        &self.url
+    }
+    
     pub(crate) fn from_url_and_after(url: String, after: usize) -> Self {
         Self {
             url,

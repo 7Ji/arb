@@ -249,7 +249,7 @@ where
             return Ok(())
         }
     }
-    if proxy.url.is_empty() {
+    if tries_with_proxy == 0 {
         log::error!("Failed to fetch from remote '{}' after {} tries and \
             there's no proxy to retry, giving up", remote_safe_url(&remote),
             tries_without_proxy);
@@ -260,7 +260,7 @@ where
             proxy to retry", remote_safe_url(&remote), tries_without_proxy);
     }
     let mut proxy_opts = ProxyOptions::new();
-    proxy_opts.url(&proxy.url);
+    proxy_opts.url(proxy.get_url());
     fetch_opts.proxy_options(proxy_opts);
     for _ in 0..tries_with_proxy {
         if let Err(e) = remote.fetch(
