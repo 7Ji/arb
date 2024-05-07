@@ -83,93 +83,97 @@ pub(crate) struct Repo {
     pub(crate) refspecs: Vec<String>,
 }
 
-fn refspec_same_branch(branch: &str) -> String {
-    format!("+refs/heads/{}:refs/heads/{}", branch, branch)
-}
-
-impl TryFrom<&Pkgbuild> for Repo {
-    type Error = Error;
-
-    fn try_from(pkgbuild: &Pkgbuild) -> Result<Self> {
-        if pkgbuild.branch.is_empty() {
-            log::error!("PKGBUILD has empty branch");
-            return Err(Error::InvalidConfig)
-        }
-        let path = format!("sources/PKGBUILD/{:016x}", 
-            xxh3_64(pkgbuild.url.as_bytes()));
-        let mut repo = Self::open_bare_init_if_non_existing(
-            path, &pkgbuild.url)?;
-        repo.refspecs.push(refspec_same_branch(&pkgbuild.branch));
-        Ok(repo)
+fn refspec_same_branch_or_all(mut branch: &str) -> String {
+    if branch.is_empty() {
+        "+refs/heads/*:refs/heads/*".into()
+    } else {
+        format!("+refs/heads/{}:refs/heads/{}", branch, branch)
     }
 }
 
 type ReposVec = Vec<Repo>;
 
+#[derive(Default)]
 pub(crate) struct ReposList {
-    pub(crate) entries: ReposVec
+    pub(crate) list: ReposVec
 }
 
 impl From<Vec<Repo>> for ReposList {
-    fn from(entries: Vec<Repo>) -> Self {
-        Self {entries}
+    fn from(list: Vec<Repo>) -> Self {
+        Self {list}
     }
 }
 
 impl Into<Vec<Repo>> for ReposList {
     fn into(self) -> Vec<Repo> {
-        self.entries
+        self.list
     }
 }
 
-type ReposHashMap = HashMap<u64, ReposList>;
+impl ReposList {
+    fn add_repo(&mut self, repo: Repo) {
+        self.list.push(repo)
+    }
+
+    pub(crate) fn from_iter<I, R>(iter: I) -> Result<Self> 
+    where
+        I: IntoIterator<Item = R>,
+        R: TryInto<Repo, Error = Error>
+    {
+        let mut list = Self::default();
+        for item in iter.into_iter() {
+            list.add_repo(item.try_into()?)
+        }
+        Ok(list)
+    }
+}
+
+pub(crate) type ReposHashMap = HashMap<u64, ReposList>;
 
 #[derive(Default)]
 pub(crate) struct ReposMap {
     pub(crate) map: ReposHashMap
 }
 
-impl TryFrom<&Pkgbuilds> for ReposMap {
-    type Error = Error;
-
-    fn try_from(pkgbuilds: &Pkgbuilds) -> Result<Self> {
-        let mut map = ReposHashMap::new();
-        for pkgbuild in pkgbuilds.entries.iter() {
-            let repo = match Repo::try_from(pkgbuild) {
-                Ok(repo) => repo,
-                Err(e) => {
-                    log::error!("Failed to convert PKGBUILD to Repo when \
-                        trying to conver PKGBUILDs to ReposMap");
-                    return Err(e.into())
-                },
-            };
-            let key = match Url::parse(&pkgbuild.url) {
-                Ok(url) => if let Some(domain) = url.domain() {
-                    xxh3_64(domain.as_bytes())
-                } else {
-                    log::warn!("PKGBUILD URL '{}' does not have domain",
-                        &pkgbuild.url);
-                    0
-                },
-                Err(e) => {
-                    log::warn!("Failed to parse PKGBUILD URL '{}': {}", 
-                            &pkgbuild.url, e);
-                    0
-                },
-            };
-            match map.get_mut(&key) {
-                Some(list) => list.entries.push(repo),
-                None => if let Some(list) = 
-                        map.insert(key, vec![repo].into()) 
-                    {
-                        log::error!("Impossible key {} already in map", key);
-                        return Err(Error::ImpossibleLogic)
-                    },
-            }
+impl ReposMap {
+    fn try_add_repo(&mut self, repo: Repo) -> Result<()> {
+        let key = match Url::parse(&repo.url) {
+            Ok(url) => if let Some(domain) = url.domain() {
+                xxh3_64(domain.as_bytes())
+            } else {
+                log::warn!("Repo URL '{}' does not have domain", url);
+                0
+            },
+            Err(e) => {
+                log::warn!("Failed to parse repo URL '{}': {}", repo.url, e);
+                0
+            },
+        };
+        match self.map.get_mut(&key) {
+            Some(list) => list.add_repo(repo),
+            None => if let Some(list) = 
+                self.map.insert(key, vec![repo].into()) 
+            {
+                log::error!("Impossible key {} already in map", key);
+                return Err(Error::ImpossibleLogic)
+            },
         }
-        Ok(Self{map})
+        Ok(())
+    }
+
+    pub(crate) fn from_iter<I, R>(iter: I) -> Result<Self>
+    where
+        I: IntoIterator<Item = R>,
+        R: TryInto<Repo, Error = Error>
+    {
+        let mut map = Self::default();
+        for item in iter.into_iter() {
+            map.try_add_repo(item.try_into()?)?
+        }
+        Ok(map)
     }
 }
+
 
 fn gcb_transfer_progress(progress: Progress<'_>) -> bool {
     if progress.received_objects() == progress.total_objects() {
@@ -279,43 +283,7 @@ where
 }
 
 impl Repo {
-    fn add_remote(&self) -> Result<()> {
-        match self.repo.remote_with_fetch(
-            "origin", &self.url, "+refs/*:refs/*") {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                log::error!("Failed to add remote {}: {}",
-                            self.path.display(), e);
-                if let Err(e) = std::fs::remove_dir_all(&self.path) {
-                    return Err(e.into())
-                }
-                Err(e.into())
-            }
-        }
-    }
-
-    fn init_bare<P: AsRef<Path>>(path: P, url: &str)
-        -> Result<Self>
-    {
-        match Repository::init_bare(&path) {
-            Ok(repo) => {
-                let repo = Self {
-                    path: path.as_ref().to_owned(),
-                    url: url.to_owned(),
-                    repo,
-                    refspecs: Default::default(),
-                };
-                repo.add_remote().and(Ok(repo))
-            },
-            Err(e) => {
-                log::error!("Failed to create {}: {}",
-                            &path.as_ref().display(), e);
-                Err(e.into())
-            }
-        }
-    }
-
-    pub(crate) fn open_bare_init_if_non_existing<P: AsRef<Path>>(
+    pub(crate) fn try_new_with_path_url<P: AsRef<Path>>(
         path: P, url: &str) -> Result<Self>
     {
         match Repository::open_bare(&path) {
@@ -328,13 +296,55 @@ impl Repo {
             Err(e) => {
                 if e.class() == ErrorClass::Os &&
                 e.code() == ErrorCode::NotFound {
-                    Self::init_bare(path, url)
+                    match Repository::init_bare(&path) {
+                        Ok(repo) => {
+                            let repo = Self {
+                                path: path.as_ref().to_owned(),
+                                url: url.to_owned(),
+                                repo,
+                                refspecs: Default::default(),
+                            };
+                            repo.add_remote()?;
+                            Ok(repo)
+                        },
+                        Err(e) => {
+                            log::error!("Failed to create {}: {}",
+                                        &path.as_ref().display(), e);
+                            Err(e.into())
+                        }
+                    }
                 } else {
                     log::error!("Failed to open {}: {}",
                             path.as_ref().display(), e);
                     Err(e.into())
                 }
             },
+        }
+    }
+
+    pub(crate) fn try_new_with_url_branch(
+        url: &str, subtype: &str, branch: &str
+    ) -> Result<Self> 
+    {
+        let path = format!("sources/{}/{:016x}", 
+            subtype, xxh3_64(url.as_bytes()));
+        let mut repo = Self::try_new_with_path_url(&path, url)?;
+        repo.refspecs.push(refspec_same_branch_or_all(branch));
+        Ok(repo)
+    }
+
+    fn add_remote(&self) -> Result<()> {
+        match self.repo.remote_with_fetch(
+            "origin", &self.url, "+refs/*:refs/*") {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                log::error!("Failed to add remote {}: {}",
+                            self.path.display(), e);
+                if let Err(e) = std::fs::remove_dir_all(&self.path) {
+                    return Err(e.into())
+                }
+                Err(e.into())
+            }
         }
     }
 
@@ -612,16 +622,16 @@ impl Repo {
 
 impl ReposList {
     fn len(&self) -> usize {
-        self.entries.len()
+        self.list.len()
     }
 
     fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.list.is_empty()
     }
 
     fn filter_aur(&mut self) -> Result<()> {
         let mut pkgs: Vec<String> = Vec::new();
-        for repo in self.entries.iter() {
+        for repo in self.list.iter() {
             let url = match Url::parse(&repo.url) {
                 Ok(url) => url,
                 Err(e) => {
@@ -650,12 +660,12 @@ impl ReposList {
             return Err(Error::ImpossibleLogic)
         }
         for index in (0..self.len()).rev() {
-            let mtime_repo = self.entries[index].get_last_fetch();
+            let mtime_repo = self.list[index].get_last_fetch();
             let mtime_pkg = aur_result.results[index].last_modified;
             let (mtime_pkg_delayed, overflowed) = 
                 mtime_pkg.overflowing_add(60);
             if overflowed || mtime_repo >= mtime_pkg_delayed{ 
-                let repo = self.entries.swap_remove(index);
+                let repo = self.list.swap_remove(index);
                 log::info!("Repo '{}' last fetch later than AUR last modified, \
                     skippping it", &repo.url);
             }
@@ -668,7 +678,7 @@ impl ReposList {
         -> Result<()> 
     {
         let mut r = Ok(());
-        for repo in self.entries.iter_mut() {
+        for repo in self.list.iter_mut() {
             if let Err(e) = repo.sync(gmr, proxy) {
                 r = Err(e)
             }
@@ -683,7 +693,7 @@ impl ReposList {
         if max_threads <= 1 {
             return self.sync_single_thread(gmr, proxy, hold)
         }
-        let mut pool = match self.entries.first() {
+        let mut pool = match self.list.first() {
             Some(repo) => 
                 threading::ThreadPool::new(max_threads, 
                 format!("syncing repos from domain '{}'", 
@@ -692,7 +702,7 @@ impl ReposList {
                     "syncing repos"),
         };
         let mut r = Ok(());
-        for repo in self.entries {
+        for repo in self.list {
             let gmr = gmr.to_owned();
             let proxy = proxy.clone();
             match pool.push(move||repo.sync(&gmr, &proxy)) {
@@ -728,7 +738,7 @@ impl ReposList {
         -> Result<()> 
     {
         self.filter_aur()?;
-        if self.entries.is_empty() { return Ok(()) }
+        if self.list.is_empty() { return Ok(()) }
         self.sync_single_thread(gmr, proxy, hold)
     }
 }
@@ -739,7 +749,7 @@ impl ReposMap {
     {
         let mut threads = Vec::new();
         for (key, mut list) in self.map {
-            if list.entries.is_empty() { continue }
+            if list.list.is_empty() { continue }
             let gmr = gmr.to_owned();
             let proxy = proxy.clone();
             let thread = spawn(move ||

@@ -3,23 +3,23 @@ use git2::Oid;
 use serde::Deserialize;
 use pkgbuild;
 use url::Url;
-use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, git::{Repo, ReposMap}, proxy::Proxy, Error, Result};
+use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, git::{Repo, ReposHashMap, ReposMap}, proxy::Proxy, Error, Result};
 
 pub(crate) mod reader;
 
 #[derive(Debug)]
 pub(crate) struct Pkgbuild {
-    pub(crate) inner: pkgbuild::Pkgbuild,
+    inner: pkgbuild::Pkgbuild,
     /// This is the name defined in config, not necessarily the same as 
     /// `inner.base`
-    pub(crate) name: String, 
-    pub(crate) url: String,
-    pub(crate) branch: String,
-    pub(crate) subtree: String,
-    pub(crate) deps: Vec<String>,
-    pub(crate) makedeps: Vec<String>,
-    pub(crate) homebinds: Vec<String>,
-    pub(crate) commit: Oid,
+    name: String, 
+    url: String,
+    branch: String,
+    subtree: String,
+    deps: Vec<String>,
+    makedeps: Vec<String>,
+    homebinds: Vec<String>,
+    commit: Oid,
 }
 
 impl Pkgbuild {
@@ -73,6 +73,14 @@ impl Pkgbuild {
             homebinds,
             commit: git2::Oid::zero(),
         }
+    }
+}
+
+impl TryInto<Repo> for &Pkgbuild {
+    type Error = Error;
+
+    fn try_into(self) -> Result<Repo> {
+        Repo::try_new_with_url_branch(&self.url, "PKGBUILD", &self.branch)
     }
 }
 
@@ -131,7 +139,7 @@ impl Pkgbuilds {
     pub(crate) fn sync(&self, gmr: &str, proxy: &Proxy, hold: bool) 
         -> Result<()> 
     {
-        ReposMap::try_from(self)?.sync(gmr, proxy, hold)?;
+        ReposMap::from_iter(self.entries.iter())?.sync(gmr, proxy, hold)?;
         Ok(())
     }
 }
