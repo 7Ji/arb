@@ -9,16 +9,16 @@ use crate::{Error, Result};
 
 use self::idmap::IdMaps;
 
-pub(crate) struct Handler {
+pub(crate) struct RootlessHandler {
     idmaps: IdMaps,
     exe: PathBuf,
 }
 
-impl Handler {
-    pub(crate) fn new() -> Result<Self> {
+impl RootlessHandler {
+    pub(crate) fn try_new() -> Result<Self> {
         id::ensure_no_root()?;
         IdMaps::ensure_not_mapped()?;
-        let idmaps = IdMaps::new()?;
+        let idmaps = IdMaps::try_new()?;
         let exe = match read_link("/proc/self/exe") {
             Ok(exe) => exe,
             Err(e) => {
@@ -28,7 +28,7 @@ impl Handler {
             },
         };
         let handler = Self { idmaps, exe };
-        handler.run_applet_noarg("map_assert")?;
+        handler.run_action_noarg("map-assert")?;
         Ok(handler)
     }
 
@@ -40,14 +40,14 @@ impl Handler {
         self.idmaps.set_child(child)
     }
 
-    pub(crate) fn run_applet<I, S1, S2>(&self, applet: S1, args: I) -> Result<()> 
+    pub(crate) fn run_action<I, S1, S2>(&self, applet: S1, args: I) -> Result<()> 
     where
         I: IntoIterator<Item = S2>,
         S1: AsRef<OsStr>,
         S2: AsRef<OsStr>,
     {
         let mut child = match Command::new(&self.exe)
-            .arg0(&applet)
+            .arg(&applet)
             .args(args)
             .spawn()
         {
@@ -59,7 +59,7 @@ impl Handler {
             },
         };
         let r = 
-            unshare::wait_as_parent(child.id() as pid_t)
+            unshare::try_wait_as_parent(&mut child)
                 .and(self.set_child(&child));
         if let Err(e) = &r {
             log::error!("Failed to map child {}: {}", child.id(), e)
@@ -83,17 +83,15 @@ impl Handler {
         }
     }
 
-    pub(crate) fn run_applet_noarg<S>(&self, applet: S) -> Result<()> 
+    pub(crate) fn run_action_noarg<S>(&self, applet: S) -> Result<()> 
     where
         S: AsRef<OsStr>,
     {
-        self.run_applet::<_, _, S>(applet, [])
+        self.run_action::<_, _, S>(applet, [])
     }
 }
 
-// pub(crate) fn confirm_nonroot() {
-
-pub(crate) fn map_assert_applet() -> Result<()> {
+pub(crate) fn action_map_assert() -> Result<()> {
     if let Err(e) = unshare::all_and_wait() {
         log::error!("Mapping assertion failure");
         Err(e)

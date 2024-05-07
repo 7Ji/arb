@@ -1,7 +1,7 @@
 use std::{io::Write, path::Path};
 
 // Worker is a finite state machine
-use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, Error, Result};
+use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, rootless::RootlessHandler, Error, Result};
 
 #[derive(Default)]
 pub(crate) enum WorkerState {
@@ -19,15 +19,34 @@ pub(crate) enum WorkerState {
     FetchedPkgbuilds {
         config: RuntimeConfig
     },
+    PreparedRootless {
+        config: RuntimeConfig,
+        rootless: RootlessHandler,
+    },
+    ParsedPkgbuilds {
+        config: RuntimeConfig,
+        rootless: RootlessHandler,
+    },
     FetchedSources {
-        config: RuntimeConfig
+        config: RuntimeConfig,
+        rootless: RootlessHandler,
     },
     FetchedPkgs {
-        config: RuntimeConfig
+        config: RuntimeConfig,
+        rootless: RootlessHandler,
     },
-    MadeBaseChroot,
-    MadeChroots,
-    Built,
+    MadeBaseChroot {
+        config: RuntimeConfig,
+        rootless: RootlessHandler,
+    },
+    MadeChroots {
+        config: RuntimeConfig,
+        rootless: RootlessHandler,
+    },
+    Built {
+        config: RuntimeConfig,
+        rootless: RootlessHandler,
+    },
     Released
 }
 
@@ -40,11 +59,13 @@ impl WorkerState {
             WorkerState::MergedConfig { config: _ } => "merged config",
             WorkerState::PreparedLayout { config: _ } => "prepared layout",
             WorkerState::FetchedPkgbuilds { config: _ }=> "fetched PKGBUILDs",
-            WorkerState::FetchedSources { config: _ } => "fetched sources",
-            WorkerState::FetchedPkgs { config: _ } => "fetched pkgs",
-            WorkerState::MadeBaseChroot => "made base chroot",
-            WorkerState::MadeChroots => "made chroots",
-            WorkerState::Built => "built",
+            WorkerState::PreparedRootless { config: _, rootless: _ } => "prepared rootless",
+            WorkerState::ParsedPkgbuilds { config: _, rootless: _ } => "parsed PKGBUILDs",
+            WorkerState::FetchedSources { config: _, rootless: _ } => "fetched sources",
+            WorkerState::FetchedPkgs { config: _, rootless: _ } => "fetched pkgs",
+            WorkerState::MadeBaseChroot { config: _, rootless: _ } => "made base chroot",
+            WorkerState::MadeChroots { config: _, rootless: _} => "made chroots",
+            WorkerState::Built { config: _, rootless: _ }  => "built",
             WorkerState::Released => "released",
         }
     }
@@ -111,48 +132,65 @@ impl WorkerState {
         }
     }
 
+    pub(crate) fn prepare_rootless(self) -> Result<Self> {
+        if let Self::FetchedPkgbuilds { config } = self {
+            let rootless = RootlessHandler::try_new()?;
+            Ok(Self::PreparedRootless { config, rootless })
+        } else {
+            Err(self.get_illegal_state())
+        }
+    }
+
+    pub(crate) fn parse_pkgbuilds(self) -> Result<Self> {
+        if let Self::PreparedRootless { config, rootless } = self {
+            Ok(Self::ParsedPkgbuilds { config, rootless })
+        } else {
+            Err(self.get_illegal_state())
+        }
+    }
+
     pub(crate) fn fetch_sources(self) -> Result<Self> {
-        if let Self::FetchedPkgbuilds { config }= self {
-            Ok(Self::FetchedSources { config })
+        if let Self::ParsedPkgbuilds { config, rootless }= self {
+            Ok(Self::FetchedSources { config, rootless })
         } else {
             Err(self.get_illegal_state())
         }
     }
 
     pub(crate) fn fetch_pkgs(self) -> Result<Self> {
-        if let Self::FetchedSources { config } = self {
-            Ok(Self::FetchedPkgs { config })
+        if let Self::FetchedSources { config, rootless } = self {
+            Ok(Self::FetchedPkgs { config, rootless })
         } else {
             Err(self.get_illegal_state())
         }
     }
 
     pub(crate) fn make_base_chroot(self) -> Result<Self> {
-        if let Self::FetchedPkgs { config } = self {
-            Ok(Self::MadeBaseChroot)
+        if let Self::FetchedPkgs { config, rootless } = self {
+            Ok(Self::MadeBaseChroot { config, rootless } )
         } else {
             Err(self.get_illegal_state())
         }
     }
 
     pub(crate) fn make_chroots(self) -> Result<Self> {
-        if let Self::MadeBaseChroot = self {
-            Ok(Self::MadeChroots)
+        if let Self::MadeBaseChroot { config, rootless } = self {
+            Ok(Self::MadeChroots { config, rootless} )
         } else {
             Err(self.get_illegal_state())
         }
     }
 
     pub(crate) fn build(self) -> Result<Self> {
-        if let Self::MadeChroots = self {
-            Ok(Self::Built)
+        if let Self::MadeChroots { config, rootless } = self {
+            Ok(Self::Built { config, rootless } )
         } else {
             Err(self.get_illegal_state())
         }
     }
 
     pub(crate) fn release(self) -> Result<Self> {
-        if let Self::Built = self {
+        if let Self::Built { config, rootless } = self {
             Ok(Self::Released)
         } else {
             Err(self.get_illegal_state())

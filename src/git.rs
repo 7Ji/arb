@@ -14,6 +14,7 @@ use git2::{
         ProxyOptions,
         Tree, AutotagOption, FetchPrune, ErrorClass, ErrorCode, BranchType,
     };
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use url::Url;
 use xxhash_rust::xxh3::xxh3_64;
 // use threadpool::ThreadPool;
@@ -28,11 +29,9 @@ use std::{
         },
         os::unix::fs::MetadataExt,
         str::FromStr,
-        thread::{self, spawn},
     };
 
-
-use crate::{aur::AurResult, pkgbuild::{Pkgbuild, Pkgbuilds}, proxy::{Proxy, NOPROXY}, threading, Error, Result};
+use crate::{aur::AurResult, pkgbuild::{Pkgbuild, Pkgbuilds}, proxy::{Proxy, NOPROXY}, Error, Result};
 
 const REFSPECS_HEADS_TAGS: &[&str] = &[
     "+refs/heads/*:refs/heads/*",
@@ -417,9 +416,11 @@ impl Repo {
         Self::sync_raw(&self.repo, &self.url, proxy, refspecs, 3)
     }
 
-    fn sync(&self, gmr: &str, proxy: &Proxy) -> Result<()>
+    fn sync(&self, gmr: &str, proxy: &Proxy, hold: bool) -> Result<()>
     {
-        if self.refspecs.is_empty() {
+        if hold && self.is_head_healthy() {
+            Ok(())
+        } else if self.refspecs.is_empty() {
             self.sync_with_refspecs(gmr, proxy, REFSPECS_HEADS_TAGS)
         } else {
             self.sync_with_refspecs(gmr, proxy, &self.refspecs)
@@ -612,8 +613,8 @@ impl Repo {
             Ok(metadata) => metadata,
             Err(e) => {
                 log::error!("Failed to get metadata of fetch time, \
-                    consider 0: {}", e);
-                return 0
+                    consider I64_MIN ({}): {}", i64::MIN, e);
+                return i64::MIN
             },
         };
         metadata.mtime()
@@ -621,15 +622,7 @@ impl Repo {
 }
 
 impl ReposList {
-    fn len(&self) -> usize {
-        self.list.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.list.is_empty()
-    }
-
-    fn filter_aur(&mut self) -> Result<()> {
+    fn keep_aur_outdated(&mut self) -> Result<()> {
         let mut pkgs: Vec<String> = Vec::new();
         for repo in self.list.iter() {
             let url = match Url::parse(&repo.url) {
@@ -644,7 +637,7 @@ impl ReposList {
                 .trim_start_matches('/').trim_end_matches(".git");
             pkgs.push(pkg.into());
         }
-        if pkgs.len() != self.len() {
+        if pkgs.len() != self.list.len() {
             log::error!("Pkgs and repos len mismatch");
             return Err(Error::ImpossibleLogic)
         }
@@ -655,127 +648,84 @@ impl ReposList {
                 return Err(e)
             },
         };
-        if aur_result.len() != self.len() {
+        if aur_result.len() != self.list.len() {
             log::error!("AUR results length mismatch repos len");
             return Err(Error::ImpossibleLogic)
         }
-        for index in (0..self.len()).rev() {
+        for index in (0..self.list.len()).rev() {
             let mtime_repo = self.list[index].get_last_fetch();
             let mtime_pkg = aur_result.results[index].last_modified;
             let (mtime_pkg_delayed, overflowed) = 
                 mtime_pkg.overflowing_add(60);
-            if overflowed || mtime_repo >= mtime_pkg_delayed{ 
+            if !overflowed && mtime_repo >= mtime_pkg_delayed{ 
                 let repo = self.list.swap_remove(index);
-                log::info!("Repo '{}' last fetch later than AUR last modified, \
-                    skippping it", &repo.url);
+                log::info!("Repo '{}' last fetch ({}) later than AUR last \
+                    modified ({}), skippping it", &repo.url, 
+                    mtime_repo, mtime_pkg_delayed);
             }
         }
         log::info!("Filtered AUR repos");
         Ok(())
     }
 
+    fn keep_unhealthy(&mut self) {
+        self.list.retain(|repo|!repo.is_head_healthy())
+    }
+
     fn sync_single_thread(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
         -> Result<()> 
     {
-        let mut r = Ok(());
-        for repo in self.list.iter_mut() {
-            if let Err(e) = repo.sync(gmr, proxy) {
-                r = Err(e)
-            }
-        }
-        r
+        self.list.iter_mut().try_for_each(|repo|
+            repo.sync(gmr, proxy, hold))
     }
 
-    fn sync_multi_threaded(
-        mut self, gmr: &str, proxy: &Proxy, hold: bool, max_threads: usize
-    ) -> Result<()> 
-    {
-        if max_threads <= 1 {
-            return self.sync_single_thread(gmr, proxy, hold)
-        }
-        let mut pool = match self.list.first() {
-            Some(repo) => 
-                threading::ThreadPool::new(max_threads, 
-                format!("syncing repos from domain '{}'", 
-                                repo.get_domain_safe())),
-            None => threading::ThreadPool::new(max_threads, 
-                    "syncing repos"),
-        };
-        let mut r = Ok(());
-        for repo in self.list {
-            let gmr = gmr.to_owned();
-            let proxy = proxy.clone();
-            match pool.push(move||repo.sync(&gmr, &proxy)) {
-                Ok(lastr) => 
-                    if let Some(lastr) = lastr {
-                        if let Err(e) = lastr {
-                            log::error!("A previous repo syncer failed: {}", e);
-                            r = Err(e)
-                        }
-                    },
-                Err(e) => {
-                    log::error!("Failed to add repo syncing: {}", e);
-                    r = Err(e)
-                },
-            }
-        }
-        let (_, lastr) = pool.wait_all_check();
-        if let Err(e) = lastr {
-            log::error!("A previous repo syncer failed: {}", e);
-            r = Err(e)
-        }
-        r
-    }
-
-    fn sync_generic(self, gmr: &str, proxy: &Proxy, hold: bool) 
+    fn sync_multi_threaded(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
         -> Result<()> 
     {
-        self.sync_multi_threaded(gmr, proxy, hold, 10)
+        self.list.par_iter_mut().try_for_each(|repo|
+            repo.sync(gmr, proxy, hold))
     }
 
+    fn sync_generic(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
+        -> Result<()> 
+    {
+        self.sync_multi_threaded(gmr, proxy, hold)
+    }
 
     fn sync_aur(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
         -> Result<()> 
     {
-        self.filter_aur()?;
+        self.keep_aur_outdated()?;
+        // Length would change after filtering
         if self.list.is_empty() { return Ok(()) }
         self.sync_single_thread(gmr, proxy, hold)
     }
 }
 
 impl ReposMap {
-    pub(crate) fn sync(self, gmr: &str, proxy: &Proxy, hold: bool) 
+    fn keep_unhealthy(&mut self) {
+        self.map.iter_mut().for_each(|(_, list)|
+            list.keep_unhealthy());
+        self.map.retain(|_, list|!list.list.is_empty())
+    }
+
+    pub(crate) fn sync(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
         -> Result<()> 
     {
-        let mut threads = Vec::new();
-        for (key, mut list) in self.map {
-            if list.list.is_empty() { continue }
-            let gmr = gmr.to_owned();
-            let proxy = proxy.clone();
-            let thread = spawn(move ||
-                if key == 0xb463cbdec08d6265 {
-                    list.sync_aur(&gmr, &proxy, hold)
-                } else {
-                    list.sync_generic(&gmr, &proxy, hold)
-                });
-            threads.push(thread)
+        if hold {
+            self.keep_unhealthy()
         }
-        let mut r = Ok(());
-        for thread in threads {
-            match thread.join() {
-                Ok(tr) => if let Err(e) = tr {
-                    log::error!("A git sync thread has bad return");
-                    r = Err(e)
-                },
-                Err(e) => {
-                    // Prefer non-thread error error
-                    if r.is_ok() {
-                        log::error!("A git sync thread has panicked");
-                        r = Err(e.into())
-                    }
-                },
+        if self.map.is_empty() {
+            return Ok(())
+        }
+        self.map.par_iter_mut().try_for_each(
+            |(domain, list)| 
+        {
+            if *domain == 0xb463cbdec08d6265 { // AUR
+                list.sync_aur(gmr, proxy, hold)
+            } else {
+                list.sync_generic(gmr, proxy, hold)
             }
-        }
-        r
+        })
     }
 }

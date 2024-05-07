@@ -80,7 +80,6 @@ impl AurResult {
         
         // If AUR does decide to return in a different order... Well at least
         // that's not my fault.
-
         let count_self = self.len();
         let count_other = other.len();
         if count_self < count_other {
@@ -90,12 +89,15 @@ impl AurResult {
         let mut index_other = 0;
         for index_self in 0..count_self {
             let result_self = &mut self.results[index_self];
-            let result_other = &other.results[index_other];
-            if result_self.name == result_other.name {
-                result_self.last_modified = result_other.last_modified;
-                index_other += 1;
+            if index_other < count_other {
+                let result_other = &other.results[index_other];
+                if result_self.name == result_other.name {
+                    result_self.last_modified = result_other.last_modified;
+                    index_other += 1;
+                }
+            } else {
+                result_self.last_modified = std::i64::MAX
             }
-            // Else, there's a missing result from other
         }
         Ok(())
     }

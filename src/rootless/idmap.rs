@@ -224,7 +224,7 @@ impl IdMaps {
     /// Due to possible performance hit, it's recommended to run this only once
     /// and clone later for re-use, rather than call this every time you need
     /// it.
-    pub(crate) fn new() -> Result<Self> {
+    pub(crate) fn try_new() -> Result<Self> {
         let uid = getuid();
         let passwd = match passwd::Passwd::from_uid(uid.as_raw()) {
             Some(passwd) => passwd,

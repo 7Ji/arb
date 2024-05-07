@@ -1,13 +1,13 @@
-use std::{fs::read_link, thread::sleep, time::Duration};
+use std::{fs::read_link, process::Child, thread::sleep, time::Duration};
 
-use nix::{libc::pid_t, sched::{unshare, CloneFlags}, unistd::{getpid, getresgid, getresuid}};
+use nix::{libc::pid_t, sched::{unshare, CloneFlags}, unistd::{getpid, getresgid, getresuid, Pid}};
 use crate::{Error, Result};
 
 use super::id::ResUidGid;
 
 const WAIT_INTERVAL: Duration = Duration::from_millis(10);
 
-pub(crate) fn wait_as_parent(child: pid_t) -> Result<()> {
+pub(crate) fn try_wait_as_parent(child: &mut Child) -> Result<()> {
     let ns_user_parent = match read_link("/proc/self/ns/user") {
         Ok(ns) => ns,
         Err(e) => {
@@ -15,8 +15,22 @@ pub(crate) fn wait_as_parent(child: pid_t) -> Result<()> {
             return Err(e.into())
         },
     };
-    let link = format!("/proc/{}/ns/user", child);
+    let link = format!("/proc/{}/ns/user", child.id());
     for _ in 0..1000 {
+        match child.try_wait() {
+            Ok(r) => 
+                if let Some(r) = r { 
+                    log::error!("Child {} exited with '{}' before being mapped",
+                        child.id(), r);
+                    return Err(Error::BadChild { 
+                        pid: Some(Pid::from_raw(child.id() as pid_t)), 
+                        code: r.code() })
+                },
+            Err(e) => {
+                log::error!("Failed to wait for child {}", child.id());
+                return Err(e.into())
+            },
+        }
         let ns_user_child = match read_link(&link) {
             Ok(ns) => ns,
             Err(e) => {
@@ -29,7 +43,7 @@ pub(crate) fn wait_as_parent(child: pid_t) -> Result<()> {
         }
         sleep(WAIT_INTERVAL)
     }
-    log::error!("Child {} did not unshare user namespaces", child);
+    log::error!("Child {} did not unshare user namespaces", child.id());
     Err(Error::MappingFailure)
 }
 

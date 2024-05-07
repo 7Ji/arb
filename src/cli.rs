@@ -1,5 +1,5 @@
 
-use crate::{worker::WorkerState, Error, Result};
+use crate::{rootless::action_map_assert, worker::WorkerState, Error, Result};
 
 #[derive(clap::Args, Debug, Clone)]
 pub(crate) struct ActionArgs {
@@ -73,6 +73,8 @@ impl ActionArgs {
 
     fn fetch_sources(self) -> Result<WorkerState> {
         self.fetch_pkgbuilds()?
+            .prepare_rootless()?
+            .parse_pkgbuilds()?
             .fetch_sources()
     }
 
@@ -144,6 +146,8 @@ enum Action {
         #[command(flatten)]
         ActionArgs
     ),
+    #[clap(hide = true)]
+    MapAssert,
     /// A simple init implementation
     #[clap(hide = true)]
     Init {
@@ -169,6 +173,7 @@ pub(crate) fn work() -> Result<()> {
         Action::Build(args) => args.build().and(Ok(())),
         Action::Release(args) => args.release().and(Ok(())),
         Action::DoEverything(args) => args.release().and(Ok(())),
+        Action::MapAssert => action_map_assert(),
         Action::Init { args } => todo!(),
     }
 }
