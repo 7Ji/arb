@@ -47,7 +47,7 @@ pub(crate) fn try_wait_as_parent(child: &mut Child) -> Result<()> {
     Err(Error::MappingFailure)
 }
 
-fn wait_as_child() -> Result<()> {
+fn try_wait_as_child() -> Result<()> {
     for i in 0..1000 {
         let res_uid_gid = ResUidGid::new()?;
         if res_uid_gid.is_root() {
@@ -76,7 +76,7 @@ pub(crate) fn all() -> Result<()> {
     }
 }
 
-pub(crate) fn all_and_wait() -> Result<()> {
+pub(crate) fn all_and_try_wait() -> Result<()> {
     all()?;
-    wait_as_child()
+    try_wait_as_child()
 }

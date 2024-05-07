@@ -1,11 +1,9 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fs::create_dir, io::{stdout, Write}, path::{Path, PathBuf}};
 use git2::Oid;
 use serde::Deserialize;
 use pkgbuild;
 use url::Url;
-use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, git::{Repo, ReposHashMap, ReposMap}, proxy::Proxy, Error, Result};
-
-pub(crate) mod reader;
+use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, filesystem::remove_dir_all_try_best, git::{Repo, ReposHashMap, ReposMap}, proxy::Proxy, Error, Result};
 
 #[derive(Debug)]
 pub(crate) struct Pkgbuild {
@@ -74,6 +72,12 @@ impl Pkgbuild {
             commit: git2::Oid::zero(),
         }
     }
+
+    fn dump<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let repo: Repo = self.try_into()?;
+        repo.dump_branch_pkgbuild(
+            &self.branch, self.subtree.as_ref(), path.as_ref())
+    }
 }
 
 impl TryInto<Repo> for &Pkgbuild {
@@ -140,6 +144,46 @@ impl Pkgbuilds {
         -> Result<()> 
     {
         ReposMap::from_iter(self.entries.iter())?.sync(gmr, proxy, hold)?;
+        Ok(())
+    }
+
+    pub(crate) fn dump<P: AsRef<Path>>(&self, parent: P) -> Result<()> {
+        let parent = parent.as_ref();
+        create_dir(&parent)?;
+        for pkgbuild in self.entries.iter() {
+            let path_pkgbuild = parent.join(&pkgbuild.name);
+            pkgbuild.dump(&path_pkgbuild)?
+        }
+        // remove_dir_all_try_best(&parent)?;
+        Ok(())
+    }
+}
+
+/// The `pkgbuild_reader` applet entry point, takes no args
+pub(crate) fn action_read_pkgbuilds<I, P>(pkgbuilds: I) -> Result<()> 
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>
+{
+    crate::rootless::unshare_all_and_try_wait()?;
+    let pkgbuilds = match pkgbuild::parse_multi(pkgbuilds) {
+        Ok(pkgbuilds) => pkgbuilds,
+        Err(e) => {
+            log::error!("Failed to parse PKGBUILDs: {}", e);
+            return Err(e.into())
+        },
+    };
+    let output = match rmp_serde::to_vec(&pkgbuilds) {
+        Ok(output) => output,
+        Err(e) => {
+            log::error!("Failed to encode output: {}", e);
+            return Err(e.into())
+        },
+    };
+    if let Err(e) = stdout().write_all(&output) {
+        log::error!("Failed to write serialized output to stdout: {}", e);
+        Err(e.into())
+    } else {
         Ok(())
     }
 }

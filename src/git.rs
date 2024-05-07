@@ -14,21 +14,17 @@ use git2::{
         ProxyOptions,
         Tree, AutotagOption, FetchPrune, ErrorClass, ErrorCode, BranchType,
     };
+use nix::NixPath;
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use url::Url;
 use xxhash_rust::xxh3::xxh3_64;
 // use threadpool::ThreadPool;
 // use url::Url;
 use std::{
-        collections::HashMap,
-        fs::metadata,
-        io::Write,
-        path::{
+        collections::HashMap, fs::{metadata, File}, io::Write, os::unix::fs::MetadataExt, path::{
             Path,
             PathBuf
-        },
-        os::unix::fs::MetadataExt,
-        str::FromStr,
+        }, str::FromStr
     };
 
 use crate::{aur::AurResult, pkgbuild::{Pkgbuild, Pkgbuilds}, proxy::{Proxy, NOPROXY}, Error, Result};
@@ -450,7 +446,7 @@ impl Repo {
     }
 
     /// Get a tree pointed by a commit, optionally a subtree of the commit
-    fn get_commit_tree<'a>(&'a self, commit: &Commit<'a>, subtree: Option<&Path>
+    fn get_commit_tree<'a>(&'a self, commit: &Commit<'a>, subtree: &Path
     )   -> Result<Tree<'a>>
     {
         let tree = match commit.tree() {
@@ -460,10 +456,9 @@ impl Repo {
                 return Err(e.into())
             },
         };
-        let subtree = match subtree {
-            Some(subtree) => subtree,
-            None => return Ok(tree),
-        };
+        if subtree.is_empty() {
+            return Ok(tree)
+        }
         let entry = match tree.get_path(subtree) {
             Ok(entry) => entry,
             Err(e) => {
@@ -487,7 +482,7 @@ impl Repo {
         }
     }
 
-    fn get_branch_tree<'a>(&'a self, branch: &str, subtree: Option<&Path>)
+    fn get_branch_tree<'a>(&'a self, branch: &str, subtree: &Path)
         -> Result<Tree<'a>>
     {
         let commit = self.get_branch_commit(branch)?;
@@ -495,11 +490,11 @@ impl Repo {
     }
 
     pub(crate) fn get_branch_commit_or_subtree_id(&self,
-        branch: &str, subtree: Option<&Path>
+        branch: &str, subtree: &Path
     ) -> Result<Oid>
     {
         let commit = self.get_branch_commit(branch)?;
-        if let None = subtree {
+        if subtree.is_empty() {
             return Ok(commit.id())
         }
         Ok(self.get_commit_tree(&commit, subtree)?.id())
@@ -536,7 +531,7 @@ impl Repo {
     }
 
     pub(crate) fn get_branch_entry_blob<'a>(&'a self,
-        branch: &str, subtree: Option<&Path>, name: &str
+        branch: &str, subtree: &Path, name: &str
     )
         -> Result<Blob<'a>>
     {
@@ -545,11 +540,19 @@ impl Repo {
     }
 
     /// A shortcut to `get_branch_entry_blob(branch, subtree, "PKGBUILD")`
-    pub(crate) fn get_branch_pkgbuild(
-        &self, branch: &str, subtree: Option<&Path>
+    pub(crate) fn get_branch_pkgbuild(&self, branch: &str, subtree: &Path
     ) -> Result<Blob>
     {
         self.get_branch_entry_blob(branch, subtree, "PKGBUILD")
+    }
+
+    pub(crate) fn dump_branch_pkgbuild(
+        &self, branch: &str, subtree: &Path, out: &Path
+    ) -> Result<()>
+    {
+        let blob = self.get_branch_pkgbuild(branch, subtree)?;
+        File::create(out)?.write_all(blob.content())?;
+        Ok(())
     }
 
     /// Check if a repo's HEAD both exists and points to a valid commit
@@ -573,8 +576,7 @@ impl Repo {
     }
 
     /// Checkout a repo to `target`, from `branch` and optionally from `subtree`
-    pub(crate) fn checkout<P>(
-        &self, target: P, branch: &str, subtree: Option<&Path>
+    pub(crate) fn checkout<P>(&self, target: P, branch: &str, subtree: &Path
     ) -> Result<()>
     where
         P: AsRef<Path>

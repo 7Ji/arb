@@ -34,11 +34,9 @@ impl Root {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>
     {
-        
-
         // let pacman_conf = match pacman_conf {
-        //     Some(path) => path.as_ref().as_os_str(),
-        //     None => "/etc/pacman.conf".as_ref(),
+        //     Some(path) => ["--config", path.as_ref().as_os_str()],
+        //     None => [],
         // };
 
         Ok(())

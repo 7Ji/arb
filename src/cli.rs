@@ -1,5 +1,7 @@
 
-use crate::{rootless::action_map_assert, worker::WorkerState, Error, Result};
+use std::path::PathBuf;
+
+use crate::{pkgbuild::action_read_pkgbuilds, rootless::action_map_assert, worker::WorkerState, Error, Result};
 
 #[derive(clap::Args, Debug, Clone)]
 pub(crate) struct ActionArgs {
@@ -148,7 +150,10 @@ enum Action {
     ),
     #[clap(hide = true)]
     MapAssert,
-    /// A simple init implementation
+    #[clap(hide = true)]
+    ReadPkgbuilds {
+        pkgbuilds: Vec<PathBuf>,
+    },
     #[clap(hide = true)]
     Init {
         args: Vec<String>,
@@ -174,6 +179,7 @@ pub(crate) fn work() -> Result<()> {
         Action::Release(args) => args.release().and(Ok(())),
         Action::DoEverything(args) => args.release().and(Ok(())),
         Action::MapAssert => action_map_assert(),
+        Action::ReadPkgbuilds { pkgbuilds } => action_read_pkgbuilds(&pkgbuilds),
         Action::Init { args } => todo!(),
     }
 }

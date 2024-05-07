@@ -2,12 +2,12 @@ mod id;
 mod idmap;
 mod root;
 mod unshare;
-use std::{ffi::OsStr, fs::read_link, os::unix::process::CommandExt, path::PathBuf, process::{Child, Command}};
+use std::{ffi::OsStr, fs::read_link, path::PathBuf, process::{Child, Command}};
 use nix::{libc::pid_t, unistd::Pid};
 
 use crate::{Error, Result};
-
 use self::idmap::IdMaps;
+pub(crate) use self::unshare::all_and_try_wait as unshare_all_and_try_wait;
 
 pub(crate) struct RootlessHandler {
     idmaps: IdMaps,
@@ -92,10 +92,11 @@ impl RootlessHandler {
 }
 
 pub(crate) fn action_map_assert() -> Result<()> {
-    if let Err(e) = unshare::all_and_wait() {
+    if let Err(e) = unshare_all_and_try_wait() {
         log::error!("Mapping assertion failure");
         Err(e)
     } else {
+        log::info!("Mapping assertion success, rootless is functional");
         Ok(())
     }
 }

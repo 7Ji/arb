@@ -143,6 +143,10 @@ impl WorkerState {
 
     pub(crate) fn parse_pkgbuilds(self) -> Result<Self> {
         if let Self::PreparedRootless { config, rootless } = self {
+            config.pkgbuilds.dump("build/PKGBUILDs")?;
+            
+            // let pkgbuilds = 
+            // rootless.run_action("read_pkgbuilds", config.pkgbuilds.entries.iter())
             Ok(Self::ParsedPkgbuilds { config, rootless })
         } else {
             Err(self.get_illegal_state())
