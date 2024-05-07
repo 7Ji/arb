@@ -4,18 +4,20 @@ use crate::{Error, Result};
 type ConfigSection =  BTreeMap<String, Option<String>>;
 
 #[derive(Default, Debug, Clone)]
-pub(crate) struct Config {
+pub(crate) struct PacmanConfig {
     options: ConfigSection,
     repos: BTreeMap<String, ConfigSection>,
 }
 
-impl Config {
-    pub(crate) fn from_file<P: AsRef<Path>>(pacman_conf: P) -> Result<Self> {
-        let file = match File::open(&pacman_conf) {
+impl TryFrom<&Path> for PacmanConfig {
+    type Error = Error;
+
+    fn try_from(path: &Path) -> Result<Self> {
+        let file = match File::open(&path) {
             Ok(file) => file,
             Err(e) => {
                 log::error!("Failed to open pacman config file '{}': {}",
-                    pacman_conf.as_ref().display(), e);
+                    path.display(), e);
                 return Err(e.into())
             },
         };
@@ -68,7 +70,9 @@ impl Config {
         }
         Ok(config)
     }
+}
 
+impl PacmanConfig {
     pub(crate) fn set_option<S1, S2>(&mut self, key: S1, value: Option<S2>)
     where
         S1: Into<String>,
@@ -103,7 +107,7 @@ impl Config {
     }
 }
 
-impl Display for Config {
+impl Display for PacmanConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "[options]")?;
         for (key, value) in self.options.iter() {

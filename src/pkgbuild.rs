@@ -3,33 +3,9 @@ use git2::Oid;
 use serde::Deserialize;
 use pkgbuild;
 use url::Url;
-use crate::{Error, Result, git::{Repo, ReposMap}, proxy::Proxy};
+use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, git::{Repo, ReposMap}, proxy::Proxy, Error, Result};
 
 pub(crate) mod reader;
-
-/// The static part that comes from config
-#[derive(Debug, PartialEq, Deserialize)]
-#[serde(untagged)]
-pub(crate) enum PkgbuildConfig {
-    /// A simple name:url PKGBUILD
-    Simple (String),
-    /// An advanced PKGBUILD
-    Complex {
-        url: String,
-        #[serde(default)]
-        branch: String,
-        #[serde(default)]
-        subtree: String,
-        #[serde(default)]
-        deps: Vec<String>,
-        #[serde(default)]
-        makedeps: Vec<String>,
-        #[serde(default)]
-        homebinds: Vec<String>,
-    },
-}
-
-pub(crate) type PkgbuildsConfig = HashMap<String, PkgbuildConfig>;
 
 #[derive(Debug)]
 pub(crate) struct Pkgbuild {
@@ -47,15 +23,15 @@ pub(crate) struct Pkgbuild {
 }
 
 impl Pkgbuild {
-    fn from_config(name: String, config: PkgbuildConfig) -> Self 
+    fn from_config(name: String, config: PersistentPkgbuildConfig) -> Self 
     {
         let (mut url, mut branch, mut subtree, 
             deps, makedeps, homebinds) = 
         match config {
-            PkgbuildConfig::Simple(url) => (
+            PersistentPkgbuildConfig::Simple(url) => (
                 url, Default::default(), Default::default(), Default::default(), 
                 Default::default(), Default::default()),
-            PkgbuildConfig::Complex { url, branch, 
+            PersistentPkgbuildConfig::Complex { url, branch, 
                 subtree, deps, makedeps, 
                 homebinds } => (
                     url, branch, subtree, deps, makedeps, homebinds),
@@ -105,8 +81,8 @@ pub(crate) struct Pkgbuilds {
     pub(crate) entries: Vec<Pkgbuild>,
 }
 
-impl From<PkgbuildsConfig> for Pkgbuilds {
-    fn from(config: PkgbuildsConfig) -> Self {
+impl From<PersistentPkgbuildsConfig> for Pkgbuilds {
+    fn from(config: PersistentPkgbuildsConfig) -> Self {
         let mut pkgbuilds: Vec<Pkgbuild> = config.into_iter().map(
             |(name, config)| {
                 Pkgbuild::from_config(name, config)
@@ -127,15 +103,19 @@ impl Into<Vec<Pkgbuild>> for Pkgbuilds {
 
 impl Pkgbuilds {
     /// Generate a 7Ji/git-mirroer config
-    pub(crate) fn gengmr(&self) {
+    pub(crate) fn gengmr(&self) -> String {
         log::info!("Generateing 7Ji/git-mirrorer config...");
         let mut repos: Vec<String> = self.entries.iter().map(
             |repo|repo.url.clone()).collect();
         repos.sort_unstable();
-        println!("repos:");
+        let mut buffer = String::new();
+        buffer.push_str("repos:\n");
         for repo in repos.iter() {
-            println!("  - {}", repo)
+            buffer.push_str("  - ");
+            buffer.push_str(repo);
+            buffer.push('\n');
         }
+        buffer
     }
 
     /// Complete the inner `PKGBUILD` for each PKGBUILD
