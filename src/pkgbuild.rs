@@ -154,7 +154,7 @@ impl Pkgbuilds {
             let path_pkgbuild = parent.join(&pkgbuild.name);
             pkgbuild.dump(&path_pkgbuild)?
         }
-        // remove_dir_all_try_best(&parent)?;
+        remove_dir_all_try_best(&parent)?;
         Ok(())
     }
 }

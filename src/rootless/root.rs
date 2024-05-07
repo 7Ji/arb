@@ -1,6 +1,6 @@
 // Bootstrapping and erasing of root
 
-use std::{ffi::OsStr, path::{Path, PathBuf}};
+use std::{ffi::OsStr, fs::{create_dir, create_dir_all}, path::{Path, PathBuf}};
 use crate::{filesystem::remove_dir_all_try_best, Error, Result};
 
 use super::idmap::IdMaps;
@@ -19,8 +19,8 @@ pub(crate) struct TemporaryRoot {
 }
 
 impl Root {
-    fn new<P: AsRef<Path>>(path: P, idmaps: &IdMaps) -> Result<Self> {
-        Ok(Self { idmaps: idmaps.clone(), path: path.as_ref().into() })
+    pub(crate) fn new<P: AsRef<Path>>(path: P, idmaps: &IdMaps) -> Self {
+        Self { idmaps: idmaps.clone(), path: path.as_ref().into() }
     }
 
     /// Bootstrap this root, with an optional alternative `pacman.conf` to the
@@ -28,18 +28,34 @@ impl Root {
     /// 
     /// Only when the list of packages is empty, a default `base` package would 
     /// be installed
-    fn bootstrap<P, I, S>(pacman_conf: Option<P>, pkgs: I) -> Result<()> 
+    fn bootstrap<P, I, S>(&self, pacman_conf: Option<P>, pkgs: I) -> Result<()> 
     where
         P: AsRef<Path>,
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>
     {
-        // let pacman_conf = match pacman_conf {
-        //     Some(path) => ["--config", path.as_ref().as_os_str()],
-        //     None => [],
-        // };
+        create_dir(&self.path)?;
+        for suffix in &[
+            "dev", "dev/pts", "dev/shm", 
+            "etc", "etc/pacman.d",
+            "proc",
+            "run",
+            "sys",
+            "tmp",
+            "var", "var/cache", "var/cache/pacman", "var/cache/pacman/pkg",
+            "var/lib", "var/lib/pacman",
+            "var/log"
+        ] {
+            create_dir(self.path.join(suffix))?
+        }
+
 
         Ok(())
+    }
+
+    /// This is deprecated, as the host is not guaranteed to be Arch Linux
+    fn clone_host() {
+
     }
 
     /// As we operate in the ancestor naming space, we do not have any mounting

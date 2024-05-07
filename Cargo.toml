@@ -24,7 +24,7 @@ features = ["https"]
 
 [dependencies.nix]
 version = "0.27"
-features = ["process", "sched", "user"]
+features = ["fs", "process", "sched", "user"]
 
 [dependencies.pkgbuild]
 version = "0.1"
