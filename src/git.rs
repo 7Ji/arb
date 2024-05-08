@@ -409,7 +409,10 @@ impl Repo {
         }
         log::info!("Syncing repo '{}' with '{}' ",
                         &self.path.display(), &self.url);
-        Self::sync_raw(&self.repo, &self.url, proxy, refspecs, 3)
+        Self::sync_raw(&self.repo, &self.url, proxy, refspecs, 3)?;
+        log::info!("Synced repo '{}' with '{}' ",
+                        &self.path.display(), &self.url);
+        Ok(())
     }
 
     fn sync(&self, gmr: &str, proxy: &Proxy, hold: bool) -> Result<()>
@@ -700,6 +703,9 @@ impl ReposList {
         self.keep_aur_outdated()?;
         // Length would change after filtering
         if self.list.is_empty() { return Ok(()) }
+        log::info!("Syncing {} AUR repos, note that AUR repos can only be \
+            synced in single thread, to avoid DoSing the AUR server",
+            self.list.len());
         self.sync_single_thread(gmr, proxy, hold)
     }
 }

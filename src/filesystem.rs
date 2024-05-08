@@ -253,7 +253,6 @@ where
         if metadata.is_dir() {
             log::info!("Removing symlink target which is a dir...");
             remove_dir_all_try_best(&original)?;
-        // } else if metadata.is_file() || metadata.is_symlink() {
         } else {
             log::info!("Removing symlink target which is not a dir...");
             remove_file(&link).map_err(|e|Error::IoError(e))?
@@ -268,4 +267,9 @@ where
     } else {
         Ok(())
     }
+}
+
+pub(crate) fn action_rm_rf<P: AsRef<Path>>(path: P) -> Result<()> {
+    crate::rootless::unshare::try_unshare_user_and_wait()?;
+    remove_dir_all_try_best(path)
 }

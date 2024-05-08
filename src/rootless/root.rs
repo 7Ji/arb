@@ -1,7 +1,7 @@
 // Bootstrapping and erasing of root
 
-use std::{ffi::OsStr, fs::{create_dir, create_dir_all}, path::{Path, PathBuf}};
-use crate::{filesystem::remove_dir_all_try_best, Error, Result};
+use std::{ffi::OsStr, fs::{create_dir, create_dir_all}, path::{Path, PathBuf}, process::Command};
+use crate::{filesystem::remove_dir_all_try_best, pacman::{install_pkgs, PacmanConfig}, rootless::RootlessHandler, Error, Result};
 
 use super::idmap::IdMaps;
 
@@ -11,28 +11,32 @@ pub(crate) struct Root {
     /// root, so we have a full 65536 id space without actual root permission
     idmaps: IdMaps,
     path: PathBuf,
-}
-
-/// Similar to `Root` but would be removed when going out of scope
-pub(crate) struct TemporaryRoot {
-    inner: Root,
+    /// If this is not empty, then destroy self
+    destory_with_exe: Option<PathBuf>,
 }
 
 impl Root {
-    pub(crate) fn new<P: AsRef<Path>>(path: P, idmaps: &IdMaps) -> Self {
-        Self { idmaps: idmaps.clone(), path: path.as_ref().into() }
+    pub(crate) fn new<P1, P2>(
+        path: P1, idmaps: &IdMaps, destroy_with_exe: Option<P2>
+    ) -> Self 
+    where
+        P1: AsRef<Path>,
+        P2: AsRef<Path>,
+    {
+        Self { 
+            idmaps: idmaps.clone(), 
+            path: path.as_ref().into(), 
+            destory_with_exe: destroy_with_exe.and_then(
+                |exe|Some(exe.as_ref().into())) 
+        }
     }
 
-    /// Bootstrap this root, with an optional alternative `pacman.conf` to the
-    /// default `/etc/pacman.conf`, and a list of packages to install.
-    /// 
-    /// Only when the list of packages is empty, a default `base` package would 
-    /// be installed
-    fn bootstrap<P, I, S>(&self, pacman_conf: Option<P>, pkgs: I) -> Result<()> 
-    where
-        P: AsRef<Path>,
-        I: IntoIterator<Item = S>,
-        S: AsRef<OsStr>
+    pub(crate) fn get_path_pacman_conf(&self) -> PathBuf {
+        self.path.join("etc/pacman.conf")
+    }
+
+    pub(crate) fn prepare_layout(&self, pacman_conf: &PacmanConfig) 
+        -> Result<()> 
     {
         create_dir(&self.path)?;
         for suffix in &[
@@ -48,19 +52,35 @@ impl Root {
         ] {
             create_dir(self.path.join(suffix))?
         }
-
-
+        let path_pacman_conf = self.get_path_pacman_conf();
+        let mut pacman_conf = pacman_conf.clone();
+        pacman_conf.set_root(self.path.to_string_lossy());
+        pacman_conf.to_file(&path_pacman_conf)?;
         Ok(())
-    }
-
-    /// This is deprecated, as the host is not guaranteed to be Arch Linux
-    fn clone_host() {
-
     }
 
     /// As we operate in the ancestor naming space, we do not have any mounting
     /// related to the root, we can just simply remove everything
     fn remove(&self) -> Result<()> {
         remove_dir_all_try_best(&self.path)
+    }
+}
+
+impl Drop for Root {
+    fn drop(&mut self) {
+        let exe = match &self.destory_with_exe {
+            Some(exe) => exe.clone(),
+            None => return,
+        };
+        log::info!("Destroying root at '{}'", self.path.display());
+        let rootless = RootlessHandler {
+            idmaps: self.idmaps.clone(), exe,
+        };
+        if let Err(e) = rootless.run_action(
+            "rm-rf", &[&self.path], false) 
+        {
+            log::error!("Failed to destory root at '{}': {}",
+                self.path.display(), e)
+        }
     }
 }

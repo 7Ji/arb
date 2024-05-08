@@ -154,7 +154,6 @@ impl Pkgbuilds {
             let path_pkgbuild = parent.join(&pkgbuild.name);
             pkgbuild.dump(&path_pkgbuild)?
         }
-        remove_dir_all_try_best(&parent)?;
         Ok(())
     }
 }
@@ -165,8 +164,9 @@ where
     I: IntoIterator<Item = P>,
     P: AsRef<Path>
 {
-    crate::rootless::unshare_all_and_try_wait()?;
-    let pkgbuilds = match pkgbuild::parse_multi(pkgbuilds) {
+    crate::rootless::unshare::try_unshare_user_mount_and_wait()?;
+    let pkgbuilds = match pkgbuild::parse_multi(pkgbuilds)
+    {
         Ok(pkgbuilds) => pkgbuilds,
         Err(e) => {
             log::error!("Failed to parse PKGBUILDs: {}", e);

@@ -63,11 +63,9 @@ fn try_wait_as_child() -> Result<()> {
     Err(Error::MappingFailure)
 }
 
-pub(crate) fn all() -> Result<()> {
-    if let Err(e) = unshare(CloneFlags::CLONE_NEWUSER | 
-                    CloneFlags::CLONE_NEWNS | CloneFlags::CLONE_NEWPID) 
-    {
-        log::error!("Failed to unshare user, mount and pid from parent: {}", e);
+fn try_unshare(flags: CloneFlags) -> Result<()> {
+    if let Err(e) = unshare(flags) {
+        log::error!("Failed to unshare from parent: {}", e);
         Err(e.into())
     } else {
         log::info!("Child {}: We've unshared namespaces from root, wait for \
@@ -76,7 +74,30 @@ pub(crate) fn all() -> Result<()> {
     }
 }
 
-pub(crate) fn all_and_try_wait() -> Result<()> {
-    all()?;
+fn try_unshare_user() -> Result<()> {
+    try_unshare(CloneFlags::CLONE_NEWUSER)
+}
+
+fn try_unshare_user_mount() -> Result<()> {
+    try_unshare(CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNS)
+}
+
+fn try_unshare_user_mount_pid() -> Result<()> {
+    try_unshare(CloneFlags::CLONE_NEWUSER | 
+        CloneFlags::CLONE_NEWNS | CloneFlags::CLONE_NEWPID)
+}
+
+pub(crate) fn try_unshare_user_and_wait() -> Result<()> {
+    try_unshare_user()?;
+    try_wait_as_child()
+}
+
+pub(crate) fn try_unshare_user_mount_and_wait() -> Result<()> {
+    try_unshare_user_mount()?;
+    try_wait_as_child()
+}
+
+pub(crate) fn try_unshare_user_mount_pid_and_wait() -> Result<()> {
+    try_unshare_user_mount_pid()?;
     try_wait_as_child()
 }

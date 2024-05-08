@@ -1,10 +1,12 @@
 mod aur;
+mod child;
 mod cli;
 mod config;
 mod error;
 mod filesystem;
 mod git;
 mod io;
+mod mount;
 mod pkgbuild;
 mod pacman;
 mod proxy;

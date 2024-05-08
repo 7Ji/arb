@@ -1,7 +1,7 @@
 
 use std::path::PathBuf;
 
-use crate::{pkgbuild::action_read_pkgbuilds, rootless::action_map_assert, worker::WorkerState, Error, Result};
+use crate::{filesystem::action_rm_rf, pkgbuild::action_read_pkgbuilds, rootless::{action_broker, action_init, action_map_assert}, worker::WorkerState, Error, Result};
 
 #[derive(clap::Args, Debug, Clone)]
 pub(crate) struct ActionArgs {
@@ -69,13 +69,13 @@ impl ActionArgs {
         WorkerState::new()
             .read_config(&self.config)?
             .merge_config(self)?
+            .prepare_rootless()?
             .prepare_layout()?
             .fetch_pkgbuilds()
     }
 
     fn fetch_sources(self) -> Result<WorkerState> {
         self.fetch_pkgbuilds()?
-            .prepare_rootless()?
             .parse_pkgbuilds()?
             .fetch_sources()
     }
@@ -155,7 +155,18 @@ enum Action {
         pkgbuilds: Vec<PathBuf>,
     },
     #[clap(hide = true)]
+    RmRf {
+        path: PathBuf
+    },
+    /// An intermediate stage to spawn later process that's wrapped by init
+    #[clap(hide = true)]
+    Broker {
+        args: Vec<String>,
+    },
+    /// Spawn a pseudo init process
+    #[clap(hide = true)]
     Init {
+        program: PathBuf,
         args: Vec<String>,
     },
 }
@@ -180,6 +191,8 @@ pub(crate) fn work() -> Result<()> {
         Action::DoEverything(args) => args.release().and(Ok(())),
         Action::MapAssert => action_map_assert(),
         Action::ReadPkgbuilds { pkgbuilds } => action_read_pkgbuilds(&pkgbuilds),
-        Action::Init { args } => todo!(),
+        Action::RmRf { path } => action_rm_rf(path),
+        Action::Broker { args } => action_broker(&args),
+        Action::Init { program, args } => action_init(program, &args),
     }
 }

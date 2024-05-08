@@ -1,6 +1,6 @@
-use std::{collections::BTreeMap, fmt::Display, fs::File, io::{BufRead, BufReader, Write}, path::Path};
+use std::{collections::BTreeMap, ffi::OsStr, fmt::Display, fs::File, io::{BufRead, BufReader, Write}, path::{Path, PathBuf}, process::Command};
 
-use crate::{Error, Result};
+use crate::{rootless::RootlessHandler, Error, Result};
 
 type ConfigSection =  BTreeMap<String, Option<String>>;
 
@@ -90,6 +90,23 @@ impl PacmanConfig {
         self.set_cache_dir("pkgs/cache")
     }
 
+    pub(crate) fn set_root<S: Into<String>>(&mut self, value: S) {
+        let mut path = value.into();
+        self.set_option("RootDir", Some(&path));
+        let len = path.len();
+        path.push_str("/var/lib/pacman/");
+        self.set_option("DBPath", Some(&path));
+        path.truncate(len);
+        path.push_str("/var/log/pacman.log");
+        self.set_option("LogFile", Some(&path));
+        path.truncate(len);
+        path.push_str("/etc/pacman.d/gnupg/");
+        self.set_option("GPGDir", Some(&path));
+        path.truncate(len);
+        path.push_str("/etc/pacman.d/hooks/");
+        self.set_option("HookDir", Some(&path));
+    }
+
     pub(crate) fn to_file<P: AsRef<Path>>(&self, pacman_conf: P) -> Result<()> {
         let mut file = match File::create(&pacman_conf) {
             Ok(file) => file,
@@ -106,6 +123,7 @@ impl PacmanConfig {
             Ok(())
         }
     }
+
 }
 
 impl Display for PacmanConfig {
@@ -132,4 +150,14 @@ impl Display for PacmanConfig {
         }
         Ok(())
     }
+}
+
+pub(crate) fn install_pkgs<S: AsRef<str>>(
+    config: &Path, pkgs: &Vec<S>, rootless: &RootlessHandler
+) -> Result<()> 
+{
+    let config_str = config.to_string_lossy();
+    rootless.run_external("pacman", 
+    ["-S", "--config", config_str.as_ref()].into_iter().chain(
+            pkgs.into_iter().map(|s|s.as_ref())))
 }

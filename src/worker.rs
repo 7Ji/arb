@@ -1,7 +1,7 @@
 use std::{io::Write, path::Path};
 
 // Worker is a finite state machine
-use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, rootless::RootlessHandler, Error, Result};
+use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, rootless::{Root, RootlessHandler}, Error, Result};
 
 #[derive(Default)]
 pub(crate) enum WorkerState {
@@ -13,13 +13,15 @@ pub(crate) enum WorkerState {
     MergedConfig {
         config: RuntimeConfig
     },
+    PreparedRootless {
+        config: RuntimeConfig,
+        rootless: RootlessHandler,
+    },
     PreparedLayout {
-        config: RuntimeConfig
+        config: RuntimeConfig,
+        rootless: RootlessHandler,
     },
     FetchedPkgbuilds {
-        config: RuntimeConfig
-    },
-    PreparedRootless {
         config: RuntimeConfig,
         rootless: RootlessHandler,
     },
@@ -50,6 +52,7 @@ pub(crate) enum WorkerState {
     Released
 }
 
+const PATH_BUILD_PACMAN_CACHE_CONF: &str = "build/pacman.cache.conf";
 
 impl WorkerState {
     fn get_state_str(&self) -> &'static str {
@@ -57,9 +60,9 @@ impl WorkerState {
             WorkerState::None => "none",
             WorkerState::ReadConfig { config: _ } => "read config",
             WorkerState::MergedConfig { config: _ } => "merged config",
-            WorkerState::PreparedLayout { config: _ } => "prepared layout",
-            WorkerState::FetchedPkgbuilds { config: _ }=> "fetched PKGBUILDs",
             WorkerState::PreparedRootless { config: _, rootless: _ } => "prepared rootless",
+            WorkerState::PreparedLayout { config: _, rootless: _ } => "prepared layout",
+            WorkerState::FetchedPkgbuilds { config: _, rootless: _ }=> "fetched PKGBUILDs",
             WorkerState::ParsedPkgbuilds { config: _, rootless: _ } => "parsed PKGBUILDs",
             WorkerState::FetchedSources { config: _, rootless: _ } => "fetched sources",
             WorkerState::FetchedPkgs { config: _, rootless: _ } => "fetched pkgs",
@@ -111,29 +114,8 @@ impl WorkerState {
         }
     }
 
-    pub(crate) fn prepare_layout(self) -> Result<Self> {
-        if let Self::MergedConfig { mut config } = self {
-            crate::filesystem::prepare_layout()?;
-            config.paconf.set_cache_dir_here();
-            config.paconf.to_file("build/pacman.cache.conf")?;
-            Ok(Self::PreparedLayout { config })
-        } else {
-            Err(self.get_illegal_state())
-        }
-    }
-
-    pub(crate) fn fetch_pkgbuilds(self) -> Result<Self> {
-        if let Self::PreparedLayout { mut config }= self {
-            config.pkgbuilds.sync(&config.gmr, &config.proxy, config.holdpkg)?;
-            config.pkgbuilds.complete()?;
-            Ok(Self::FetchedPkgbuilds { config })
-        } else {
-            Err(self.get_illegal_state())
-        }
-    }
-
     pub(crate) fn prepare_rootless(self) -> Result<Self> {
-        if let Self::FetchedPkgbuilds { config } = self {
+        if let Self::MergedConfig { config } = self {
             let rootless = RootlessHandler::try_new()?;
             Ok(Self::PreparedRootless { config, rootless })
         } else {
@@ -141,13 +123,34 @@ impl WorkerState {
         }
     }
 
-    pub(crate) fn parse_pkgbuilds(self) -> Result<Self> {
-        if let Self::PreparedRootless { config, rootless } = self {
-            config.pkgbuilds.dump("build/PKGBUILDs")?;
-            rootless.new_root("build/root_base_pkgbuild_parser");
+    pub(crate) fn prepare_layout(self) -> Result<Self> {
+        if let Self::PreparedRootless { mut config, rootless } = self {
+            rootless.run_action("rm-rf", &["build"], false)?;
+            crate::filesystem::prepare_layout()?;
+            config.paconf.set_cache_dir_here();
+            Ok(Self::PreparedLayout { config, rootless })
+        } else {
+            Err(self.get_illegal_state())
+        }
+    }
 
-            // let pkgbuilds = 
-            // rootless.run_action("read_pkgbuilds", config.pkgbuilds.entries.iter())
+    pub(crate) fn fetch_pkgbuilds(self) -> Result<Self> {
+        if let Self::PreparedLayout { mut config, rootless }= self {
+            config.pkgbuilds.sync(&config.gmr, &config.proxy, config.holdpkg)?;
+            config.pkgbuilds.complete()?;
+            Ok(Self::FetchedPkgbuilds { config, rootless })
+        } else {
+            Err(self.get_illegal_state())
+        }
+    }
+
+    pub(crate) fn parse_pkgbuilds(self) -> Result<Self> {
+        if let Self::FetchedPkgbuilds { config, rootless } = self {
+            config.pkgbuilds.dump("build/PKGBUILDs")?;
+            let root = rootless.new_root(
+                "build/root_base_pkgbuild_parser", true);
+            root.prepare_layout(&config.paconf)?;
+            rootless.install_pkgs_to_root(&root, &vec!["base"])?;
             Ok(Self::ParsedPkgbuilds { config, rootless })
         } else {
             Err(self.get_illegal_state())
