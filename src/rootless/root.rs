@@ -1,6 +1,6 @@
 // Bootstrapping and erasing of root
 
-use std::{fs::create_dir, os::unix::fs::symlink, path::{Path, PathBuf}};
+use std::{fs::{create_dir, set_permissions, Permissions}, iter::once, os::unix::fs::{symlink, PermissionsExt}, path::{Path, PathBuf}};
 use crate::{pacman::PacmanConfig, rootless::RootlessHandler, Result};
 
 use super::idmap::IdMaps;
@@ -31,6 +31,10 @@ impl Root {
         }
     }
 
+    pub(crate) fn get_path(&self) -> &Path {
+        &self.path
+    }
+
     pub(crate) fn get_path_pacman_conf(&self) -> PathBuf {
         self.path.join("etc/pacman.conf")
     }
@@ -52,6 +56,10 @@ impl Root {
         ] {
             create_dir(self.path.join(suffix))?
         }
+        set_permissions(self.path.join("dev/shm"), PermissionsExt::from_mode(0o1777))?;
+        set_permissions(self.path.join("tmp"), PermissionsExt::from_mode(0o1777))?;
+        set_permissions(self.path.join("proc"), PermissionsExt::from_mode(0o555))?;
+        set_permissions(self.path.join("sys"), PermissionsExt::from_mode(0o555))?;
         symlink("../../../../pacman.sync", 
             self.path.join("var/lib/pacman/sync"))?;
         let path_pacman_conf = self.get_path_pacman_conf();
@@ -73,7 +81,7 @@ impl Root {
             idmaps: self.idmaps.clone(), exe,
         };
         if let Err(e) = rootless.run_action(
-            "rm-rf", &[&self.path], false) 
+            "rm-rf", once(&self.path)) 
         {
             log::error!("Failed to destory root at '{}': {}",
                 self.path.display(), e);

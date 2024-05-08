@@ -270,6 +270,19 @@ where
     }
 }
 
+pub(crate) fn touch<P: AsRef<Path>>(path: P) -> Result<()> {
+    if let Err(e) = std::fs::OpenOptions::new()
+                            .create(true).write(true).open(&path) 
+    {
+        log::error!("Failed to touch file '{}': {}", 
+                        path.as_ref().display(), e);
+        Err(e.into())
+    } else {
+        Ok(())
+    }
+}
+
+
 pub(crate) fn action_rm_rf<P: AsRef<Path>>(path: P) -> Result<()> {
     crate::rootless::unshare::try_unshare_user_and_wait()?;
     remove_dir_all_try_best(path)

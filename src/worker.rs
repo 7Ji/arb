@@ -1,4 +1,4 @@
-use std::{io::Write, path::Path};
+use std::{io::Write, iter::once, path::Path};
 
 // Worker is a finite state machine
 use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, rootless::RootlessHandler, Error, Result};
@@ -123,7 +123,7 @@ impl WorkerState {
 
     pub(crate) fn prepare_layout(self) -> Result<Self> {
         if let Self::PreparedRootless { mut config, rootless } = self {
-            rootless.run_action("rm-rf", &["build"], false)?;
+            rootless.run_action("rm-rf", once("build"))?;
             crate::filesystem::prepare_layout()?;
             config.paconf.set_defaults();
             Ok(Self::PreparedLayout { config, rootless })

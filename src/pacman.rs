@@ -160,16 +160,16 @@ impl Display for PacmanConfig {
 pub(crate) fn sync_db(config: &Path, rootless: &RootlessHandler) -> Result<()> 
 {
     let config_str = config.to_string_lossy();
-    rootless.run_external("pacman", 
+    rootless.run_external("pacman", "",
     ["-Sy", "--config", config_str.as_ref()])
 }
 
 pub(crate) fn install_pkgs<S: AsRef<str>>(
-    config: &Path, pkgs: &Vec<S>, rootless: &RootlessHandler
+    root: &Path, pkgs: &Vec<S>, rootless: &RootlessHandler
 ) -> Result<()> 
 {
-    let config_str = config.to_string_lossy();
-    rootless.run_external("pacman", 
-    ["-S", "--config", config_str.as_ref(), "--noconfirm"].into_iter()
+    let path_config = root.join("etc/pacman.conf");
+    rootless.run_external("pacman", root,
+    ["-S", "--config", &path_config.to_string_lossy(), "--noconfirm"].into_iter()
         .chain(pkgs.into_iter().map(|s|s.as_ref())))
 }
