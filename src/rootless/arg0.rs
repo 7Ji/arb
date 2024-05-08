@@ -1,5 +1,5 @@
 use std::{fs::read_link, path::PathBuf};
-use crate::{Error, Result};
+use crate::Result;
 
 const PATH_EXE: &str = "/proc/self/exe";
 

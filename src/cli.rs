@@ -1,7 +1,7 @@
 
 use std::path::PathBuf;
 
-use crate::{filesystem::action_rm_rf, pkgbuild::action_read_pkgbuilds, rootless::{action_broker, action_init, action_map_assert}, worker::WorkerState, Error, Result};
+use crate::{filesystem::action_rm_rf, pkgbuild::action_read_pkgbuilds, rootless::{action_broker, action_init, action_map_assert}, worker::WorkerState, Result};
 
 #[derive(clap::Args, Debug, Clone)]
 pub(crate) struct ActionArgs {

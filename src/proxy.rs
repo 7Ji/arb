@@ -26,7 +26,7 @@ impl Proxy {
         }
     }
 
-    pub(crate) fn tries_without(&self, base: usize) -> usize {
+    pub(crate) fn _tries_without(&self, base: usize) -> usize {
         if self.url.is_empty() {
             base
         } else {
@@ -34,7 +34,7 @@ impl Proxy {
         }
     }
 
-    pub(crate) fn tries_with(&self, base: usize) -> usize {
+    pub(crate) fn _tries_with(&self, base: usize) -> usize {
         if self.url.is_empty() {
             0
         } else {

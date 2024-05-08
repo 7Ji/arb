@@ -1,7 +1,7 @@
 use std::{io::Write, path::Path};
 
 // Worker is a finite state machine
-use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, rootless::{Root, RootlessHandler}, Error, Result};
+use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, rootless::RootlessHandler, Error, Result};
 
 #[derive(Default)]
 pub(crate) enum WorkerState {
@@ -51,8 +51,6 @@ pub(crate) enum WorkerState {
     },
     Released
 }
-
-const PATH_BUILD_PACMAN_CACHE_CONF: &str = "build/pacman.cache.conf";
 
 impl WorkerState {
     fn get_state_str(&self) -> &'static str {
@@ -127,7 +125,7 @@ impl WorkerState {
         if let Self::PreparedRootless { mut config, rootless } = self {
             rootless.run_action("rm-rf", &["build"], false)?;
             crate::filesystem::prepare_layout()?;
-            config.paconf.set_cache_dir_here();
+            config.paconf.set_defaults();
             Ok(Self::PreparedLayout { config, rootless })
         } else {
             Err(self.get_illegal_state())
@@ -148,8 +146,11 @@ impl WorkerState {
         if let Self::FetchedPkgbuilds { config, rootless } = self {
             config.pkgbuilds.dump("build/PKGBUILDs")?;
             let root = rootless.new_root(
-                "build/root_base_pkgbuild_parser", true);
-            root.prepare_layout(&config.paconf)?;
+                "build/root.single.pkgbuild-parser", true);
+            let mut paconf = config.paconf.clone();
+            paconf.set_option("SigLevel", Some("Never"));
+            root.prepare_layout(&paconf)?;
+            rootless.sync_db_for_root(&root)?;
             rootless.install_pkgs_to_root(&root, &vec!["base"])?;
             Ok(Self::ParsedPkgbuilds { config, rootless })
         } else {
@@ -199,6 +200,8 @@ impl WorkerState {
 
     pub(crate) fn release(self) -> Result<Self> {
         if let Self::Built { config, rootless } = self {
+            let _ = config;
+            let _ = rootless;
             Ok(Self::Released)
         } else {
             Err(self.get_illegal_state())

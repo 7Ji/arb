@@ -2,7 +2,7 @@ use std::{fmt::Display, path::Path};
 
 use nix::{mount::{mount, MsFlags}, NixPath};
 
-use crate::{Error, Result};
+use crate::Result;
 
 pub(crate) fn mount_checked<
     P1: ? Sized + NixPath,

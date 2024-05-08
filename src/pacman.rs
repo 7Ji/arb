@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, ffi::OsStr, fmt::Display, fs::File, io::{BufRead, BufReader, Write}, path::{Path, PathBuf}, process::Command};
+use std::{collections::BTreeMap, fmt::Display, fs::File, io::{BufRead, BufReader, Write}, path::Path};
 
 use crate::{rootless::RootlessHandler, Error, Result};
 
@@ -90,6 +90,11 @@ impl PacmanConfig {
         self.set_cache_dir("pkgs/cache")
     }
 
+    pub(crate) fn set_defaults(&mut self) {
+        self.set_cache_dir_here();
+        self.set_option("SigLevel", Some("Required DatabaseOptional"))
+    }
+
     pub(crate) fn set_root<S: Into<String>>(&mut self, value: S) {
         let mut path = value.into();
         self.set_option("RootDir", Some(&path));
@@ -152,12 +157,19 @@ impl Display for PacmanConfig {
     }
 }
 
+pub(crate) fn sync_db(config: &Path, rootless: &RootlessHandler) -> Result<()> 
+{
+    let config_str = config.to_string_lossy();
+    rootless.run_external("pacman", 
+    ["-Sy", "--config", config_str.as_ref()])
+}
+
 pub(crate) fn install_pkgs<S: AsRef<str>>(
     config: &Path, pkgs: &Vec<S>, rootless: &RootlessHandler
 ) -> Result<()> 
 {
     let config_str = config.to_string_lossy();
     rootless.run_external("pacman", 
-    ["-S", "--config", config_str.as_ref()].into_iter().chain(
-            pkgs.into_iter().map(|s|s.as_ref())))
+    ["-S", "--config", config_str.as_ref(), "--noconfirm"].into_iter()
+        .chain(pkgs.into_iter().map(|s|s.as_ref())))
 }

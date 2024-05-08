@@ -27,7 +27,7 @@ use std::{
         }, str::FromStr
     };
 
-use crate::{aur::AurResult, pkgbuild::{Pkgbuild, Pkgbuilds}, proxy::{Proxy, NOPROXY}, Error, Result};
+use crate::{aur::AurResult, proxy::{Proxy, NOPROXY}, Error, Result};
 
 const REFSPECS_HEADS_TAGS: &[&str] = &[
     "+refs/heads/*:refs/heads/*",
@@ -78,7 +78,7 @@ pub(crate) struct Repo {
     pub(crate) refspecs: Vec<String>,
 }
 
-fn refspec_same_branch_or_all(mut branch: &str) -> String {
+fn refspec_same_branch_or_all(branch: &str) -> String {
     if branch.is_empty() {
         "+refs/heads/*:refs/heads/*".into()
     } else {
@@ -110,7 +110,7 @@ impl ReposList {
         self.list.push(repo)
     }
 
-    pub(crate) fn from_iter<I, R>(iter: I) -> Result<Self> 
+    pub(crate) fn _from_iter<I, R>(iter: I) -> Result<Self> 
     where
         I: IntoIterator<Item = R>,
         R: TryInto<Repo, Error = Error>
@@ -146,8 +146,7 @@ impl ReposMap {
         };
         match self.map.get_mut(&key) {
             Some(list) => list.add_repo(repo),
-            None => if let Some(list) = 
-                self.map.insert(key, vec![repo].into()) 
+            None => if self.map.insert(key, vec![repo].into()).is_some()
             {
                 log::error!("Impossible key {} already in map", key);
                 return Err(Error::ImpossibleLogic)
@@ -492,7 +491,7 @@ impl Repo {
         self.get_commit_tree(&commit, subtree)
     }
 
-    pub(crate) fn get_branch_commit_or_subtree_id(&self,
+    pub(crate) fn _get_branch_commit_or_subtree_id(&self,
         branch: &str, subtree: &Path
     ) -> Result<Oid>
     {
@@ -579,7 +578,7 @@ impl Repo {
     }
 
     /// Checkout a repo to `target`, from `branch` and optionally from `subtree`
-    pub(crate) fn checkout<P>(&self, target: P, branch: &str, subtree: &Path
+    pub(crate) fn _checkout<P>(&self, target: P, branch: &str, subtree: &Path
     ) -> Result<()>
     where
         P: AsRef<Path>
@@ -601,7 +600,7 @@ impl Repo {
     /// 
     /// This is `safe` in the sense it does not fail. If we really can't get the
     /// domain, this simply returns `of url [original url]`
-    fn get_domain_safe(&self) -> String {
+    fn _get_domain_safe(&self) -> String {
         if let Ok(url) = Url::parse(&self.url) {
             if let Some(domain) = url.domain() {
                 return domain.to_string()

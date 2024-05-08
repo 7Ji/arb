@@ -1,7 +1,7 @@
 // Bootstrapping and erasing of root
 
-use std::{ffi::OsStr, fs::{create_dir, create_dir_all}, path::{Path, PathBuf}, process::Command};
-use crate::{filesystem::remove_dir_all_try_best, pacman::{install_pkgs, PacmanConfig}, rootless::RootlessHandler, Error, Result};
+use std::{fs::create_dir, os::unix::fs::symlink, path::{Path, PathBuf}};
+use crate::{pacman::PacmanConfig, rootless::RootlessHandler, Result};
 
 use super::idmap::IdMaps;
 
@@ -52,6 +52,8 @@ impl Root {
         ] {
             create_dir(self.path.join(suffix))?
         }
+        symlink("../../../../pacman.sync", 
+            self.path.join("var/lib/pacman/sync"))?;
         let path_pacman_conf = self.get_path_pacman_conf();
         let mut pacman_conf = pacman_conf.clone();
         pacman_conf.set_root(self.path.to_string_lossy());
@@ -62,15 +64,9 @@ impl Root {
     /// As we operate in the ancestor naming space, we do not have any mounting
     /// related to the root, we can just simply remove everything
     fn remove(&self) -> Result<()> {
-        remove_dir_all_try_best(&self.path)
-    }
-}
-
-impl Drop for Root {
-    fn drop(&mut self) {
         let exe = match &self.destory_with_exe {
             Some(exe) => exe.clone(),
-            None => return,
+            None => return Ok(()),
         };
         log::info!("Destroying root at '{}'", self.path.display());
         let rootless = RootlessHandler {
@@ -80,7 +76,16 @@ impl Drop for Root {
             "rm-rf", &[&self.path], false) 
         {
             log::error!("Failed to destory root at '{}': {}",
-                self.path.display(), e)
+                self.path.display(), e);
+            Err(e.into())
+        } else {
+            Ok(())
         }
+    }
+}
+
+impl Drop for Root {
+    fn drop(&mut self) {
+        let _ = self.remove();
     }
 }

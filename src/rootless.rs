@@ -4,10 +4,10 @@ mod idmap;
 mod init;
 mod root;
 pub(crate) mod unshare;
-use std::{ffi::OsStr, fs::read_link, path::{Path, PathBuf}, process::{Child, Command}};
-use nix::{libc::pid_t, unistd::{getpid, Pid}};
+use std::{ffi::OsStr, path::{Path, PathBuf}, process::Child};
+use nix::{libc::pid_t, unistd::getpid};
 
-use crate::{child::wait_child, mount::mount_proc, pacman::{install_pkgs, PacmanConfig}, Error, Result};
+use crate::{child::{command_new_no_stdin, wait_child}, mount::mount_proc, pacman::{install_pkgs, sync_db, PacmanConfig}, Error, Result};
 use self::idmap::IdMaps;
 pub(crate) use self::root::Root;
 
@@ -24,13 +24,13 @@ where
     S1: AsRef<OsStr>,
     S2: AsRef<OsStr>,
 {
-    let mut command = Command::new(&arg0::get_arg0());
+    let mut command = command_new_no_stdin(&arg0::get_arg0());
     command.arg(&applet);
     if noparse {
         command.arg("--");
     }
     command.args(args);
-    let mut child = match command .spawn() {
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
             log::error!("Failed to run applet '{}'", 
@@ -78,7 +78,7 @@ impl RootlessHandler {
         S1: AsRef<OsStr>,
         S2: AsRef<OsStr>,
     {
-        let mut child = match Command::new(&self.exe)
+        let mut child = match command_new_no_stdin(&self.exe)
             .arg("broker")
             .arg("--")
             .arg(&program)
@@ -103,7 +103,7 @@ impl RootlessHandler {
         S1: AsRef<OsStr>,
         S2: AsRef<OsStr>,
     {
-        let mut command = Command::new(&self.exe);
+        let mut command = command_new_no_stdin(&self.exe);
         command.arg(&applet);
         if noparse {
             command.arg("--");
@@ -139,6 +139,12 @@ impl RootlessHandler {
             None 
         };
         Root::new(path, &self.idmaps, destroy_with_exe)
+    }
+
+    pub(crate) fn sync_db_for_root(&self, root: &Root) 
+        -> Result<()> 
+    {
+        sync_db(&root.get_path_pacman_conf(), self)
     }
 
     pub(crate) fn install_pkgs_to_root<S>(&self, root: &Root, pkgs: &Vec<S>) 
@@ -188,7 +194,7 @@ where
     mount_proc("/proc")?;
     nix::sys::prctl::set_child_subreaper(true)?;
     // Spawn the child we needed
-    let child = match Command::new(program.as_ref())
+    let child = match command_new_no_stdin(program.as_ref())
         .args(args)
         .spawn() 
     {

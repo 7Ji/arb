@@ -1,9 +1,7 @@
-use std::{collections::HashMap, fs::create_dir, io::{stdout, Write}, path::{Path, PathBuf}};
+use std::{fs::create_dir, io::{stdout, Write}, path::Path};
 use git2::Oid;
-use serde::Deserialize;
 use pkgbuild;
-use url::Url;
-use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, filesystem::remove_dir_all_try_best, git::{Repo, ReposHashMap, ReposMap}, proxy::Proxy, Error, Result};
+use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, git::{Repo, ReposMap}, proxy::Proxy, Error, Result};
 
 #[derive(Debug)]
 pub(crate) struct Pkgbuild {

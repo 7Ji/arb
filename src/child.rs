@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, process::Child};
+use std::{ffi::OsStr, process::{Child, Command, Stdio}};
 
 use nix::{libc::pid_t, unistd::Pid};
 
@@ -22,4 +22,10 @@ pub(crate) fn wait_child(child: &mut Child) -> Result<()> {
             Err(e.into())
         },
     }
+}
+
+pub(crate) fn command_new_no_stdin<S: AsRef<OsStr>>(exe: S) -> Command {
+    let mut command = Command::new(exe);
+    command.stdin(Stdio::null());
+    command
 }

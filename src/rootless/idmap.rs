@@ -1,8 +1,8 @@
-use std::{fs::File, path::Path, io::{BufRead, BufReader, Read}, ffi::{OsStr, OsString}, os::unix::ffi::OsStrExt, fmt::{format, Display}, process::{Child, Command}};
+use std::{fs::File, path::Path, io::Read, fmt::Display, process::Child};
 
-use nix::{unistd::{Uid, getuid, getgid}, libc::{uid_t, gid_t, pid_t}};
+use nix::{unistd::{getuid, getgid}, libc::{uid_t, pid_t}};
 
-use crate::{Error, Result};
+use crate::{child::command_new_no_stdin, Error, Result};
 
 // Assumption: uid_t == gid_t, on x86_64 they're both u32, on aarch64 both i32
 
@@ -125,7 +125,7 @@ impl IdMap {
     }
 
     fn set_pid(&self, pid: pid_t, prog: &str) -> Result<()> {
-        let output = match Command::new(prog)
+        let output = match command_new_no_stdin(prog)
             .arg(format!("{}", pid))
             .arg("0")
             .arg(self.out_self_str())

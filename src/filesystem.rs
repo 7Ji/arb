@@ -1,7 +1,6 @@
 use std::{
         fs::{
             create_dir,
-            File,
             read_dir,
             remove_dir,
             remove_dir_all,
@@ -91,7 +90,7 @@ pub(crate) fn remove_dir_all_try_best<P: AsRef<Path>>(dir: P) -> Result<()>
     Ok(())
 }
 
-pub(crate) fn create_dir_all_under_owned_by<P, Q>(
+pub(crate) fn _create_dir_all_under_owned_by<P, Q>(
     path: P, parent: Q, uid: u32, gid: u32
 ) -> Result<()>
 where
@@ -215,6 +214,8 @@ where
 
 pub(crate) fn create_layout() -> Result<()> {
     create_dirs_allow_existing(["build", "logs", "pkgs", "sources"])?;
+    create_dirs_under_allow_existing(
+        ["pacman.sync"], "build")?;
     remove_dirs_allow_non_existing(["pkgs/updated", "pkgs/latest"])?;
     create_dirs_under_allow_existing(
         ["updated", "latest", "cache"], "pkgs")?;
@@ -229,7 +230,7 @@ pub(crate) fn prepare_layout() -> Result<()> {
     remove_dir_recursively("pkgs/cache")
 }
 
-pub(crate) fn symlink_force<P, Q>(original: P, link: Q) -> Result<()>
+pub(crate) fn _symlink_force<P, Q>(original: P, link: Q) -> Result<()>
 where
     P: AsRef<Path>,
     Q: AsRef<Path>,
