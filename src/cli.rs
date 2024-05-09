@@ -160,22 +160,10 @@ enum Action {
     },
     /// An intermediate stage to spawn later process that's wrapped by init
     #[clap(hide = true)]
-    Broker {
-        /// Specify a root, common Arch root mounts would be satisfied, this is
-        /// also needed when chrooting
-        #[arg(long, default_value_t)]
-        root: String,
-        args: Vec<String>,
-    },
+    Broker,
     /// Spawn a pseudo init process
     #[clap(hide = true)]
-    Init {
-        /// Where to mount proc other than /proc, /proc would always be mounted
-        #[arg(long, default_value_t)]
-        proc: String,
-        program: PathBuf,
-        args: Vec<String>,
-    },
+    Init,
 }
 
 #[derive(clap::Parser, Debug)]
@@ -200,7 +188,7 @@ pub(crate) fn work() -> Result<()> {
         Action::MapAssert => action_map_assert(),
         Action::ReadPkgbuilds { pkgbuilds } => action_read_pkgbuilds(&pkgbuilds),
         Action::RmRf { path } => action_rm_rf(path),
-        Action::Broker { root, args } => action_broker(&root, &args),
-        Action::Init { proc, program, args } => action_init(&proc, program, &args),
+        Action::Broker => action_broker(),
+        Action::Init => action_init(),
     }
 }
