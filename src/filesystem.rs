@@ -226,8 +226,7 @@ pub(crate) fn create_layout() -> Result<()> {
 }
 
 pub(crate) fn prepare_layout() -> Result<()> {
-    create_layout()?;
-    remove_dir_recursively("pkgs/cache")
+    create_layout()
 }
 
 pub(crate) fn _symlink_force<P, Q>(original: P, link: Q) -> Result<()>

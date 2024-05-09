@@ -68,7 +68,7 @@ fn try_unshare(flags: CloneFlags) -> Result<()> {
         log::error!("Failed to unshare from parent: {}", e);
         Err(e.into())
     } else {
-        log::info!("Child {}: We've unshared namespaces from root, wait for \
+        log::debug!("Child {}: We've unshared namespaces from root, wait for \
             parent to map us to root...", getpid());
         Ok(())
     }

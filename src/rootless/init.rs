@@ -3,11 +3,12 @@ use std::{ffi::OsString, io::{stdin, Write}, path::{Path, PathBuf}, process::Chi
 use nix::{errno::Errno, libc::pid_t, sys::wait::{wait, WaitStatus}, unistd::Pid};
 use serde::{Deserialize, Serialize};
 
-use crate::{child::command_new_no_stdin, mount::mount_proc, Error, Result};
+use crate::{child::command_new_no_stdin, logfile::LogFile, mount::mount_proc, Error, Result};
 
 #[derive(Serialize, Deserialize)]
 pub(crate) enum InitCommand {
     RunProgram {
+        logfile: OsString,
         program: OsString,
         args: Vec<OsString>,
     },
@@ -19,8 +20,16 @@ pub(crate) enum InitCommand {
 impl InitCommand {
     fn work(self) -> Result<()> {
         match self {
-            InitCommand::RunProgram { program, args } => {
+            InitCommand::RunProgram { logfile, program, args } => {
+                let logfile = LogFile::try_from(logfile)?;
+                log::info!("Log for program '{}' will be written to '{}'",
+                    program.to_string_lossy(), logfile.path.display());
+                let (child_out, child_err) = logfile.try_split()?;
                 let child = match command_new_no_stdin(&program)
+                    .stdout(child_out)
+                    .stderr(child_err)
+                    .env_clear()
+                    .env("LANG", "C")
                     .args(args)
                     .spawn() 
                 {

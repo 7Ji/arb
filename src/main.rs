@@ -6,6 +6,7 @@ mod error;
 mod filesystem;
 mod git;
 mod io;
+mod logfile;
 mod mount;
 mod pkgbuild;
 mod pacman;

@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, ffi::{OsStr, OsString}, fmt::Display, fs::File, io::{BufRead, BufReader, Write}, path::Path};
 
-use crate::{rootless::{BrokerPayload, InitCommand, RootlessHandler}, Error, Result};
+use crate::{logfile::{LogFileBuilder, LogFileType}, rootless::{BrokerPayload, InitCommand, RootlessHandler}, Error, Result};
 
 type ConfigSection =  BTreeMap<String, Option<String>>;
 
@@ -161,6 +161,13 @@ pub(crate) fn install_pkgs<I: IntoIterator<Item = S>, S: Into<OsString>>(
     root: &Path, pkgs: I, rootless: &RootlessHandler, refresh: bool
 ) -> Result<()> 
 {
+    let mut suffix = String::from("install");
+    if let Some(name) = root.file_name() {
+        suffix.push('-');
+        suffix.push_str(&name.to_string_lossy())
+    }
+    let logfile = LogFileBuilder::new(
+        LogFileType::Pacman, &suffix).try_create()?.into();
     let mut payload = BrokerPayload::new_with_root(root);
     let arg_sync = if refresh { "-Sy" } else { "-S" };
     let mut args = vec![
@@ -173,7 +180,7 @@ pub(crate) fn install_pkgs<I: IntoIterator<Item = S>, S: Into<OsString>>(
         args.push(pkg.into())
     }
     payload.init_payload.commands.push(
-        InitCommand::RunProgram { program: "pacman".into(), args}
+        InitCommand::RunProgram { logfile, program: "pacman".into(), args}
     );
     rootless.run_broker(payload.try_into_bytes()?)
 }
