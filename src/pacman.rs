@@ -157,16 +157,19 @@ impl Display for PacmanConfig {
     }
 }
 
-pub(crate) fn install_pkgs<I: IntoIterator<Item = S>, S: Into<OsString>>(
-    root: &Path, pkgs: I, rootless: &RootlessHandler, refresh: bool
-) -> Result<()> 
+pub(crate) fn try_get_install_pkgs_payload<I, S>(
+    root: &Path, pkgs: I, refresh: bool
+) -> Result<BrokerPayload>
+where
+    I: IntoIterator<Item = S>, 
+    S: Into<OsString>
 {
     let mut suffix = String::from("install");
     if let Some(name) = root.file_name() {
         suffix.push('-');
         suffix.push_str(&name.to_string_lossy())
     }
-    let logfile = LogFileBuilder::new(
+    let logfile: OsString = LogFileBuilder::new(
         LogFileType::Pacman, &suffix).try_create()?.into();
     let mut payload = BrokerPayload::new_with_root(root);
     let arg_sync = if refresh { "-Sy" } else { "-S" };
@@ -179,8 +182,6 @@ pub(crate) fn install_pkgs<I: IntoIterator<Item = S>, S: Into<OsString>>(
     for pkg in pkgs.into_iter() {
         args.push(pkg.into())
     }
-    payload.init_payload.commands.push(
-        InitCommand::RunProgram { logfile, program: "pacman".into(), args}
-    );
-    rootless.run_broker(payload.try_into_bytes()?)
+    payload.add_init_command_run_program(logfile, "pacman", args);
+    Ok(payload)
 }

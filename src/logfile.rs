@@ -5,6 +5,7 @@ use crate::{Error, Result};
 
 pub(crate) enum LogFileType {
     Pacman,
+    Localedef,
     Extract,
     Build,
 }
@@ -13,6 +14,7 @@ impl Into<&str> for &LogFileType {
     fn into(self) -> &'static str {
         match self {
             LogFileType::Pacman => "pacman",
+            LogFileType::Localedef => "localedef",
             LogFileType::Extract => "extract",
             LogFileType::Build => "build",
         }

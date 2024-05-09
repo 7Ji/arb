@@ -1,9 +1,11 @@
 use std::{ffi::OsString, io::{stdin, Write}, path::{Path, PathBuf}, process::Child};
 
-use nix::{errno::Errno, libc::pid_t, sys::wait::{wait, WaitStatus}, unistd::Pid};
+use nix::{errno::Errno, libc::pid_t, sys::wait::{wait, WaitStatus}, unistd::{chroot, Pid}};
 use serde::{Deserialize, Serialize};
 
 use crate::{child::command_new_no_stdin, logfile::LogFile, mount::mount_proc, Error, Result};
+
+use super::root::chroot_checked;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) enum InitCommand {
@@ -15,21 +17,27 @@ pub(crate) enum InitCommand {
     MountProc {
         path: OsString
     },
+    Chroot {
+        path: OsString,
+    },
 }
 
 impl InitCommand {
     fn work(self) -> Result<()> {
         match self {
             InitCommand::RunProgram { logfile, program, args } => {
-                let logfile = LogFile::try_from(logfile)?;
-                log::info!("Log for program '{}' will be written to '{}'",
-                    program.to_string_lossy(), logfile.path.display());
-                let (child_out, child_err) = logfile.try_split()?;
-                let child = match command_new_no_stdin(&program)
-                    .stdout(child_out)
-                    .stderr(child_err)
+                let mut command = command_new_no_stdin(&program);
+                if ! logfile.is_empty() {
+                    let logfile = LogFile::try_from(logfile)?;
+                    log::info!("Log for program '{}' will be written to '{}'",
+                        program.to_string_lossy(), logfile.path.display());
+                    let (child_out, child_err) = logfile.try_split()?;
+                    command.stdout(child_out)
+                        .stderr(child_err);
+                }
+                let child = match command
                     .env_clear()
-                    .env("LANG", "C")
+                    .env("LANG", "en_US.UTF-8") // 7Ji: No en_US
                     .args(args)
                     .spawn() 
                 {
@@ -40,9 +48,10 @@ impl InitCommand {
                         return Err(e.into())
                     },
                 };
-                reaper(child)
+                wait_all(child)
             },
             InitCommand::MountProc { path } => mount_proc(path),
+            InitCommand::Chroot { path } => chroot_checked(path),
         }
     }
 }
@@ -52,7 +61,7 @@ impl InitCommand {
 /// 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct InitPayload {
-    pub(crate) commands: Vec<InitCommand>
+    commands: Vec<InitCommand>
 }
 
 impl InitPayload {
@@ -92,10 +101,31 @@ impl InitPayload {
         }
         Ok(())
     }
+
+    pub(crate) fn add_command(&mut self, command: InitCommand) {
+        self.commands.push(command)
+    }
+
+    pub(crate) fn add_command_run_program<S1, S2, I, S3>(
+        &mut self, logfile: S1, program: S2, args: I
+    ) 
+    where
+        S1: Into<OsString>,
+        S2: Into<OsString>,
+        I: IntoIterator<Item = S3>,
+        S3: Into<OsString>
+    {
+        let logfile = logfile.into();
+        let program = program.into();
+        let args = args.into_iter().map(
+            |arg|arg.into()).collect();
+        self.commands.push(InitCommand::RunProgram { 
+            logfile, program, args })
+    }
 }
 
-/// A dump init implementation that reaps dead children endlessly
-fn reaper(child: Child) -> Result<()> {
+/// A dump init implementation that wait for all children
+fn wait_all(child: Child) -> Result<()> {
     let pid_direct = Pid::from_raw(child.id() as pid_t);
     let mut code = None;
     loop {

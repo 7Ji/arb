@@ -4,7 +4,7 @@ use serde::{Serialize, Deserialize};
 
 use crate::{mount::{mount_all, mount_all_except_proc}, Error, Result};
 
-use super::{action::run_action_stateless_no_program_no_args, init::InitPayload};
+use super::{action::run_action_stateless_no_program_no_args, init::InitPayload, InitCommand};
 
 #[derive(Serialize, Deserialize)]
 pub(crate) enum BrokerCommand {
@@ -24,8 +24,8 @@ impl BrokerCommand {
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct BrokerPayload {
-    pub(crate) init_payload: InitPayload,
-    pub(crate) commands: Vec<BrokerCommand>,
+    init_payload: InitPayload,
+    commands: Vec<BrokerCommand>,
 }
 
 impl BrokerPayload {
@@ -66,5 +66,25 @@ impl BrokerPayload {
         }
         run_action_stateless_no_program_no_args(
             "init", Some(self.init_payload.try_into_bytes()?))
+    }
+
+    pub(crate) fn add_command(&mut self, command: BrokerCommand) {
+        self.commands.push(command)
+    }
+
+    pub(crate) fn add_init_command(&mut self, command: InitCommand) {
+        self.init_payload.add_command(command)
+    }
+
+    pub(crate) fn add_init_command_run_program<S1, S2, I, S3>(
+        &mut self, logfile: S1, program: S2, args: I
+    ) 
+    where
+        S1: Into<OsString>,
+        S2: Into<OsString>,
+        I: IntoIterator<Item = S3>,
+        S3: Into<OsString>
+    {
+        self.init_payload.add_command_run_program(logfile, program, args)
     }
 }

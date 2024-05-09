@@ -1,7 +1,7 @@
 // Bootstrapping and erasing of root
 
 use std::{iter::once, os::unix::fs::{symlink, DirBuilderExt}, path::{Path, PathBuf}};
-use nix::libc::mode_t;
+use nix::{libc::mode_t, unistd::chroot};
 
 use crate::{filesystem::{create_file_with_content, set_permissions_mode}, pacman::PacmanConfig, rootless::RootlessHandler, Result};
 
@@ -118,5 +118,15 @@ impl Root {
 impl Drop for Root {
     fn drop(&mut self) {
         let _ = self.remove();
+    }
+}
+
+pub(crate) fn chroot_checked<P: AsRef<Path>>(path: P) -> Result<()> {
+    let path = path.as_ref();
+    if let Err(e) = chroot(path) {
+        log::error!("Failed to chroot '{}': {}", path.display(), e);
+        Err(e.into())
+    } else {
+        Ok(())
     }
 }

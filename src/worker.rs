@@ -151,7 +151,7 @@ impl WorkerState {
             let mut paconf = config.paconf.clone();
             paconf.set_option("SigLevel", Some("Never"));
             root.prepare_layout(&paconf)?;
-            rootless.install_pkgs_to_root(&root, once("base-devel"), true)?;
+            rootless.bootstrap_root(&root, once("base-devel"), true)?;
             Ok(Self::ParsedPkgbuilds { config, rootless })
         } else {
             Err(self.get_illegal_state())

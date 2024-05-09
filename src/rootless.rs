@@ -8,7 +8,7 @@ mod root;
 mod unshare;
 use std::{ffi::{OsStr, OsString}, iter::empty, path::{Path, PathBuf}, process::Child};
 use nix::{libc::pid_t, unistd::getpid};
-use crate::{child::{command_new_no_stdin, wait_child, write_to_child}, mount::{mount_all, mount_all_except_proc, mount_proc}, pacman::{install_pkgs, PacmanConfig}, Error, Result};
+use crate::{child::{wait_child, write_to_child}, logfile::{LogFileBuilder, LogFileType}, pacman::try_get_install_pkgs_payload, Error, Result};
 use self::{action::start_action, idmap::IdMaps};
 
 pub(crate) use self::init::{InitCommand, InitPayload};
@@ -140,10 +140,10 @@ impl RootlessHandler {
             applet, args, None)
     }
 
-    pub(crate) fn run_broker<B: AsRef<[u8]>> (
-        &self, payload: B
-    ) -> Result<()> {
-        self.run_action_no_arg("broker", Some(payload))
+    pub(crate) fn run_broker (&self, payload: &BrokerPayload) -> Result<()> {
+        self.run_action_no_arg(
+            "broker", 
+            Some(payload.try_into_bytes()?))
     }
 
     pub(crate) fn new_root<P: AsRef<Path>>(&self, path: P, temporary: bool) 
@@ -167,7 +167,29 @@ impl RootlessHandler {
         I: IntoIterator<Item = S>,
         S: Into<OsString>
     {
-        install_pkgs(root.get_path(), pkgs, self, refresh)
+        let payload = try_get_install_pkgs_payload(
+            root.get_path(), pkgs, refresh)?;
+        self.run_broker(&payload)
+    }
+
+    pub(crate) fn bootstrap_root<I, S>(
+        &self, root: &Root, pkgs: I, refresh: bool
+    ) 
+        -> Result<()> 
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>
+    {
+        let mut payload = try_get_install_pkgs_payload(
+            root.get_path(), pkgs, refresh)?;
+        payload.add_init_command(InitCommand::Chroot { 
+            path: root.get_path().into() });
+        let logfile: OsString = LogFileBuilder::new(
+            LogFileType::Localedef, "en_GB.UTF-8").try_create()?.into();
+        payload.add_init_command_run_program(logfile, "localedef", 
+            ["-i", "en_GB", "-c", "-f", "UTF-8", "-A", 
+                    "/usr/share/locale/locale.alias",  "en_GB.UTF-8"]);
+        self.run_broker(&payload)
     }
 }
 
