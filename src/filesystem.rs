@@ -331,7 +331,7 @@ where
     I: IntoIterator<Item = P>,
     P: AsRef<Path>
 {
-    crate::rootless::unshare::try_unshare_user_and_wait()?;
+    crate::rootless::try_unshare_user_and_wait()?;
     for path in paths {
         remove_dir_all_try_best(path)?
     }

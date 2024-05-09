@@ -1,17 +1,24 @@
 mod action;
+mod broker;
 mod arg0;
 mod id;
 mod idmap;
 mod init;
 mod root;
-pub(crate) mod broker;
-pub(crate) mod unshare;
-use std::{ffi::OsStr, iter::empty, path::{Path, PathBuf}, process::Child};
+mod unshare;
+use std::{ffi::{OsStr, OsString}, iter::empty, path::{Path, PathBuf}, process::Child};
 use nix::{libc::pid_t, unistd::getpid};
+use crate::{child::{command_new_no_stdin, wait_child, write_to_child}, mount::{mount_all, mount_all_except_proc, mount_proc}, pacman::{install_pkgs, PacmanConfig}, Error, Result};
+use self::{action::start_action, idmap::IdMaps};
 
-use crate::{child::{command_new_no_stdin, wait_child, write_to_child}, mount::{mount_all, mount_all_except_proc, mount_proc}, pacman::{install_pkgs, sync_db, PacmanConfig}, Error, Result};
-use self::{action::start_action, broker::BrokerPayload, idmap::IdMaps, init::InitPayload};
+pub(crate) use self::init::{InitCommand, InitPayload};
+pub(crate) use self::broker::{BrokerCommand, BrokerPayload};
 pub(crate) use self::root::Root;
+pub(crate) use self::unshare::{
+    try_unshare_user_and_wait,
+    try_unshare_user_mount_and_wait,
+    try_unshare_user_mount_pid_and_wait
+};
 
 pub(crate) struct RootlessHandler {
     idmaps: IdMaps,
@@ -53,35 +60,35 @@ impl RootlessHandler {
         wait_child(child)
     }
 
-    pub(crate) fn run_external<I, S1, S2, S3>(
-        &self, program: S1, root: S2, args: I
-    ) -> Result<()> 
-    where
-        I: IntoIterator<Item = S3>,
-        S1: AsRef<OsStr>,
-        S2: AsRef<OsStr>,
-        S3: AsRef<OsStr>,
-    {
-        let mut command = command_new_no_stdin(&self.exe);
-        command.arg("broker");
-        if ! root.as_ref().is_empty() {
-            command.arg("--root").arg(root);
-        }
-        let mut child = match command
-            .arg("--")
-            .arg(&program)
-            .args(args)
-            .spawn()
-        {
-            Ok(child) => child,
-            Err(e) => {
-                log::error!("Failed to run broker to run program '{}'", 
-                            program.as_ref().to_string_lossy());
-                return Err(e.into())
-            },
-        };
-        self.map_and_wait_child(&mut child)
-    }
+    // pub(crate) fn run_external<I, S1, S2, S3>(
+    //     &self, program: S1, root: S2, args: I
+    // ) -> Result<()> 
+    // where
+    //     I: IntoIterator<Item = S3>,
+    //     S1: AsRef<OsStr>,
+    //     S2: AsRef<OsStr>,
+    //     S3: AsRef<OsStr>,
+    // {
+    //     let mut command = command_new_no_stdin(&self.exe);
+    //     command.arg("broker");
+    //     if ! root.as_ref().is_empty() {
+    //         command.arg("--root").arg(root);
+    //     }
+    //     let mut child = match command
+    //         .arg("--")
+    //         .arg(&program)
+    //         .args(args)
+    //         .spawn()
+    //     {
+    //         Ok(child) => child,
+    //         Err(e) => {
+    //             log::error!("Failed to run broker to run program '{}'", 
+    //                         program.as_ref().to_string_lossy());
+    //             return Err(e.into())
+    //         },
+    //     };
+    //     self.map_and_wait_child(&mut child)
+    // }
 
     pub(crate) fn run_action<S1, I, S2, B>(
         &self, applet: S1, args: I, payload: Option<B>
@@ -133,6 +140,12 @@ impl RootlessHandler {
             applet, args, None)
     }
 
+    pub(crate) fn run_broker<B: AsRef<[u8]>> (
+        &self, payload: B
+    ) -> Result<()> {
+        self.run_action_no_arg("broker", Some(payload))
+    }
+
     pub(crate) fn new_root<P: AsRef<Path>>(&self, path: P, temporary: bool) 
     -> Root 
     {
@@ -146,18 +159,15 @@ impl RootlessHandler {
         Root::new(path, &self.idmaps, destroy_with_exe)
     }
 
-    pub(crate) fn sync_db_for_root(&self, root: &Root) 
-        -> Result<()> 
-    {
-        sync_db(&root.get_path_pacman_conf(), self)
-    }
-
-    pub(crate) fn install_pkgs_to_root<S>(&self, root: &Root, pkgs: &Vec<S>) 
+    pub(crate) fn install_pkgs_to_root<I, S>(
+        &self, root: &Root, pkgs: I, refresh: bool
+    ) 
         -> Result<()> 
     where
-        S: AsRef<str>
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>
     {
-        install_pkgs(root.get_path(), pkgs, self)
+        install_pkgs(root.get_path(), pkgs, self, refresh)
     }
 }
 

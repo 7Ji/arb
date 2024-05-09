@@ -1,6 +1,6 @@
-use std::{collections::BTreeMap, fmt::Display, fs::File, io::{BufRead, BufReader, Write}, path::Path};
+use std::{collections::BTreeMap, ffi::{OsStr, OsString}, fmt::Display, fs::File, io::{BufRead, BufReader, Write}, path::Path};
 
-use crate::{rootless::RootlessHandler, Error, Result};
+use crate::{rootless::{BrokerPayload, InitCommand, RootlessHandler}, Error, Result};
 
 type ConfigSection =  BTreeMap<String, Option<String>>;
 
@@ -157,19 +157,23 @@ impl Display for PacmanConfig {
     }
 }
 
-pub(crate) fn sync_db(config: &Path, rootless: &RootlessHandler) -> Result<()> 
-{
-    let config_str = config.to_string_lossy();
-    rootless.run_external("pacman", "",
-    ["-Sy", "--config", config_str.as_ref()])
-}
-
-pub(crate) fn install_pkgs<S: AsRef<str>>(
-    root: &Path, pkgs: &Vec<S>, rootless: &RootlessHandler
+pub(crate) fn install_pkgs<I: IntoIterator<Item = S>, S: Into<OsString>>(
+    root: &Path, pkgs: I, rootless: &RootlessHandler, refresh: bool
 ) -> Result<()> 
 {
-    let path_config = root.join("etc/pacman.conf");
-    rootless.run_external("pacman", root,
-    ["-S", "--config", &path_config.to_string_lossy(), "--noconfirm"].into_iter()
-        .chain(pkgs.into_iter().map(|s|s.as_ref())))
+    let mut payload = BrokerPayload::new_with_root(root);
+    let arg_sync = if refresh { "-Sy" } else { "-S" };
+    let mut args = vec![
+        arg_sync.into(), 
+        "--config".into(), 
+        root.join("etc/pacman.conf").into(),
+        "--noconfirm".into(),
+    ];
+    for pkg in pkgs.into_iter() {
+        args.push(pkg.into())
+    }
+    payload.init_payload.commands.push(
+        InitCommand::RunProgram { program: "pacman".into(), args}
+    );
+    rootless.run_broker(payload.try_into_bytes()?)
 }

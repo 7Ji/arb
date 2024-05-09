@@ -1,7 +1,7 @@
 use std::{fs::create_dir, io::{stdout, Write}, path::Path};
 use git2::Oid;
 use pkgbuild;
-use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, git::{Repo, ReposMap}, proxy::Proxy, Error, Result};
+use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, git::{Repo, ReposMap}, proxy::Proxy, rootless::try_unshare_user_mount_and_wait, Error, Result};
 
 #[derive(Debug)]
 pub(crate) struct Pkgbuild {
@@ -162,7 +162,7 @@ where
     I: IntoIterator<Item = P>,
     P: AsRef<Path>
 {
-    crate::rootless::unshare::try_unshare_user_mount_and_wait()?;
+    try_unshare_user_mount_and_wait()?;
     let pkgbuilds = match pkgbuild::parse_multi(pkgbuilds)
     {
         Ok(pkgbuilds) => pkgbuilds,

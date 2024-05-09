@@ -1,7 +1,7 @@
 
-use std::{ffi::OsStr, iter::empty, process::{Child, Command, Stdio}};
+use std::{ffi::OsStr, iter::empty, path::Path, process::{Child, Command, Stdio}};
 
-use crate::{child::{command_new_no_stdin, wait_child, write_to_child}, Error, Result};
+use crate::{child::{wait_child, write_to_child}, Error, Result};
 
 use super::arg0::get_arg0;
 
@@ -18,9 +18,7 @@ where
         Some(program) => Command::new(program),
         None => Command::new(get_arg0()),
     };
-    if no_stdin {
-        command.stdin(Stdio::null());
-    }
+    command.stdin(if no_stdin { Stdio::null() } else { Stdio::piped() });
     match command.arg(&applet).args(args).spawn() 
     {
         Ok(child) => Ok(child),
@@ -32,7 +30,7 @@ where
     }
 }
 
-pub(crate) fn run_stateless<S1, S2, I, S3, B>(
+pub(crate) fn run_action_stateless<S1, S2, I, S3, B>(
     program: Option<S1>, applet: S2, args: I, payload: Option<B>
 ) -> Result<()> 
 where
@@ -50,42 +48,13 @@ where
     wait_child(&mut child)
 }
 
-// pub(crate) fn run_stateless_no_arg<S1, S2>(
-//     program: Option<S1>, applet: S2
-// ) -> Result<()> 
-// where
-//     S1: AsRef<OsStr>,
-//     S2: AsRef<OsStr>,
-// {
-//     let mut child = start_action::<_, _, _, &str>(
-//         program, applet, empty(), true)?;
-//     wait_child(&mut child)
-// }
-
-// pub(crate) fn run_stateless_with_payload<S1, S2, I1, S3, B>(
-//     program: Option<S1>, applet: S2, main_args: I1, payload: B
-// ) -> Result<()> 
-// where
-//     S1: AsRef<OsStr>,
-//     S2: AsRef<OsStr>,
-//     I1: IntoIterator<Item = S3>,
-//     S3: AsRef<OsStr>,
-//     B: AsRef<[u8]>
-// {
-//     let mut child = start_action(
-//         program, applet, main_args, false)?;
-//     write_to_child(&mut child, payload.as_ref())?;
-//     wait_child(&mut child)
-// }
-
-// pub(crate) fn run_stateless_no_arg_with_payload<S1, S2>(
-//     program: Option<S1>, applet: S2
-// ) -> Result<()> 
-// where
-//     S1: AsRef<OsStr>,
-//     S2: AsRef<OsStr>,
-// {
-//     let mut child = start_action::<_, _, _, &str>(
-//         program, applet, empty(), true)?;
-//     wait_child(&mut child)
-// }
+pub(crate) fn run_action_stateless_no_program_no_args<S, B>(
+    applet: S, payload: Option<B>
+) -> Result<()> 
+where
+    S: AsRef<OsStr>,
+    B: AsRef<[u8]>
+{
+    run_action_stateless::<&Path, _, _, &str, _>(
+        None, applet, empty(), payload)
+}

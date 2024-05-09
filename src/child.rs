@@ -36,6 +36,7 @@ pub(crate) fn write_to_child<B: AsRef<[u8]>>(child: &mut Child, content:B)
     let mut child_in = match child.stdin.take() {
         Some(child_in) => child_in,
         None => {
+            log::error!("Failed to take stdin from child {}", child.id());
             return Err(Error::BadChild { 
                 pid: Some(Pid::from_raw(child.id() as pid_t)), 
                 code: None })
