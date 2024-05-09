@@ -1,5 +1,5 @@
 use std::{
-        fs::{
+        env::set_current_dir, fs::{
             create_dir,
             read_dir,
             remove_dir,
@@ -229,7 +229,7 @@ pub(crate) fn prepare_layout() -> Result<()> {
     create_layout()
 }
 
-pub(crate) fn _symlink_force<P, Q>(original: P, link: Q) -> Result<()>
+pub(crate) fn symlink_force<P, Q>(original: P, link: Q) -> Result<()>
 where
     P: AsRef<Path>,
     Q: AsRef<Path>,
@@ -306,6 +306,15 @@ where
     if let Err(e) = file.write_all(content) {
         log::error!("Failed to write {} bytes of content into '{}': {}",
             content.len(), path.display(), e);
+        Err(e.into())
+    } else {
+        Ok(())
+    }
+}
+
+pub(crate) fn chdir<P: AsRef<Path>>(path: P) -> Result<()> {
+    if let Err(e) = set_current_dir(&path) {
+        log::error!("Failed to chdir to '{}': {}", path.as_ref().display(), e);
         Err(e.into())
     } else {
         Ok(())

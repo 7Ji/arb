@@ -140,9 +140,8 @@ impl WorkerState {
     }
 
     pub(crate) fn fetch_pkgbuilds(self) -> Result<Self> {
-        if let Self::PreparedLayout { mut config, rootless }= self {
+        if let Self::PreparedLayout { config, rootless }= self {
             config.pkgbuilds.sync(&config.gmr, &config.proxy, config.holdpkg)?;
-            config.pkgbuilds.complete()?;
             Ok(Self::FetchedPkgbuilds { config, rootless })
         } else {
             Err(self.get_illegal_state())
@@ -165,8 +164,9 @@ impl WorkerState {
     }
 
     pub(crate) fn parse_pkgbuilds(self) -> Result<Self> {
-        if let Self::PreparedToParsePkgbuilds { config, rootless, root } = self {
-
+        if let Self::PreparedToParsePkgbuilds { mut config, rootless, root } = self {
+            rootless.complete_pkgbuilds_in_root(&root, &mut config.pkgbuilds)?;
+            log::debug!("Parsed PKGBUILDs from secured chroot: {:?}", &config.pkgbuilds);
             Ok(Self::ParsedPkgbuilds { config, rootless })
         } else {
             Err(self.get_illegal_state())

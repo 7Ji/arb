@@ -1,6 +1,6 @@
-use std::{fmt::Display, fs::read_link, os::unix::fs::symlink, path::{Path, PathBuf}};
+use std::{fmt::Display, fs::{create_dir, read_link}, os::unix::fs::symlink, path::{Path, PathBuf}};
 
-use nix::{mount::{mount, MsFlags}, NixPath};
+use nix::{libc::MS_NOSUID, mount::{mount, MsFlags}, NixPath};
 
 use crate::{filesystem::touch, Result};
 
@@ -87,7 +87,7 @@ fn mount_tmp<P: AsRef<Path>>(path_tmp: P) -> Result<()> {
         "mode=1777")
 }
 
-fn mount_bind<P1: AsRef<Path>, P2: AsRef<Path>>(source: P1, target: P2) 
+pub(crate) fn mount_bind<P1: AsRef<Path>, P2: AsRef<Path>>(source: P1, target: P2) 
     -> Result<()> 
 {
     let source = source.as_ref();
@@ -103,6 +103,7 @@ fn mount_bind<P1: AsRef<Path>, P2: AsRef<Path>>(source: P1, target: P2)
 /// This is not actually mounting, but pretending to be a /dev
 fn mount_dev<P: AsRef<Path>>(path_dev: P) -> Result<()> {
     let path_dev_target = path_dev.as_ref();
+    mount_tmpfs(&path_dev_target, "devtmpfs", MsFlags::MS_NOSUID, "")?;
     let path_dev_source = PathBuf::from("/dev");
     for target in &["full", "null", "random", "tty", "urandom", "zero"] {
         let path_device_target = path_dev_target.join(target);
@@ -117,16 +118,20 @@ fn mount_dev<P: AsRef<Path>>(path_dev: P) -> Result<()> {
     symlink("/proc/self/fd", path_dev_target.join("fd"))?;
     symlink("pts/ptmx", path_dev_target.join("ptmx"))?;
     symlink(read_link("/dev/stdout")?, path_dev_target.join("console"))?;
+    let path_devpts = path_dev_target.join("pts");
+    create_dir(&path_devpts)?;
+    mount_devpts(&path_devpts)?;
+    let path_devshm = path_dev_target.join("shm");
+    create_dir(&path_devshm)?;
+    mount_devshm(&path_devshm)?;
     Ok(())
 }
 
 pub(crate) fn mount_all_except_proc<P: AsRef<Path>>(root: P) -> Result<()> {
     let root = root.as_ref();
-    mount_devpts(root.join("dev/pts"))?;
-    mount_devshm(root.join("dev/shm"))?;
+    mount_dev(root.join("dev"))?;
     mount_tmp(root.join("tmp"))?;
     mount_run(root.join("run"))?;
-    mount_dev(root.join("dev"))?;
     Ok(())
 }
 

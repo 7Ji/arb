@@ -16,8 +16,10 @@ pub(crate) enum BrokerCommand {
 impl BrokerCommand {
     fn work(self) -> Result<()> {
         match self {
-            BrokerCommand::MountForRoot { root } => 
-                mount_all_except_proc(root),
+            BrokerCommand::MountForRoot { root } => {
+                log::debug!("Mounting for root '{}'", root.to_string_lossy());
+                mount_all_except_proc(root)
+            },
         }
     }
 }
@@ -86,5 +88,16 @@ impl BrokerPayload {
         S3: Into<OsString>
     {
         self.init_payload.add_command_run_program(logfile, program, args)
+    }
+
+    pub(crate) fn add_init_command_run_applet<S1, I, S2>(
+        &mut self, applet: S1, args: I
+    ) 
+    where
+        S1: Into<OsString>,
+        I: IntoIterator<Item = S2>,
+        S2: Into<OsString>
+    {
+        self.init_payload.add_command_run_applet(applet, args)
     }
 }

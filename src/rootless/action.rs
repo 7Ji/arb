@@ -1,12 +1,12 @@
 
-use std::{ffi::OsStr, iter::empty, path::Path, process::{Child, Command, Stdio}};
+use std::{ffi::OsStr, io::stdout, iter::empty, path::Path, process::{Child, Command, Stdio}};
 
 use crate::{child::{wait_child, write_to_child}, Error, Result};
 
 use super::arg0::get_arg0;
 
 pub(crate) fn start_action<S1, S2, I, S3>(
-    program: Option<S1>, applet: S2, args: I, no_stdin: bool
+    program: Option<S1>, applet: S2, args: I, pipe_in: bool, pipe_out: bool
 ) -> Result<Child> 
 where
     S1: AsRef<OsStr>,
@@ -18,7 +18,10 @@ where
         Some(program) => Command::new(program),
         None => Command::new(get_arg0()),
     };
-    command.stdin(if no_stdin { Stdio::null() } else { Stdio::piped() });
+    command.stdin(if pipe_in { Stdio::piped() } else { Stdio::null() });
+    if pipe_out {
+        command.stdout(Stdio::piped());
+    }
     match command.arg(&applet).args(args).spawn() 
     {
         Ok(child) => Ok(child),
@@ -41,7 +44,7 @@ where
     B: AsRef<[u8]>
 {
     let mut child = start_action(
-        program, applet, args, payload.is_none())?;
+        program, applet, args, payload.is_some(), false)?;
     if let Some(payload) = payload {
         write_to_child(&mut child, payload)?
     }

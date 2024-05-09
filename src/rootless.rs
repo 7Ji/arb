@@ -6,14 +6,15 @@ mod idmap;
 mod init;
 mod root;
 mod unshare;
-use std::{ffi::{OsStr, OsString}, iter::empty, path::{Path, PathBuf}, process::Child};
+use std::{ffi::{OsStr, OsString}, io::Write, iter::empty, path::{Path, PathBuf}, process::Child};
 use nix::{libc::pid_t, unistd::getpid};
-use crate::{child::{wait_child, write_to_child}, logfile::LogFile, pacman::try_get_install_pkgs_payload, Error, Result};
+use crate::{child::{get_child_in_out, wait_child, write_to_child}, logfile::LogFile, pacman::try_get_install_pkgs_payload, pkgbuild::Pkgbuilds, Error, Result};
 use self::{action::start_action, idmap::IdMaps};
 
+pub(crate) use self::id::set_uid_gid;
 pub(crate) use self::init::{InitCommand, InitPayload};
 pub(crate) use self::broker::{BrokerCommand, BrokerPayload};
-pub(crate) use self::root::Root;
+pub(crate) use self::root::{Root, chroot_checked};
 pub(crate) use self::unshare::{
     try_unshare_user_and_wait,
     try_unshare_user_mount_and_wait,
@@ -70,7 +71,7 @@ impl RootlessHandler {
         B: AsRef<[u8]>
     {
         let mut child = start_action(Some(&self.exe),
-            applet, args, payload.is_none())?;
+            applet, args, payload.is_some(), false)?;
         if let Some(payload) = payload {
             write_to_child(&mut child, payload)?
         }
@@ -170,6 +171,36 @@ impl RootlessHandler {
         self.run_broker(&payload)?;
         log::info!("Bootstrapped root at '{}'", path_root.display());
         Ok(())
+    }
+
+    pub(crate) fn complete_pkgbuilds_in_root(
+        &self, root: &Root, pkgbuilds: &mut Pkgbuilds
+    ) -> Result<()> 
+    {
+        let payload = 
+            pkgbuilds.get_reader_payload(root.get_path())
+                .try_into_bytes()?;
+        let mut child = start_action::<_, _, _, &str>(
+            Some(&self.exe), "broker", empty(), 
+            true, true)?;
+        self.map_child(&mut child)?;
+        let (mut child_in, child_out) = 
+            get_child_in_out(&mut child)?;
+        let thread = std::thread::spawn(
+            move||child_in.write_all(&payload));
+        pkgbuilds.complete_from_reader(child_out)?;
+        match thread.join() {
+            Ok(r) =>
+                if let Err(e) = r {
+                    log::error!("Child writer failed to write: {}", e);
+                    return Err(e.into())
+                },
+            Err(e) => {
+                log::error!("Failed to join child writer: {:?}", e);
+                return Err(Error::ThreadFailure(Some(e)))
+            },
+        }
+        wait_child(&mut child)
     }
 }
 

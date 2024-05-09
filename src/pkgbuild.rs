@@ -1,7 +1,8 @@
-use std::{fs::create_dir, io::{stdout, Write}, path::Path};
+use std::{ffi::OsString, fs::create_dir, io::{stdout, Read, Write}, iter::once, path::Path};
 use git2::Oid;
+use nix::unistd::setgid;
 use pkgbuild;
-use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, git::{Repo, ReposMap}, proxy::Proxy, rootless::try_unshare_user_mount_and_wait, Error, Result};
+use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, filesystem::{chdir, create_dir_allow_existing}, git::{Repo, ReposMap}, mount::mount_bind, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, try_unshare_user_mount_and_wait, BrokerPayload}, Error, Result};
 
 #[derive(Debug)]
 pub(crate) struct Pkgbuild {
@@ -88,7 +89,7 @@ impl TryInto<Repo> for &Pkgbuild {
 
 #[derive(Default, Debug)]
 pub(crate) struct Pkgbuilds {
-    pub(crate) entries: Vec<Pkgbuild>,
+    pub(crate) pkgbuilds: Vec<Pkgbuild>,
 }
 
 impl From<PersistentPkgbuildsConfig> for Pkgbuilds {
@@ -100,14 +101,14 @@ impl From<PersistentPkgbuildsConfig> for Pkgbuilds {
         pkgbuilds.sort_unstable_by(
             |a,b|a.name.cmp(&b.name));
         Self {
-            entries: pkgbuilds,
+            pkgbuilds,
         }
     }
 }
 
 impl Into<Vec<Pkgbuild>> for Pkgbuilds {
     fn into(self) -> Vec<Pkgbuild> {
-        self.entries
+        self.pkgbuilds
     }
 }
 
@@ -115,7 +116,7 @@ impl Pkgbuilds {
     /// Generate a 7Ji/git-mirroer config
     pub(crate) fn gengmr(&self) -> String {
         log::info!("Generateing 7Ji/git-mirrorer config...");
-        let mut repos: Vec<String> = self.entries.iter().map(
+        let mut repos: Vec<String> = self.pkgbuilds.iter().map(
             |repo|repo.url.clone()).collect();
         repos.sort_unstable();
         let mut buffer = String::new();
@@ -128,41 +129,82 @@ impl Pkgbuilds {
         buffer
     }
 
-    /// Complete the inner `PKGBUILD` for each PKGBUILD
-    pub(crate) fn complete(&mut self) -> Result<()> {
+    pub(crate) fn complete_from_reader<R: Read>(&mut self, reader: R) -> Result<()> {
+        let pkgbuilds_raw: Vec<pkgbuild::Pkgbuild> = match rmp_serde::from_read(reader) {
+            Ok(pkgbuilds_raw) => pkgbuilds_raw,
+            Err(e) => {
+                log::error!("Failed to read raw PKGBUILDs from reader: {}", e);
+                return Err(e.into())
+            },
+        };
+        let count_parsed = pkgbuilds_raw.len();
+        let count_config = self.pkgbuilds.len();
+        if count_parsed != count_config {
+            log::error!("Parsed PKGBUILDs count different from input: \
+                parsed {}, config {}", count_parsed, count_config);
+            return Err(Error::ImpossibleLogic)
+        }
+        for (pkgbuild_wrapper, pkgbuild_raw) in 
+            self.pkgbuilds.iter_mut().zip(pkgbuilds_raw.into_iter()) 
+        {
+            pkgbuild_wrapper.inner = pkgbuild_raw;
+        }
         Ok(())
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.pkgbuilds.is_empty()
     }
 
     /// Sync the PKGBUILDs repos from remote
     pub(crate) fn sync(&self, gmr: &str, proxy: &Proxy, hold: bool) 
         -> Result<()> 
     {
-        ReposMap::from_iter(self.entries.iter())?.sync(gmr, proxy, hold)?;
+        ReposMap::from_iter(self.pkgbuilds.iter())?.sync(gmr, proxy, hold)?;
         Ok(())
     }
 
     pub(crate) fn dump<P: AsRef<Path>>(&self, parent: P) -> Result<()> {
         let parent = parent.as_ref();
         create_dir(&parent)?;
-        for pkgbuild in self.entries.iter() {
+        for pkgbuild in self.pkgbuilds.iter() {
             let path_pkgbuild = parent.join(&pkgbuild.name);
             pkgbuild.dump(&path_pkgbuild)?
         }
         Ok(())
     }
+
+    pub(crate) fn get_reader_payload(&self, root: &Path) -> BrokerPayload {
+        let mut payload = BrokerPayload::new_with_root(root);
+        let root: OsString = root.into();
+        payload.add_init_command_run_applet(
+            "read-pkgbuilds",
+            once(root).chain(
+            self.pkgbuilds.iter().map(
+                |pkgbuild|(&pkgbuild.name).into())));
+        payload
+    }
 }
 
 /// The `pkgbuild_reader` applet entry point, takes no args
-pub(crate) fn action_read_pkgbuilds<I, P>(pkgbuilds: I) -> Result<()> 
+pub(crate) fn action_read_pkgbuilds<P1, I, P2>(root: P1, pkgbuilds: I) 
+    -> Result<()> 
 where
-    I: IntoIterator<Item = P>,
-    P: AsRef<Path>
+    P1: AsRef<Path>,
+    I: IntoIterator<Item = P2>,
+    P2: AsRef<Path>
 {
-    try_unshare_user_mount_and_wait()?;
+    // Out parent (init) cannot chroot, as that would result in parent init 
+    // possibly failing to call us, due to libc, libgit, etc being in different 
+    // versions
+    log::info!("Reading PKGBUILDs...");
+    let path_root = root.as_ref();
+    let path_pkgbuilds = path_root.join("PKGBUILDs");
+    create_dir_allow_existing(&path_pkgbuilds)?;
+    mount_bind("build/PKGBUILDs", &path_pkgbuilds)?;
+    chdir(&path_pkgbuilds)?;
+    chroot_checked("..")?;
+    set_uid_gid(1000, 1000)?;
     let pkgbuilds = match pkgbuild::parse_multi(pkgbuilds)
     {
         Ok(pkgbuilds) => pkgbuilds,

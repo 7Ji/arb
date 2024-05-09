@@ -63,23 +63,20 @@ impl Root {
         let mut builder = std::fs::DirBuilder::new();
         builder.create(&self.path)?;
         for suffix in &[
-            "dev", "dev/pts",
+            "dev",
             "etc", "etc/pacman.d",
             "run",
             "var", "var/cache", "var/cache/pacman", "var/cache/pacman/pkg",
-            "var/lib", "var/lib/pacman",
+            "var/lib", "var/lib/pacman", "var/lib/pacman/sync",
             "var/log"
         ] {
             builder.create(self.path.join(suffix))?
         }
         builder.mode(0o1777);
-        builder.create(self.path.join("dev/shm"))?;
         builder.create(self.path.join("tmp"))?;
         builder.mode(0o555);
         builder.create(self.path.join("proc"))?;
         builder.create(self.path.join("sys"))?;
-        symlink("../../../../pacman.sync", 
-            self.path.join("var/lib/pacman/sync"))?;
         // Configs
         symlink("/usr/share/zoneinfo/UTC", 
             self.path.join("etc/localtime"))?;

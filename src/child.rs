@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, io::Write, process::{Child, Command, Stdio}};
+use std::{ffi::OsStr, io::Write, process::{Child, ChildStdin, ChildStdout, Command, Stdio}};
 
 use nix::{libc::pid_t, unistd::Pid};
 
@@ -33,15 +33,7 @@ pub(crate) fn command_new_no_stdin<S: AsRef<OsStr>>(exe: S) -> Command {
 pub(crate) fn write_to_child<B: AsRef<[u8]>>(child: &mut Child, content:B) 
     -> Result<()> 
 {
-    let mut child_in = match child.stdin.take() {
-        Some(child_in) => child_in,
-        None => {
-            log::error!("Failed to take stdin from child {}", child.id());
-            return Err(Error::BadChild { 
-                pid: Some(Pid::from_raw(child.id() as pid_t)), 
-                code: None })
-        },
-    };
+    let mut child_in = get_child_in(child)?;
     let content = content.as_ref();
     if let Err(e) = child_in.write_all(content) {
         log::error!("Failed to write {} bytes into child {}: {}",
@@ -50,4 +42,34 @@ pub(crate) fn write_to_child<B: AsRef<[u8]>>(child: &mut Child, content:B)
     } else {
         Ok(())
     }
+}
+
+pub(crate) fn get_child_in(child: &mut Child) -> Result<ChildStdin> {
+    match child.stdin.take() {
+        Some(child_in) => Ok(child_in),
+        None => {
+            log::error!("Failed to take stdin from child {}", child.id());
+            Err(Error::BadChild { 
+                pid: Some(Pid::from_raw(child.id() as pid_t)), 
+                code: None })
+        },
+    }
+}
+
+pub(crate) fn get_child_out(child: &mut Child) -> Result<ChildStdout> {
+    match child.stdout.take() {
+        Some(child_out) => Ok(child_out),
+        None => {
+            log::error!("Failed to take stdout from child {}", child.id());
+            Err(Error::BadChild { 
+                pid: Some(Pid::from_raw(child.id() as pid_t)), 
+                code: None })
+        },
+    }
+}
+
+pub(crate) fn get_child_in_out(child: &mut Child) 
+    -> Result<(ChildStdin, ChildStdout)> 
+{
+    Ok((get_child_in(child)?, get_child_out(child)?))
 }

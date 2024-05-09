@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use nix::unistd::{getresgid, getresuid, ResGid, ResUid};
+use nix::{libc::{gid_t, uid_t}, unistd::{getresgid, getresuid, setgid, setuid, Gid, ResGid, ResUid, Uid}};
 
 use crate::{Error, Result};
 
@@ -59,4 +59,27 @@ pub(crate) fn ensure_no_root() -> Result<()> {
         log::error!("We're runnning as root!");
         Err(Error::BrokenEnvironment)
     }
+}
+
+fn setgid_checked(gid: gid_t) -> Result<()> {
+    if let Err(e) = setgid(Gid::from_raw(gid)) {
+        log::error!("Failed to set gid to {}: {}", gid, e);
+        Err(e.into())
+    } else {
+        Ok(())
+    }
+}
+
+fn setuid_checked(uid: uid_t) -> Result<()> {
+    if let Err(e) = setuid(Uid::from_raw(uid)) {
+        log::error!("Failed to set uid to {}: {}", uid, e);
+        Err(e.into())
+    } else {
+        Ok(())
+    }
+}
+
+pub(crate) fn set_uid_gid(uid: uid_t, gid: gid_t) -> Result<()> {
+    setgid_checked(gid)?;
+    setuid_checked(uid)
 }

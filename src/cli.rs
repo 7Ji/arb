@@ -153,6 +153,7 @@ enum Action {
     MapAssert,
     #[clap(hide = true)]
     ReadPkgbuilds {
+        root: PathBuf,
         pkgbuilds: Vec<PathBuf>,
     },
     #[clap(hide = true)]
@@ -187,7 +188,7 @@ pub(crate) fn work() -> Result<()> {
         Action::Release(args) => args.release().and(Ok(())),
         Action::DoEverything(args) => args.release().and(Ok(())),
         Action::MapAssert => action_map_assert(),
-        Action::ReadPkgbuilds { pkgbuilds } => action_read_pkgbuilds(&pkgbuilds),
+        Action::ReadPkgbuilds { root, pkgbuilds } => action_read_pkgbuilds(root, &pkgbuilds),
         Action::RmRf { paths } => action_rm_rf(paths),
         Action::Broker => action_broker(),
         Action::Init => action_init(),
