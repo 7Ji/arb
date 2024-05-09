@@ -4,11 +4,11 @@ use std::{
             read_dir,
             remove_dir,
             remove_dir_all,
-            remove_file,
-        },
-        os::unix::fs::{chown, symlink},
-        path::Path,
+            remove_file, set_permissions, File,
+        }, io::Write, os::unix::fs::{chown, symlink, PermissionsExt}, path::Path
     };
+
+use nix::libc::mode_t;
 
 use crate::error::{
         Error,
@@ -265,6 +265,49 @@ where
         } else {
             Ok(())
         }
+    } else {
+        Ok(())
+    }
+}
+
+pub(crate) fn set_permissions_mode<P: AsRef<Path>>(path: P, mode: mode_t) 
+-> Result<()> 
+{
+    let path = path.as_ref();
+    if let Err(e) = set_permissions(
+        path, PermissionsExt::from_mode(mode))
+    {
+        log::error!("Failed to set permissions for '{}' to {:o}: {}", 
+            path.display(), mode, e);
+        Err(e.into())
+    } else {
+        Ok(())
+    }
+}
+
+fn create_file_checked<P: AsRef<Path>>(path: P) -> Result<File> {
+    let path = path.as_ref();
+    match File::create(path) {
+        Ok(file) => Ok(file),
+        Err(e) => {
+            log::error!("Failed to create file at '{}': {}", path.display(), e);
+            Err(e.into())
+        },
+    }
+}
+
+pub(crate) fn create_file_with_content<P, B>(path: P, content: B) -> Result<()>
+where
+    P: AsRef<Path>, 
+    B: AsRef<[u8]>
+{
+    let path = path.as_ref();
+    let content = content.as_ref();
+    let mut file = create_file_checked(path)?;
+    if let Err(e) = file.write_all(content) {
+        log::error!("Failed to write {} bytes of content into '{}': {}",
+            content.len(), path.display(), e);
+        Err(e.into())
     } else {
         Ok(())
     }

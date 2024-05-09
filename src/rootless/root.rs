@@ -1,7 +1,9 @@
 // Bootstrapping and erasing of root
 
-use std::{fs::{create_dir, set_permissions, Permissions}, iter::once, os::unix::fs::{symlink, PermissionsExt}, path::{Path, PathBuf}};
-use crate::{pacman::PacmanConfig, rootless::RootlessHandler, Result};
+use std::{iter::once, os::unix::fs::{symlink, DirBuilderExt}, path::{Path, PathBuf}};
+use nix::libc::mode_t;
+
+use crate::{filesystem::{create_file_with_content, set_permissions_mode}, pacman::PacmanConfig, rootless::RootlessHandler, Result};
 
 use super::idmap::IdMaps;
 
@@ -39,33 +41,54 @@ impl Root {
         self.path.join("etc/pacman.conf")
     }
 
+    fn set_permissions_mode<P: AsRef<Path>>(&self, suffix: P, mode: mode_t) 
+        -> Result<()> 
+    {
+        set_permissions_mode(self.path.join(suffix), mode)
+    }
+
+    fn create_file_with_content<P, B>(&self, suffix: P, content: B) 
+        -> Result<()> 
+    where
+        P: AsRef<Path>, 
+        B: AsRef<[u8]>
+    {
+        create_file_with_content(self.path.join(suffix), content)
+    }
+
     pub(crate) fn prepare_layout(&self, pacman_conf: &PacmanConfig) 
         -> Result<()> 
     {
-        create_dir(&self.path)?;
+        // FS layout
+        let mut builder = std::fs::DirBuilder::new();
+        builder.create(&self.path)?;
         for suffix in &[
-            "dev", "dev/pts", "dev/shm", 
+            "dev", "dev/pts",
             "etc", "etc/pacman.d",
-            "proc",
             "run",
-            "sys",
-            "tmp",
             "var", "var/cache", "var/cache/pacman", "var/cache/pacman/pkg",
             "var/lib", "var/lib/pacman",
             "var/log"
         ] {
-            create_dir(self.path.join(suffix))?
+            builder.create(self.path.join(suffix))?
         }
-        set_permissions(self.path.join("dev/shm"), PermissionsExt::from_mode(0o1777))?;
-        set_permissions(self.path.join("tmp"), PermissionsExt::from_mode(0o1777))?;
-        set_permissions(self.path.join("proc"), PermissionsExt::from_mode(0o555))?;
-        set_permissions(self.path.join("sys"), PermissionsExt::from_mode(0o555))?;
+        builder.mode(0o1777);
+        builder.create(self.path.join("dev/shm"))?;
+        builder.create(self.path.join("tmp"))?;
+        builder.mode(0o555);
+        builder.create(self.path.join("proc"))?;
+        builder.create(self.path.join("sys"))?;
         symlink("../../../../pacman.sync", 
             self.path.join("var/lib/pacman/sync"))?;
-        let path_pacman_conf = self.get_path_pacman_conf();
+        // Configs
+        symlink("/usr/share/zoneinfo/UTC", 
+            self.path.join("etc/localtime"))?;
+        self.create_file_with_content("etc/hostname", "arb")?;
+        self.create_file_with_content(
+            "etc/locale.conf", "LANG=en_GB.UTF-8")?;
         let mut pacman_conf = pacman_conf.clone();
         pacman_conf.set_root(self.path.to_string_lossy());
-        pacman_conf.to_file(&path_pacman_conf)?;
+        pacman_conf.to_file(self.get_path_pacman_conf())?;
         Ok(())
     }
 
