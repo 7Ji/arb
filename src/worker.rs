@@ -175,6 +175,7 @@ impl WorkerState {
 
     pub(crate) fn fetch_sources(self) -> Result<Self> {
         if let Self::ParsedPkgbuilds { config, rootless }= self {
+            config.pkgbuilds.fetch_sources()?;
             Ok(Self::FetchedSources { config, rootless })
         } else {
             Err(self.get_illegal_state())

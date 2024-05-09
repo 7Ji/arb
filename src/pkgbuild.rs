@@ -184,6 +184,17 @@ impl Pkgbuilds {
                 |pkgbuild|(&pkgbuild.name).into())));
         payload
     }
+
+    pub(crate) fn fetch_sources(&self) -> Result<()> {
+        log::info!("Fetching sources");
+        for pkgbuild in self.pkgbuilds.iter() {
+            for source in pkgbuild.inner.sources_with_checksums() {
+                log::info!("Source: {:?}", source)
+            }
+        }
+        log::info!("Fetched sources");
+        Ok(())
+    }
 }
 
 /// The `pkgbuild_reader` applet entry point, takes no args
