@@ -29,7 +29,7 @@ impl InitCommand {
                 let mut command = command_new_no_stdin(&program);
                 if ! logfile.is_empty() {
                     let logfile = LogFile::try_from(logfile)?;
-                    log::info!("Log for program '{}' will be written to '{}'",
+                    log::info!("Program log file: '{}' => '{}'",
                         program.to_string_lossy(), logfile.path.display());
                     let (child_out, child_err) = logfile.try_split()?;
                     command.stdout(child_out)

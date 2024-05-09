@@ -8,7 +8,7 @@ mod root;
 mod unshare;
 use std::{ffi::{OsStr, OsString}, iter::empty, path::{Path, PathBuf}, process::Child};
 use nix::{libc::pid_t, unistd::getpid};
-use crate::{child::{wait_child, write_to_child}, logfile::{LogFileBuilder, LogFileType}, pacman::try_get_install_pkgs_payload, Error, Result};
+use crate::{child::{wait_child, write_to_child}, logfile::LogFile, pacman::try_get_install_pkgs_payload, Error, Result};
 use self::{action::start_action, idmap::IdMaps};
 
 pub(crate) use self::init::{InitCommand, InitPayload};
@@ -59,36 +59,6 @@ impl RootlessHandler {
         self.map_child(child)?;
         wait_child(child)
     }
-
-    // pub(crate) fn run_external<I, S1, S2, S3>(
-    //     &self, program: S1, root: S2, args: I
-    // ) -> Result<()> 
-    // where
-    //     I: IntoIterator<Item = S3>,
-    //     S1: AsRef<OsStr>,
-    //     S2: AsRef<OsStr>,
-    //     S3: AsRef<OsStr>,
-    // {
-    //     let mut command = command_new_no_stdin(&self.exe);
-    //     command.arg("broker");
-    //     if ! root.as_ref().is_empty() {
-    //         command.arg("--root").arg(root);
-    //     }
-    //     let mut child = match command
-    //         .arg("--")
-    //         .arg(&program)
-    //         .args(args)
-    //         .spawn()
-    //     {
-    //         Ok(child) => child,
-    //         Err(e) => {
-    //             log::error!("Failed to run broker to run program '{}'", 
-    //                         program.as_ref().to_string_lossy());
-    //             return Err(e.into())
-    //         },
-    //     };
-    //     self.map_and_wait_child(&mut child)
-    // }
 
     pub(crate) fn run_action<S1, I, S2, B>(
         &self, applet: S1, args: I, payload: Option<B>
@@ -180,16 +150,26 @@ impl RootlessHandler {
         I: IntoIterator<Item = S>,
         S: Into<OsString>
     {
+        let path_root = root.get_path();
+        log::info!("Bootstrapping root at '{}'", path_root.display());
         let mut payload = try_get_install_pkgs_payload(
             root.get_path(), pkgs, refresh)?;
         payload.add_init_command(InitCommand::Chroot { 
             path: root.get_path().into() });
-        let logfile: OsString = LogFileBuilder::new(
-            LogFileType::Localedef, "en_GB.UTF-8").try_create()?.into();
-        payload.add_init_command_run_program(logfile, "localedef", 
+        payload.add_init_command_run_program(
+            LogFile::try_new("bootstrap",
+                "localedef-en_GB.UTF-8")?,
+            "localedef", 
             ["-i", "en_GB", "-c", "-f", "UTF-8", "-A", 
                     "/usr/share/locale/locale.alias",  "en_GB.UTF-8"]);
-        self.run_broker(&payload)
+        payload.add_init_command_run_program(
+            LogFile::try_new("bootstrap", 
+                "useradd-arb")?,
+            "useradd",
+            ["-u", "1000", "-m", "arb"]);
+        self.run_broker(&payload)?;
+        log::info!("Bootstrapped root at '{}'", path_root.display());
+        Ok(())
     }
 }
 
@@ -199,7 +179,7 @@ pub(crate) fn action_map_assert() -> Result<()> {
         log::error!("Mapping assertion failure");
         Err(e)
     } else {
-        log::info!("Mapping assertion success, rootless is functional, I am: \
+        log::debug!("Mapping assertion success, rootless is functional, I am: \
             {}", id::ResUidGid::new()?);
         Ok(())
     }

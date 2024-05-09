@@ -3,37 +3,37 @@ use rand::{distributions::Alphanumeric, Rng};
 
 use crate::{Error, Result};
 
-pub(crate) enum LogFileType {
-    Pacman,
-    Localedef,
-    Extract,
-    Build,
-}
+// pub(crate) enum LogFileType {
+//     Pacman,
+//     Localedef,
+//     Extract,
+//     Build,
+// }
 
-impl Into<&str> for &LogFileType {
-    fn into(self) -> &'static str {
-        match self {
-            LogFileType::Pacman => "pacman",
-            LogFileType::Localedef => "localedef",
-            LogFileType::Extract => "extract",
-            LogFileType::Build => "build",
-        }
-    }
-}
+// impl Into<&str> for &LogFileType {
+//     fn into(self) -> &'static str {
+//         match self {
+//             LogFileType::Pacman => "pacman",
+//             LogFileType::Localedef => "localedef",
+//             LogFileType::Extract => "extract",
+//             LogFileType::Build => "build",
+//         }
+//     }
+// }
 
-impl LogFileType {
-    fn to_str(&self) -> &'static str {
-        self.into()
-    }
-}
+// impl LogFileType {
+//     fn to_str(&self) -> &'static str {
+//         self.into()
+//     }
+// }
 
 pub(crate) struct LogFileBuilder {
     stem: String,
 }
 
 impl LogFileBuilder {
-    pub(crate) fn new(log_file_type: LogFileType, suffix: &str) -> Self {
-        let mut stem: String = log_file_type.to_str().into();
+    pub(crate) fn new(log_file_type: &str, suffix: &str) -> Self {
+        let mut stem: String = log_file_type.into();
         if ! suffix.is_empty() {
             stem.push('-');
             for part in 
@@ -123,5 +123,11 @@ impl LogFile {
     pub(crate) fn try_split(self) -> Result<(File, File)> {
         let file_dup = self.file.try_clone()?;
         Ok((self.file, file_dup))
+    }
+
+    pub(crate) fn try_new(log_file_type: &str, suffix: &str) 
+        -> Result<Self> 
+    {
+        LogFileBuilder::new(log_file_type, suffix).try_create()
     }
 }

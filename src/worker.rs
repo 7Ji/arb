@@ -1,7 +1,7 @@
 use std::{io::Write, iter::once, path::Path};
 
 // Worker is a finite state machine
-use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, rootless::RootlessHandler, Error, Result};
+use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, rootless::{Root, RootlessHandler}, Error, Result};
 
 #[derive(Default)]
 pub(crate) enum WorkerState {
@@ -24,6 +24,11 @@ pub(crate) enum WorkerState {
     FetchedPkgbuilds {
         config: RuntimeConfig,
         rootless: RootlessHandler,
+    },
+    PreparedToParsePkgbuilds {
+        config: RuntimeConfig,
+        rootless: RootlessHandler,
+        root: Root,
     },
     ParsedPkgbuilds {
         config: RuntimeConfig,
@@ -61,6 +66,7 @@ impl WorkerState {
             WorkerState::PreparedRootless { config: _, rootless: _ } => "prepared rootless",
             WorkerState::PreparedLayout { config: _, rootless: _ } => "prepared layout",
             WorkerState::FetchedPkgbuilds { config: _, rootless: _ }=> "fetched PKGBUILDs",
+            WorkerState::PreparedToParsePkgbuilds { config: _, rootless: _, root: _ } => "prepared to parse PKGBUILDs",
             WorkerState::ParsedPkgbuilds { config: _, rootless: _ } => "parsed PKGBUILDs",
             WorkerState::FetchedSources { config: _, rootless: _ } => "fetched sources",
             WorkerState::FetchedPkgs { config: _, rootless: _ } => "fetched pkgs",
@@ -143,7 +149,7 @@ impl WorkerState {
         }
     }
 
-    pub(crate) fn parse_pkgbuilds(self) -> Result<Self> {
+    pub(crate) fn prepare_to_parse_pkgbuilds(self) -> Result<Self> {
         if let Self::FetchedPkgbuilds { config, rootless } = self {
             config.pkgbuilds.dump("build/PKGBUILDs")?;
             let root = rootless.new_root(
@@ -152,6 +158,15 @@ impl WorkerState {
             paconf.set_option("SigLevel", Some("Never"));
             root.prepare_layout(&paconf)?;
             rootless.bootstrap_root(&root, once("base-devel"), true)?;
+            Ok(Self::PreparedToParsePkgbuilds { config, rootless, root })
+        } else {
+            Err(self.get_illegal_state())
+        }
+    }
+
+    pub(crate) fn parse_pkgbuilds(self) -> Result<Self> {
+        if let Self::PreparedToParsePkgbuilds { config, rootless, root } = self {
+
             Ok(Self::ParsedPkgbuilds { config, rootless })
         } else {
             Err(self.get_illegal_state())

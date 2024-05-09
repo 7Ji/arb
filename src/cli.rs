@@ -76,6 +76,7 @@ impl ActionArgs {
 
     fn fetch_sources(self) -> Result<WorkerState> {
         self.fetch_pkgbuilds()?
+            .prepare_to_parse_pkgbuilds()?
             .parse_pkgbuilds()?
             .fetch_sources()
     }

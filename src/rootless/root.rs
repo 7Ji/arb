@@ -86,6 +86,8 @@ impl Root {
         self.create_file_with_content("etc/hostname", "arb")?;
         self.create_file_with_content(
             "etc/locale.conf", "LANG=en_GB.UTF-8")?;
+        self.create_file_with_content(
+            "etc/locale.gen", "en_GB.UTF-8 UTF-8")?;
         let mut pacman_conf = pacman_conf.clone();
         pacman_conf.set_root(self.path.to_string_lossy());
         pacman_conf.to_file(self.get_path_pacman_conf())?;

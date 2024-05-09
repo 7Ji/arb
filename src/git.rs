@@ -663,7 +663,7 @@ impl ReposList {
                 mtime_pkg.overflowing_add(60);
             if !overflowed && mtime_repo >= mtime_pkg_delayed{ 
                 let repo = self.list.swap_remove(index);
-                log::info!("Repo '{}' last fetch ({}) later than AUR last \
+                log::debug!("Repo '{}' last fetch ({}) later than AUR last \
                     modified ({}), skippping it", &repo.url, 
                     mtime_repo, mtime_pkg_delayed);
             }

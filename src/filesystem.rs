@@ -68,7 +68,7 @@ pub(crate) fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
 /// read permission before being populated.
 pub(crate) fn remove_dir_all_try_best<P: AsRef<Path>>(dir: P) -> Result<()>
 {
-    log::info!("Removing dir '{}' recursively...", dir.as_ref().display());
+    log::debug!("Removing dir '{}' recursively...", dir.as_ref().display());
     match remove_dir_all(&dir) {
         Ok(_) => return Ok(()),
         Err(e) => {

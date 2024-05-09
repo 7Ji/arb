@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, ffi::{OsStr, OsString}, fmt::Display, fs::File, io::{BufRead, BufReader, Write}, path::Path};
 
-use crate::{logfile::{LogFileBuilder, LogFileType}, rootless::{BrokerPayload, InitCommand, RootlessHandler}, Error, Result};
+use crate::{logfile::LogFileBuilder, rootless::{BrokerPayload, InitCommand, RootlessHandler}, Error, Result};
 
 type ConfigSection =  BTreeMap<String, Option<String>>;
 
@@ -170,7 +170,7 @@ where
         suffix.push_str(&name.to_string_lossy())
     }
     let logfile: OsString = LogFileBuilder::new(
-        LogFileType::Pacman, &suffix).try_create()?.into();
+        "pacman", &suffix).try_create()?.into();
     let mut payload = BrokerPayload::new_with_root(root);
     let arg_sync = if refresh { "-Sy" } else { "-S" };
     let mut args = vec![
