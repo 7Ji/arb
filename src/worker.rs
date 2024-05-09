@@ -123,7 +123,8 @@ impl WorkerState {
 
     pub(crate) fn prepare_layout(self) -> Result<Self> {
         if let Self::PreparedRootless { mut config, rootless } = self {
-            rootless.run_action("rm-rf", once("build"))?;
+            rootless.run_action_no_payload(
+                "rm-rf", once("build"))?;
             crate::filesystem::prepare_layout()?;
             config.paconf.set_defaults();
             Ok(Self::PreparedLayout { config, rootless })

@@ -326,7 +326,14 @@ pub(crate) fn touch<P: AsRef<Path>>(path: P) -> Result<()> {
 }
 
 
-pub(crate) fn action_rm_rf<P: AsRef<Path>>(path: P) -> Result<()> {
+pub(crate) fn action_rm_rf<I, P>(paths: I) -> Result<()> 
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>
+{
     crate::rootless::unshare::try_unshare_user_and_wait()?;
-    remove_dir_all_try_best(path)
+    for path in paths {
+        remove_dir_all_try_best(path)?
+    }
+    Ok(())
 }

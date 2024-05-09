@@ -103,7 +103,7 @@ impl Root {
         let rootless = RootlessHandler {
             idmaps: self.idmaps.clone(), exe,
         };
-        if let Err(e) = rootless.run_action(
+        if let Err(e) = rootless.run_action_no_payload(
             "rm-rf", once(&self.path)) 
         {
             log::error!("Failed to destory root at '{}': {}",

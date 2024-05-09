@@ -9,7 +9,7 @@ pub(crate) mod unshare;
 use std::{ffi::OsStr, iter::empty, path::{Path, PathBuf}, process::Child};
 use nix::{libc::pid_t, unistd::getpid};
 
-use crate::{child::{command_new_no_stdin, wait_child}, mount::{mount_all, mount_all_except_proc, mount_proc}, pacman::{install_pkgs, sync_db, PacmanConfig}, Error, Result};
+use crate::{child::{command_new_no_stdin, wait_child, write_to_child}, mount::{mount_all, mount_all_except_proc, mount_proc}, pacman::{install_pkgs, sync_db, PacmanConfig}, Error, Result};
 use self::{action::start_action, broker::BrokerPayload, idmap::IdMaps, init::InitPayload};
 pub(crate) use self::root::Root;
 
@@ -26,7 +26,7 @@ impl RootlessHandler {
             idmaps: IdMaps::try_new()?, 
             exe: arg0::try_get_arg0()?
         };
-        handler.run_action_noarg("map-assert")?;
+        handler.run_action_no_arg_no_payload("map-assert")?;
         Ok(handler)
     }
 
@@ -38,13 +38,18 @@ impl RootlessHandler {
         self.idmaps.set_child(child)
     }
 
-    fn map_and_wait_child(&self, child: &mut Child) -> Result<()> {
+    fn map_child(&self, child: &mut Child) -> Result<()> {
         let r = 
             unshare::try_wait_as_parent(child)
                 .and(self.set_child(child));
         if let Err(e) = &r {
             log::error!("Failed to map child {}: {}", child.id(), e)
         }
+        r
+    }
+
+    fn map_and_wait_child(&self, child: &mut Child) -> Result<()> {
+        self.map_child(child)?;
         wait_child(child)
     }
 
@@ -78,23 +83,54 @@ impl RootlessHandler {
         self.map_and_wait_child(&mut child)
     }
 
-    pub(crate) fn run_action<S1, I1, S2>(&self, applet: S1, main_args: I1) 
-        -> Result<()> 
+    pub(crate) fn run_action<S1, I, S2, B>(
+        &self, applet: S1, args: I, payload: Option<B>
+    ) -> Result<()> 
     where
         S1: AsRef<OsStr>,
-        I1: IntoIterator<Item = S2>,
-        S2: AsRef<OsStr>
+        I: IntoIterator<Item = S2>,
+        S2: AsRef<OsStr>,
+        B: AsRef<[u8]>
     {
-        self.map_and_wait_child(
-            &mut start_action(Some(&self.exe), applet, main_args)?)
+        let mut child = start_action(Some(&self.exe),
+            applet, args, payload.is_none())?;
+        if let Some(payload) = payload {
+            write_to_child(&mut child, payload)?
+        }
+        self.map_child(&mut child)?;
+        wait_child(&mut child)
     }
 
-    pub(crate) fn run_action_noarg<S>(&self, applet: S) 
+    pub(crate) fn run_action_no_arg_no_payload<S>(&self, applet: S) 
         -> Result<()> 
     where
         S: AsRef<OsStr>,
     {
-        self.run_action::<_, _, &str>(applet, empty())
+        self.run_action::<_, _, &str, &[u8]>(
+            applet, empty(), None)
+    }
+
+    pub(crate) fn run_action_no_arg<S, B>(
+        &self, applet: S, payload: Option<B>
+    ) -> Result<()> 
+    where
+        S: AsRef<OsStr>,
+        B: AsRef<[u8]>
+    {
+        self.run_action::<_, _, &str, _>(
+            applet, empty(), payload)
+    }
+
+    pub(crate) fn run_action_no_payload<S1, I, S2>(
+        &self, applet: S1, args: I
+    ) -> Result<()> 
+    where
+        S1: AsRef<OsStr>,
+        I: IntoIterator<Item = S2>,
+        S2: AsRef<OsStr>
+    {
+        self.run_action::<_, _, _, &[u8]>(
+            applet, args, None)
     }
 
     pub(crate) fn new_root<P: AsRef<Path>>(&self, path: P, temporary: bool) 

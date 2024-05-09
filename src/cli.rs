@@ -156,7 +156,7 @@ enum Action {
     },
     #[clap(hide = true)]
     RmRf {
-        path: PathBuf
+        paths: Vec<PathBuf>,
     },
     /// An intermediate stage to spawn later process that's wrapped by init
     #[clap(hide = true)]
@@ -187,7 +187,7 @@ pub(crate) fn work() -> Result<()> {
         Action::DoEverything(args) => args.release().and(Ok(())),
         Action::MapAssert => action_map_assert(),
         Action::ReadPkgbuilds { pkgbuilds } => action_read_pkgbuilds(&pkgbuilds),
-        Action::RmRf { path } => action_rm_rf(path),
+        Action::RmRf { paths } => action_rm_rf(paths),
         Action::Broker => action_broker(),
         Action::Init => action_init(),
     }
