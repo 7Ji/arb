@@ -15,6 +15,29 @@ use crate::error::{
         Result,
     };
 
+fn remove_any<P: AsRef<Path>>(path: P) -> Result<()> {
+    let path = path.as_ref();
+    if !path.is_symlink() && path.is_dir() {
+        let er =
+            remove_dir_recursively(&path);
+        if let Err(e) =  remove_dir(&path) {
+            log::error!("Failed to remove dir '{}' recursively: {}",
+                        path.display(), e);
+            if let Err(e) = er {
+                log::error!("Failure within this dir: {}", e)
+            }
+            return Err(e.into())
+        }
+    } else if let Err(e) = remove_file(&path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            log::error!("Failed to remove file/symlink '{}': {}", 
+                        path.display(), e);
+            return Err(e.into())
+        }
+    }
+    Ok(())
+}
+
 /// Rmove a dir recursively, similar logic as `remove_dir_all()`, but does not 
 /// fail on subdir without read permission like `build/[PKGBUILD]/pkg` before
 /// being populated.
@@ -42,22 +65,7 @@ pub(crate) fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
         };
         let path = entry.path();
         // Only recursive on real dir
-        if !path.is_symlink() && path.is_dir() {
-            let er =
-                remove_dir_recursively(&path);
-            if let Err(e) =  remove_dir(&path) {
-                log::error!("Failed to remove subdir '{}' recursively: {}",
-                            path.display(), e);
-                if let Err(e) = er {
-                    log::error!("Failure within subdir: {}", e)
-                }
-                return Err(e.into())
-            }
-        } else if let Err(e) = remove_file(&path) {
-            log::error!("Failed to remove entry file/symlink '{}': {}", 
-                        path.display(), e);
-            return Err(e.into())
-        }
+        remove_any(&path)?
     }
     Ok(())
 }
@@ -333,7 +341,6 @@ pub(crate) fn touch<P: AsRef<Path>>(path: P) -> Result<()> {
     }
 }
 
-
 pub(crate) fn action_rm_rf<I, P>(paths: I) -> Result<()> 
 where
     I: IntoIterator<Item = P>,
@@ -341,7 +348,7 @@ where
 {
     crate::rootless::try_unshare_user_and_wait()?;
     for path in paths {
-        remove_dir_all_try_best(path)?
+        remove_any(path)?
     }
     Ok(())
 }

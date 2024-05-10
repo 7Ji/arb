@@ -187,9 +187,13 @@ impl Pkgbuilds {
 
     pub(crate) fn fetch_sources(&self) -> Result<()> {
         log::info!("Fetching sources");
-        for pkgbuild in self.pkgbuilds.iter() {
-            for source in pkgbuild.inner.sources_with_checksums() {
-                log::info!("Source: {:?}", source)
+        if log::log_enabled!(log::Level::Debug) {
+            for pkgbuild in self.pkgbuilds.iter() {
+                for source in 
+                    pkgbuild.inner.sources_with_checksums() 
+                {
+                    log::debug!("Source: {:?}", source)
+                }
             }
         }
         log::info!("Fetched sources");
