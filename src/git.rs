@@ -21,7 +21,7 @@ use xxhash_rust::xxh3::xxh3_64;
 // use threadpool::ThreadPool;
 // use url::Url;
 use std::{
-        collections::HashMap, fs::{metadata, File}, io::Write, os::unix::fs::MetadataExt, path::{
+        collections::HashMap, fmt::Display, fs::{metadata, File}, io::Write, os::unix::fs::MetadataExt, path::{
             Path,
             PathBuf
         }, str::FromStr
@@ -68,6 +68,46 @@ impl<'a> Gmr<'a> {
     /// Similar to Gmr::convert(), but without an instance to operator on
     fn convert_oneshot(gmr: &'a str, orig: &str) -> String {
         Self::from(gmr).convert(orig)
+    }
+}
+
+pub(crate) struct RepoToOpen {
+    pub(crate) path: PathBuf,
+    pub(crate) url: String,
+}
+
+impl RepoToOpen {
+    pub(crate) fn new_with_url_parent<S, P>(url: S, parent: P) -> Self 
+    where
+        S: Into<String>,
+        P: AsRef<Path>
+    {
+        let url: String = url.into();
+        let xxh3_63 = xxh3_64(url.as_bytes());
+        let path = parent.as_ref().join(
+            format!("{:016x}", xxh3_63));
+        Self { path, url }
+    }
+
+    pub(crate) fn new_with_url_parent_type<S, D>(url: S, parent_type: D) 
+        -> Self 
+    where
+        S: Into<String>,
+        D: Display
+    {
+        let url: String = url.into();
+        let xxh3_63 = xxh3_64(url.as_bytes());
+        let path = PathBuf::from(
+            format!("sources/{}/{:016x}", parent_type ,xxh3_63));
+        Self { path, url }
+    }
+}
+
+impl TryInto<Repo> for RepoToOpen {
+    type Error = Error;
+
+    fn try_into(self) -> Result<Repo> {
+        Repo::try_new_with_path_url(self.path, &self.url)
     }
 }
 
@@ -155,16 +195,55 @@ impl ReposMap {
         Ok(())
     }
 
-    pub(crate) fn from_iter<I, R>(iter: I) -> Result<Self>
+    pub(crate) fn from_iter_into_repo_to_open<I, R>(iter: I) -> Result<Self>
     where
         I: IntoIterator<Item = R>,
-        R: TryInto<Repo, Error = Error>
+        R: Into<RepoToOpen>
     {
-        let mut map = Self::default();
+        let mut map_to_open: HashMap<u64, Vec<RepoToOpen>> = HashMap::new();
         for item in iter.into_iter() {
-            map.try_add_repo(item.try_into()?)?
+            let repo_to_open: RepoToOpen = item.into();
+            let key = match Url::parse(&repo_to_open.url) {
+                Ok(url) => if let Some(domain) = url.domain() {
+                    xxh3_64(domain.as_bytes())
+                } else {
+                    log::warn!("Repo URL '{}' does not have domain", url);
+                    0
+                },
+                Err(e) => {
+                    log::warn!("Failed to parse repo URL '{}': {}", 
+                        repo_to_open.url, e);
+                    0
+                },
+            };
+            match map_to_open.get_mut(&key) {
+                Some(list) => list.push(repo_to_open),
+                None => 
+                if map_to_open.insert(key, vec![repo_to_open]).is_some() {
+                    log::error!("Impossible key {} already in repos map", key);
+                    return Err(Error::ImpossibleLogic)
+                },
+            }
         }
-        Ok(map)
+        let mut map = HashMap::new();
+        for (key, mut list_to_open) in map_to_open {
+            list_to_open.sort_unstable_by(
+                |some, other|
+                    some.path.cmp(&other.path));
+            list_to_open.dedup_by(
+                |some, other|
+                    some.path == other.path);
+            if list_to_open.is_empty() { continue }
+            let mut list = Vec::new();
+            for repo_to_open in list_to_open {
+                list.push(repo_to_open.try_into()?)
+            }
+            if map.insert(key, ReposList { list } ).is_some() {
+                log::error!("Impossible key {} already in repos map", key);
+                return Err(Error::ImpossibleLogic)
+            }
+        }
+        Ok(Self { map })
     }
 }
 
@@ -277,13 +356,15 @@ where
 }
 
 impl Repo {
-    pub(crate) fn try_new_with_path_url<P: AsRef<Path>>(
-        path: P, url: &str) -> Result<Self>
+    pub(crate) fn try_new_with_path_url<P: Into<PathBuf>, S: Into<String>>(
+        path: P, url: S) -> Result<Self>
     {
+        let path = path.into();
+        let url = url.into();
         match Repository::open_bare(&path) {
             Ok(repo) => Ok(Self {
-                path: path.as_ref().to_owned(),
-                url: url.to_owned(),
+                path,
+                url,
                 repo,
                 refspecs: Default::default(),
             }),
@@ -293,8 +374,8 @@ impl Repo {
                     match Repository::init_bare(&path) {
                         Ok(repo) => {
                             let repo = Self {
-                                path: path.as_ref().to_owned(),
-                                url: url.to_owned(),
+                                path,
+                                url,
                                 repo,
                                 refspecs: Default::default(),
                             };
@@ -303,13 +384,12 @@ impl Repo {
                         },
                         Err(e) => {
                             log::error!("Failed to create {}: {}",
-                                        &path.as_ref().display(), e);
+                                        path.display(), e);
                             Err(e.into())
                         }
                     }
                 } else {
-                    log::error!("Failed to open {}: {}",
-                            path.as_ref().display(), e);
+                    log::error!("Failed to open {}: {}", path.display(), e);
                     Err(e.into())
                 }
             },

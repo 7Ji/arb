@@ -2,7 +2,7 @@ use std::{ffi::OsString, fs::create_dir, io::{stdout, Read, Write}, iter::once, 
 use git2::Oid;
 use nix::unistd::setgid;
 use pkgbuild;
-use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, filesystem::{chdir, create_dir_allow_existing}, git::{Repo, ReposMap}, mount::mount_bind, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, try_unshare_user_mount_and_wait, BrokerPayload}, Error, Result};
+use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, filesystem::{chdir, create_dir_allow_existing}, git::{Repo, RepoToOpen, ReposMap}, mount::mount_bind, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, try_unshare_user_mount_and_wait, BrokerPayload}, Error, Result};
 
 #[derive(Debug)]
 pub(crate) struct Pkgbuild {
@@ -73,17 +73,16 @@ impl Pkgbuild {
     }
 
     fn dump<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let repo: Repo = self.try_into()?;
+        let repo: RepoToOpen = self.into();
+        let repo: Repo = repo.try_into()?;
         repo.dump_branch_pkgbuild(
             &self.branch, self.subtree.as_ref(), path.as_ref())
     }
 }
 
-impl TryInto<Repo> for &Pkgbuild {
-    type Error = Error;
-
-    fn try_into(self) -> Result<Repo> {
-        Repo::try_new_with_url_branch(&self.url, "PKGBUILD", &self.branch)
+impl Into<RepoToOpen> for &Pkgbuild {
+    fn into(self) -> RepoToOpen {
+        RepoToOpen::new_with_url_parent_type(&self.url, "PKGBUILDs")
     }
 }
 
@@ -160,7 +159,8 @@ impl Pkgbuilds {
     pub(crate) fn sync(&self, gmr: &str, proxy: &Proxy, hold: bool) 
         -> Result<()> 
     {
-        ReposMap::from_iter(self.pkgbuilds.iter())?.sync(gmr, proxy, hold)?;
+        ReposMap::from_iter_into_repo_to_open(
+            self.pkgbuilds.iter())?.sync(gmr, proxy, hold)?;
         Ok(())
     }
 
