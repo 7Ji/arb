@@ -1,4 +1,5 @@
 mod aur;
+mod checksum;
 mod child;
 mod cli;
 mod config;

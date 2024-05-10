@@ -1,8 +1,13 @@
+use std::{fs::File, io::{BufReader, Read}, path::{Path, PathBuf}};
+
+// use blake2::Blake2b512;
 use pkgbuild::{B2sum, Cksum, GitSourceFragment, Md5sum, Sha1sum, Sha224sum, Sha256sum, Sha384sum, Sha512sum};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+// use sha1::{digest::{generic_array::GenericArray, OutputSizeUser}, Digest};
 
 use super::Pkgbuilds;
 
-use crate::{git::{RepoToOpen, ReposMap}, proxy::Proxy, Error, Result};
+use crate::{checksum::Checksum, git::{RepoToOpen, ReposMap}, proxy::Proxy, Error, Result};
 
 #[derive(Debug)]
 struct GitSource {
@@ -44,6 +49,54 @@ struct HashedSource {
     sha512sum: Option<Sha512sum>,
     b2sum: Option<B2sum>,
     urls: Vec<CachableUrl>,
+}
+
+fn hex_from_option_bytearray<B: AsRef<[u8]>>(bytes: &Option<B>) -> String {
+    if let Some(bytes) = bytes {
+        bytes.as_ref().iter().map(|byte|format!("{:02x}", byte)).collect()
+    } else {
+        String::new()
+    }
+}
+
+struct HashedFile {
+    checksum: Checksum,
+    path: PathBuf,
+}
+
+impl HashedFile {
+    fn verify(&self) -> Result<bool> {
+        self.checksum.verify_file(&self.path)
+    }
+
+}
+
+impl HashedSource {
+    /// Cache this hashed source into local file(s) with hash value as keys.
+    /// 
+    /// If a file exists locally, check its integrity if `lazyint` is `false`,
+    /// otherwise just assume its integrity.
+    /// 
+    /// If the source have multiple hashes, duplicate them first, then verify
+    /// them, then download files if not trustworthy.
+    /// 
+    fn cache(&self, proxy: &Proxy, layint: bool) -> Result<()> {
+        let name_b2 = hex_from_option_bytearray(&self.b2sum);
+        if self.b2sum.is_some() {
+
+        }
+        let name_sha512 = hex_from_option_bytearray(&self.sha512sum);
+        let name_sha384 = hex_from_option_bytearray(&self.sha384sum);
+        let name_sha256 = hex_from_option_bytearray(&self.sha256sum);
+        let name_sha224 = hex_from_option_bytearray(&self.sha224sum);
+        let name_sha1 = hex_from_option_bytearray(&self.sha1sum);
+        let name_md5 = hex_from_option_bytearray(&self.md5sum);
+
+
+        // Don't trust md5 and ck: only down-hashing to them, no up-hashing from
+        // them
+        Ok(())
+    }
 }
 
 #[derive(Default, Debug)]
@@ -159,7 +212,7 @@ impl CacheableSources {
                 sha384sum: sha384sum.clone(),
                 sha512sum: sha512sum.clone(),
                 b2sum: b2sum.clone(),
-                urls: vec![cacheable_url] })
+                urls: vec![cacheable_url] }) 
         }
 
     }
@@ -170,16 +223,17 @@ impl CacheableSources {
             self.git.iter())?.sync(gmr, proxy, hold)
     }
 
-    fn cache_hashed(&self, proxy: &Proxy) -> Result<()> {
-        log::info!("Caching non-git hashed sources...");
-        Ok(())
+    fn cache_hashed(&self, proxy: &Proxy, lazyint: bool) -> Result<()> {
+        self.hashed.par_iter().try_for_each(
+            |source|source.cache(proxy, lazyint))
     }
 
-    pub(crate) fn cache(&self, gmr: &str, proxy: &Proxy, holdgit: bool) 
-        -> Result<()> 
+    pub(crate) fn cache(
+        &self, gmr: &str, proxy: &Proxy, holdgit: bool, lazyint: bool
+    ) -> Result<()> 
     {
         self.cache_git(gmr, proxy, holdgit)?;
-        self.cache_hashed(proxy)
+        self.cache_hashed(proxy, lazyint)
     }
 
     pub(crate) fn git_urls(&self) -> Vec<String> {

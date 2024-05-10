@@ -182,7 +182,7 @@ impl WorkerState {
                 log::debug!("Generated git-mirroer config: {}", &gmr_config);
                 write_all_to_file_or_stdout(&gmr_config, &config.gengmr)?
             }
-            cacheable_sources.cache(&config.gmr, &config.proxy, config.holdgit)?;
+            cacheable_sources.cache(&config.gmr, &config.proxy, config.holdgit, config.lazyint)?;
             Ok(Self::FetchedSources { config, rootless })
         } else {
             Err(self.get_illegal_state())
