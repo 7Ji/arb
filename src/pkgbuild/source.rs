@@ -2,13 +2,19 @@ use pkgbuild::{B2sum, Cksum, GitSourceFragment, Md5sum, Sha1sum, Sha224sum, Sha2
 
 use super::Pkgbuilds;
 
-use crate::{Error, Result};
+use crate::{git::{RepoToOpen, ReposMap}, proxy::Proxy, Error, Result};
 
 #[derive(Debug)]
 struct GitSource {
     url: String,
     branches: Vec<String>,
     tags: Vec<String>,
+}
+
+impl Into<RepoToOpen> for &GitSource {
+    fn into(self) -> RepoToOpen {
+        RepoToOpen::new_with_url_parent_type(&self.url, "git")
+    }
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -158,10 +164,22 @@ impl CacheableSources {
 
     }
 
-    pub(crate) fn cache(&self) -> Result<()> {
-        log::info!("Caching sources...");
-        
+    fn cache_git(&self, gmr: &str, proxy: &Proxy, hold: bool) -> Result<()> {
+        log::info!("Caching git sources...");
+        ReposMap::from_iter_into_repo_to_open(
+            self.git.iter())?.sync(gmr, proxy, hold)
+    }
+
+    fn cache_hashed(&self, proxy: &Proxy) -> Result<()> {
+        log::info!("Caching non-git hashed sources...");
         Ok(())
+    }
+
+    pub(crate) fn cache(&self, gmr: &str, proxy: &Proxy, holdgit: bool) 
+        -> Result<()> 
+    {
+        self.cache_git(gmr, proxy, holdgit)?;
+        self.cache_hashed(proxy)
     }
 
     pub(crate) fn git_urls(&self) -> Vec<String> {

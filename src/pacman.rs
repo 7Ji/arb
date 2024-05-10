@@ -129,6 +129,19 @@ impl PacmanConfig {
         }
     }
 
+    // /// Get a hash value of DBs + Packages to install (names instead of actual
+    // /// packages), this makes the following  assumption: with the same sync DBs 
+    // /// (byte-to-byte-identical), and the same arguments passed to pacman with
+    // /// an empty local DB, there would always be same packages installed
+    // /// 
+    // /// This is mostly useful to cache chroots so we don't need to re-install
+    // /// 
+    // /// The above assumption may break in the following situations:
+    // /// 1. If 
+    // pub(crate) fn hash_db_pkgs<P: AsRef<Path>>(&self, db: P, pkgs: I) -> Result<u64> {
+
+    // }
+
 }
 
 impl Display for PacmanConfig {

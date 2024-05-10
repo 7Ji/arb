@@ -129,19 +129,14 @@ fn mount_dev<P: AsRef<Path>>(path_dev: P) -> Result<()> {
 
 pub(crate) fn mount_all_except_proc<P: AsRef<Path>>(root: P) -> Result<()> {
     let root = root.as_ref();
-    mount_dev(root.join("dev"))?;
     mount_tmp(root.join("tmp"))?;
     mount_run(root.join("run"))?;
-    Ok(())
+    mount_dev(root.join("dev"))?;
+    mount_bind("build/pacman.sync", 
+            root.join("var/lib/pacman/sync"))
 }
 
 pub(crate) fn mount_all<P: AsRef<Path>>(root: P) -> Result<()> {
-    let root = root.as_ref();
-    mount_proc(root.join("proc"))?;
-    mount_devpts(root.join("dev/pts"))?;
-    mount_devshm(root.join("dev/shm"))?;
-    mount_tmp(root.join("tmp"))?;
-    mount_run(root.join("run"))?;
-    mount_dev(root.join("dev"))?;
-    Ok(())
+    mount_proc(root.as_ref().join("proc"))?;
+    mount_all_except_proc(root)
 }

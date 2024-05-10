@@ -151,8 +151,7 @@ impl Pkgbuilds {
         -> Result<()> 
     {
         ReposMap::from_iter_into_repo_to_open(
-            self.pkgbuilds.iter())?.sync(gmr, proxy, hold)?;
-        Ok(())
+            self.pkgbuilds.iter())?.sync(gmr, proxy, hold)
     }
 
     pub(crate) fn dump<P: AsRef<Path>>(&self, parent: P) -> Result<()> {

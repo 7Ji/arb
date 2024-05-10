@@ -74,6 +74,8 @@ impl<'a> Gmr<'a> {
 pub(crate) struct RepoToOpen {
     pub(crate) path: PathBuf,
     pub(crate) url: String,
+    pub(crate) branches: Vec<String>,
+    pub(crate) tags: Vec<String>,
 }
 
 impl RepoToOpen {
@@ -86,7 +88,7 @@ impl RepoToOpen {
         let xxh3_63 = xxh3_64(url.as_bytes());
         let path = parent.as_ref().join(
             format!("{:016x}", xxh3_63));
-        Self { path, url }
+        Self { path, url, branches: Vec::new(), tags: Vec::new() }
     }
 
     pub(crate) fn new_with_url_parent_type<S, D>(url: S, parent_type: D) 
@@ -99,7 +101,7 @@ impl RepoToOpen {
         let xxh3_63 = xxh3_64(url.as_bytes());
         let path = PathBuf::from(
             format!("sources/{}/{:016x}", parent_type ,xxh3_63));
-        Self { path, url }
+        Self { path, url, branches: Vec::new(), tags: Vec::new() }
     }
 }
 
@@ -114,6 +116,8 @@ impl TryInto<Repo> for RepoToOpen {
 pub(crate) struct Repo {
     pub(crate) path: PathBuf,
     pub(crate) url: String,
+    pub(crate) branches: Vec<String>,
+    pub(crate) tags: Vec<String>,
     pub(crate) repo: Repository,
     pub(crate) refspecs: Vec<String>,
 }
@@ -193,7 +197,7 @@ impl ReposMap {
             },
         }
         Ok(())
-    }
+    }   
 
     pub(crate) fn from_iter_into_repo_to_open<I, R>(iter: I) -> Result<Self>
     where
@@ -365,6 +369,8 @@ impl Repo {
             Ok(repo) => Ok(Self {
                 path,
                 url,
+                branches: Vec::new(),
+                tags: Vec::new(),
                 repo,
                 refspecs: Default::default(),
             }),
@@ -376,6 +382,8 @@ impl Repo {
                             let repo = Self {
                                 path,
                                 url,
+                                branches: Vec::new(),
+                                tags: Vec::new(),
                                 repo,
                                 refspecs: Default::default(),
                             };
@@ -477,8 +485,8 @@ impl Repo {
         Str: AsRef<str> + git2::IntoCString + Clone
     {
         if ! gmr.is_empty() {
-            log::info!("Syncing repo '{}' with gmr '{}' before actual remote",
-                        &self.path.display(), &gmr);
+            log::info!("Syncing repo '{}' with gmr '{}' before actual remote \
+                '{}'", &self.path.display(), &gmr, &self.url);
             if Self::sync_raw(&self.repo, 
                 &Gmr::convert_oneshot(gmr, &self.url), &NOPROXY, 
                     refspecs, 1).is_ok() 
