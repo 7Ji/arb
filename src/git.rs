@@ -816,3 +816,16 @@ impl ReposMap {
         })
     }
 }
+
+pub(crate) fn gmr_config_from_urls(urls: &mut Vec<String>) -> String {
+    urls.sort_unstable();
+    urls.dedup();
+    let mut buffer = String::new();
+    buffer.push_str("repos:\n");
+    for url in urls.iter() {
+        buffer.push_str("  - ");
+        buffer.push_str(&url);
+        buffer.push('\n');
+    }
+    buffer
+}

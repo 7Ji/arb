@@ -352,3 +352,21 @@ where
     }
     Ok(())
 }
+
+pub(crate) fn write_all_to_file_or_stdout<B: AsRef<[u8]>>(buffer: B, out: &str) 
+    -> Result<()> 
+{
+    if let Err(e) = 
+        if out == "-" {
+            std::io::stdout().write_all(buffer.as_ref())
+        } else {
+            std::fs::File::create(out)?
+                .write_all(buffer.as_ref())
+        }
+    {
+        log::error!("Failed to write to file or stdout '{}': {}", out, e);
+        Err(e.into())
+    } else {
+        Ok(())
+    }
+}

@@ -1,7 +1,7 @@
-use std::{io::Write, iter::once, path::Path};
+use std::{io::{stdout, Write}, iter::once, path::Path};
 
 // Worker is a finite state machine
-use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, rootless::{Root, RootlessHandler}, Error, Result};
+use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, filesystem::write_all_to_file_or_stdout, git::gmr_config_from_urls, rootless::{Root, RootlessHandler}, Error, Result};
 
 #[derive(Default)]
 pub(crate) enum WorkerState {
@@ -105,12 +105,11 @@ impl WorkerState {
                 return Err(Error::InvalidConfig)
             }
             if ! config.gengmr.is_empty() {
-                let gmr_config = config.pkgbuilds.gengmr();
-                log::info!("Generated git-mirroer config: {}", &gmr_config);
-                if config.gengmr != "-" {
-                    std::fs::File::create(&config.gengmr)?
-                        .write_all(gmr_config.as_bytes())?
-                }
+                let gmr_config = gmr_config_from_urls(
+                    &mut config.pkgbuilds.git_urls());
+                log::debug!("Generated git-mirroer config: {}", &gmr_config);
+                write_all_to_file_or_stdout(
+                    &gmr_config, &config.gengmr)?
             }
             Ok(Self::MergedConfig { config })
         } else {
@@ -175,7 +174,15 @@ impl WorkerState {
 
     pub(crate) fn fetch_sources(self) -> Result<Self> {
         if let Self::ParsedPkgbuilds { config, rootless }= self {
-            config.pkgbuilds.fetch_sources()?;
+            let cacheable_sources = config.pkgbuilds.get_cacheable_sources();
+            if ! config.gengmr.is_empty() {
+                let mut urls = config.pkgbuilds.git_urls();
+                urls.append(&mut cacheable_sources.git_urls());
+                let gmr_config = gmr_config_from_urls(&mut urls);
+                log::debug!("Generated git-mirroer config: {}", &gmr_config);
+                write_all_to_file_or_stdout(&gmr_config, &config.gengmr)?
+            }
+            cacheable_sources.cache()?;
             Ok(Self::FetchedSources { config, rootless })
         } else {
             Err(self.get_illegal_state())

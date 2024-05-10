@@ -1,8 +1,10 @@
+mod source;
+
 use std::{ffi::OsString, fs::create_dir, io::{stdout, Read, Write}, iter::once, path::Path};
 use git2::Oid;
 use nix::unistd::setgid;
 use pkgbuild;
-use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, filesystem::{chdir, create_dir_allow_existing}, git::{Repo, RepoToOpen, ReposMap}, mount::mount_bind, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, try_unshare_user_mount_and_wait, BrokerPayload}, Error, Result};
+use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, filesystem::{chdir, create_dir_allow_existing}, git::{Repo, RepoToOpen, ReposMap}, mount::mount_bind, pkgbuild::source::CacheableSources, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, try_unshare_user_mount_and_wait, BrokerPayload}, Error, Result};
 
 #[derive(Debug)]
 pub(crate) struct Pkgbuild {
@@ -112,20 +114,9 @@ impl Into<Vec<Pkgbuild>> for Pkgbuilds {
 }
 
 impl Pkgbuilds {
-    /// Generate a 7Ji/git-mirroer config
-    pub(crate) fn gengmr(&self) -> String {
-        log::info!("Generateing 7Ji/git-mirrorer config...");
-        let mut repos: Vec<String> = self.pkgbuilds.iter().map(
-            |repo|repo.url.clone()).collect();
-        repos.sort_unstable();
-        let mut buffer = String::new();
-        buffer.push_str("repos:\n");
-        for repo in repos.iter() {
-            buffer.push_str("  - ");
-            buffer.push_str(repo);
-            buffer.push('\n');
-        }
-        buffer
+    pub(crate) fn git_urls(&self) -> Vec<String> {
+        self.pkgbuilds.iter().map(
+            |repo|repo.url.clone()).collect()
     }
 
     pub(crate) fn complete_from_reader<R: Read>(&mut self, reader: R) -> Result<()> {
@@ -185,19 +176,10 @@ impl Pkgbuilds {
         payload
     }
 
-    pub(crate) fn fetch_sources(&self) -> Result<()> {
-        log::info!("Fetching sources");
-        if log::log_enabled!(log::Level::Debug) {
-            for pkgbuild in self.pkgbuilds.iter() {
-                for source in 
-                    pkgbuild.inner.sources_with_checksums() 
-                {
-                    log::debug!("Source: {:?}", source)
-                }
-            }
-        }
-        log::info!("Fetched sources");
-        Ok(())
+    pub(crate) fn get_cacheable_sources(&self) -> CacheableSources {
+        let sources: CacheableSources = self.into();
+        log::debug!("Cacheable sources: {:?}", &sources);
+        sources
     }
 }
 

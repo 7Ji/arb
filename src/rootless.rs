@@ -8,7 +8,7 @@ mod root;
 mod unshare;
 use std::{ffi::{OsStr, OsString}, io::Write, iter::empty, path::{Path, PathBuf}, process::Child};
 use nix::{libc::pid_t, unistd::getpid};
-use crate::{child::{get_child_in_out, wait_child, write_to_child}, logfile::LogFile, pacman::try_get_install_pkgs_payload, pkgbuild::Pkgbuilds, Error, Result};
+use crate::{child::{get_child_in_out, get_child_out, wait_child, write_to_child}, logfile::LogFile, pacman::try_get_install_pkgs_payload, pkgbuild::Pkgbuilds, Error, Result};
 use self::{action::start_action, idmap::IdMaps};
 
 pub(crate) use self::id::set_uid_gid;
@@ -184,22 +184,8 @@ impl RootlessHandler {
             Some(&self.exe), "broker", empty(), 
             true, true)?;
         self.map_child(&mut child)?;
-        let (mut child_in, child_out) = 
-            get_child_in_out(&mut child)?;
-        let thread = std::thread::spawn(
-            move||child_in.write_all(&payload));
-        pkgbuilds.complete_from_reader(child_out)?;
-        match thread.join() {
-            Ok(r) =>
-                if let Err(e) = r {
-                    log::error!("Child writer failed to write: {}", e);
-                    return Err(e.into())
-                },
-            Err(e) => {
-                log::error!("Failed to join child writer: {:?}", e);
-                return Err(Error::ThreadFailure(Some(e)))
-            },
-        }
+        write_to_child(&mut child, &payload)?;
+        pkgbuilds.complete_from_reader(get_child_out(&mut child)?)?;
         wait_child(&mut child)
     }
 }
