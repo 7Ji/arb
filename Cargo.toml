@@ -34,7 +34,7 @@ features = ["fs", "mount", "process", "sched", "user"]
 
 [dependencies.pkgbuild]
 version = "0.1"
-path = "../../library/pkgbuild-rs"
+git = "https://github.com/7Ji/pkgbuild-rs"
 features = ["serde"]
 
 [dependencies.serde]
