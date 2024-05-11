@@ -813,7 +813,7 @@ impl ReposMap {
         if self.map.is_empty() {
             return Ok(())
         }
-        self.map.par_iter_mut().try_for_each(
+        let results: Vec<Result<()>> = self.map.par_iter_mut().map(
             |(domain, list)| 
         {
             if *domain == 0xb463cbdec08d6265 { // AUR
@@ -821,7 +821,13 @@ impl ReposMap {
             } else {
                 list.sync_generic(gmr, proxy, hold)
             }
-        })
+        }).collect();
+        for result in results {
+            if result.is_err() {
+                return result
+            }
+        }
+        Ok(())
     }
 }
 

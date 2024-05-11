@@ -350,8 +350,16 @@ impl CacheableSources {
     }
 
     fn cache_hashed(&self, proxy: &Proxy, lazyint: bool) -> Result<()> {
-        self.hashed.par_iter().try_for_each(
-            |source|source.cache(proxy, lazyint))
+        let results: Vec<Result<()>> = self.hashed.par_iter().map(
+            |source|source.cache(
+                        proxy, lazyint)
+                    ).collect();
+        for result in results {
+            if result.is_err() {
+                return result;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn cache(
