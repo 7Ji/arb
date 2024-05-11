@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, io::Write, process::{Child, ChildStdin, ChildStdout, Command, Stdio}};
+use std::{ffi::OsStr, fmt::Display, io::Write, process::{Child, ChildStdin, ChildStdout, Command, Stdio}};
 
 use nix::{libc::pid_t, unistd::Pid};
 
@@ -72,4 +72,15 @@ pub(crate) fn get_child_in_out(child: &mut Child)
     -> Result<(ChildStdin, ChildStdout)> 
 {
     Ok((get_child_in(child)?, get_child_out(child)?))
+}
+
+pub(crate) fn spawn_and_wait(command: &mut Command) -> Result<()> {
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            log::error!("Failed to spawn child: {}", e);
+            return Err(e.into())
+        },
+    };
+    wait_child(&mut child)
 }

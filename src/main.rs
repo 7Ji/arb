@@ -3,6 +3,7 @@ mod checksum;
 mod child;
 mod cli;
 mod config;
+mod download;
 mod error;
 mod filesystem;
 mod git;

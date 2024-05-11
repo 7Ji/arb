@@ -43,29 +43,16 @@ pub(crate) fn write_all_to_file_or_stdout<B: AsRef<[u8]>>(buffer: B, out: &str)
 
 const BUFFER_SIZE: usize = 0x100000;
 
-pub(crate) fn reader_to_writer<R: Read, W: Write>(mut reader: R, mut writer: W) 
+pub(crate) fn reader_to_writer<R, W>(reader: &mut R, writer: &mut W) 
     -> Result<()>
+where
+    R: Read, 
+    W: Write
 {
-    let mut buffer = vec![0; BUFFER_SIZE];
-    loop {
-        let size_chunk = match
-            reader.read(&mut buffer) {
-                Ok(size) => size,
-                Err(e) => {
-                    log::error!("Failed to read from reader: {}", e);
-                    return Err(e.into())
-                },
-            };
-        if size_chunk == 0 {
-            break
-        }
-        let chunk = &buffer[0..size_chunk];
-        if let Err(e) = writer.write_all(chunk) {
-            log::error!(
-                "Failed to write {} bytes into writer : {}",
-                size_chunk, e);
-            return Err(e.into());
-        }
+    if let Err(e) = std::io::copy(reader, writer) {
+        log::error!("Failed to to copy from reader to writer: {}", e);
+        Err(e.into())
+    } else {
+        Ok(())
     }
-    Ok(())
 }

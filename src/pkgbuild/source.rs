@@ -7,7 +7,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use super::Pkgbuilds;
 
-use crate::{checksum::Checksum, filesystem::{clone_file, remove_file_allow_non_existing, rename_checked}, git::{RepoToOpen, ReposMap}, proxy::Proxy, Error, Result};
+use crate::{checksum::Checksum, download::{download_file, download_ftp, download_http_https, download_rsync, download_scp}, filesystem::{clone_file, remove_file_allow_non_existing, rename_checked}, git::{RepoToOpen, ReposMap}, proxy::Proxy, Error, Result};
 
 #[derive(Debug)]
 struct GitSource {
@@ -30,6 +30,7 @@ enum CacheableProtocol {
     Http,
     Https,
     Rsync,
+    Scp,
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -40,19 +41,25 @@ struct CacheableUrl {
 
 impl CacheableUrl {
     fn try_download_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        Ok(())
+        download_file(&self.url, path)
     }
 
     fn try_download_ftp<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        Ok(())
+        download_ftp(&self.url, path)
     }
 
-    fn try_download_http_https<P: AsRef<Path>>(&self, path: P, proxy: &Proxy) -> Result<()> {
-        Ok(())
+    fn try_download_http_https<P: AsRef<Path>>(&self, path: P, proxy: &Proxy) 
+        -> Result<()> 
+    {
+        download_http_https(&self.url, path, proxy)
     }
 
     fn try_download_rsync<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        Ok(())
+        download_rsync(&self.url, path)
+    }
+
+    fn try_download_scp<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        download_scp(&self.url, path)
     }
 
     fn try_download<P: AsRef<Path>>(&self, path: P, proxy: &Proxy) -> Result<()> {
@@ -62,6 +69,7 @@ impl CacheableUrl {
             CacheableProtocol::Http | CacheableProtocol::Https
                 => self.try_download_http_https(path, proxy),
             CacheableProtocol::Rsync => self.try_download_rsync(path),
+            CacheableProtocol::Scp => self.try_download_scp(path),
         }
     }
 }
@@ -360,6 +368,7 @@ impl From<&Pkgbuilds> for CacheableSources {
                     pkgbuild::SourceProtocol::Http => CacheableProtocol::Http,
                     pkgbuild::SourceProtocol::Https => CacheableProtocol::Https,
                     pkgbuild::SourceProtocol::Rsync => CacheableProtocol::Rsync,
+                    pkgbuild::SourceProtocol::Scp => CacheableProtocol::Scp,
                     pkgbuild::SourceProtocol::Git { fragment, signed: _ } => {
                         cacheable_sources.add_git_source(url, fragment);
                         continue
