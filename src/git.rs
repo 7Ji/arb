@@ -165,6 +165,88 @@ impl ReposList {
         }
         Ok(list)
     }
+
+    fn keep_aur_outdated(&mut self) -> Result<()> {
+        let mut pkgs: Vec<String> = Vec::new();
+        for repo in self.list.iter() {
+            let url = match Url::parse(&repo.url) {
+                Ok(url) => url,
+                Err(e) => {
+                    log::error!("Failed to parse AUR url '{}': {}", 
+                        &repo.url, e);
+                    return Err(e.into());
+                },
+            };
+            let pkg = url.path()
+                .trim_start_matches('/').trim_end_matches(".git");
+            pkgs.push(pkg.into());
+        }
+        if pkgs.len() != self.list.len() {
+            log::error!("Pkgs and repos len mismatch");
+            return Err(Error::ImpossibleLogic)
+        }
+        let aur_result = match AurResult::from_pkgs(&pkgs) {
+            Ok(aur_result) => aur_result,
+            Err(e) => {
+                log::error!("Failed to get result from AUR RPC");
+                return Err(e)
+            },
+        };
+        if aur_result.len() != self.list.len() {
+            log::error!("AUR results length mismatch repos len");
+            return Err(Error::ImpossibleLogic)
+        }
+        for index in (0..self.list.len()).rev() {
+            let mtime_repo = self.list[index].get_last_fetch();
+            let mtime_pkg = aur_result.results[index].last_modified;
+            let (mtime_pkg_delayed, overflowed) = 
+                mtime_pkg.overflowing_add(60);
+            if !overflowed && mtime_repo >= mtime_pkg_delayed{ 
+                let repo = self.list.swap_remove(index);
+                log::debug!("Repo '{}' last fetch ({}) later than AUR last \
+                    modified ({}), skippping it", &repo.url, 
+                    mtime_repo, mtime_pkg_delayed);
+            }
+        }
+        log::info!("Filtered AUR repos");
+        Ok(())
+    }
+
+    fn keep_unhealthy(&mut self) {
+        self.list.retain(|repo|!repo.is_head_healthy())
+    }
+
+    fn sync_single_thread(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
+        -> Result<()> 
+    {
+        self.list.iter_mut().try_for_each(|repo|
+            repo.sync(gmr, proxy, hold))
+    }
+
+    fn sync_multi_threaded(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
+        -> Result<()> 
+    {
+        self.list.par_iter_mut().try_for_each(|repo|
+            repo.sync(gmr, proxy, hold))
+    }
+
+    fn sync_generic(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
+        -> Result<()> 
+    {
+        self.sync_multi_threaded(gmr, proxy, hold)
+    }
+
+    fn sync_aur(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
+        -> Result<()> 
+    {
+        self.keep_aur_outdated()?;
+        // Length would change after filtering
+        if self.list.is_empty() { return Ok(()) }
+        log::info!("Syncing {} AUR repos, note that AUR repos can only be \
+            synced in single thread, to avoid DoSing the AUR server",
+            self.list.len());
+        self.sync_single_thread(gmr, proxy, hold)
+    }
 }
 
 pub(crate) type ReposHashMap = HashMap<u64, ReposList>;
@@ -248,6 +330,38 @@ impl ReposMap {
             }
         }
         Ok(Self { map })
+    }
+
+    fn keep_unhealthy(&mut self) {
+        self.map.iter_mut().for_each(|(_, list)|
+            list.keep_unhealthy());
+        self.map.retain(|_, list|!list.list.is_empty())
+    }
+
+    pub(crate) fn sync(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
+        -> Result<()> 
+    {
+        if hold {
+            self.keep_unhealthy()
+        }
+        if self.map.is_empty() {
+            return Ok(())
+        }
+        let results: Vec<Result<()>> = self.map.par_iter_mut().map(
+            |(domain, list)| 
+        {
+            if *domain == 0xb463cbdec08d6265 { // AUR
+                list.sync_aur(gmr, proxy, hold)
+            } else {
+                list.sync_generic(gmr, proxy, hold)
+            }
+        }).collect();
+        for result in results {
+            if result.is_err() {
+                return result
+            }
+        }
+        Ok(())
     }
 }
 
@@ -710,124 +824,6 @@ impl Repo {
             },
         };
         metadata.mtime()
-    }
-}
-
-impl ReposList {
-    fn keep_aur_outdated(&mut self) -> Result<()> {
-        let mut pkgs: Vec<String> = Vec::new();
-        for repo in self.list.iter() {
-            let url = match Url::parse(&repo.url) {
-                Ok(url) => url,
-                Err(e) => {
-                    log::error!("Failed to parse AUR url '{}': {}", 
-                        &repo.url, e);
-                    return Err(e.into());
-                },
-            };
-            let pkg = url.path()
-                .trim_start_matches('/').trim_end_matches(".git");
-            pkgs.push(pkg.into());
-        }
-        if pkgs.len() != self.list.len() {
-            log::error!("Pkgs and repos len mismatch");
-            return Err(Error::ImpossibleLogic)
-        }
-        let aur_result = match AurResult::from_pkgs(&pkgs) {
-            Ok(aur_result) => aur_result,
-            Err(e) => {
-                log::error!("Failed to get result from AUR RPC");
-                return Err(e)
-            },
-        };
-        if aur_result.len() != self.list.len() {
-            log::error!("AUR results length mismatch repos len");
-            return Err(Error::ImpossibleLogic)
-        }
-        for index in (0..self.list.len()).rev() {
-            let mtime_repo = self.list[index].get_last_fetch();
-            let mtime_pkg = aur_result.results[index].last_modified;
-            let (mtime_pkg_delayed, overflowed) = 
-                mtime_pkg.overflowing_add(60);
-            if !overflowed && mtime_repo >= mtime_pkg_delayed{ 
-                let repo = self.list.swap_remove(index);
-                log::debug!("Repo '{}' last fetch ({}) later than AUR last \
-                    modified ({}), skippping it", &repo.url, 
-                    mtime_repo, mtime_pkg_delayed);
-            }
-        }
-        log::info!("Filtered AUR repos");
-        Ok(())
-    }
-
-    fn keep_unhealthy(&mut self) {
-        self.list.retain(|repo|!repo.is_head_healthy())
-    }
-
-    fn sync_single_thread(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
-        -> Result<()> 
-    {
-        self.list.iter_mut().try_for_each(|repo|
-            repo.sync(gmr, proxy, hold))
-    }
-
-    fn sync_multi_threaded(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
-        -> Result<()> 
-    {
-        self.list.par_iter_mut().try_for_each(|repo|
-            repo.sync(gmr, proxy, hold))
-    }
-
-    fn sync_generic(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
-        -> Result<()> 
-    {
-        self.sync_multi_threaded(gmr, proxy, hold)
-    }
-
-    fn sync_aur(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
-        -> Result<()> 
-    {
-        self.keep_aur_outdated()?;
-        // Length would change after filtering
-        if self.list.is_empty() { return Ok(()) }
-        log::info!("Syncing {} AUR repos, note that AUR repos can only be \
-            synced in single thread, to avoid DoSing the AUR server",
-            self.list.len());
-        self.sync_single_thread(gmr, proxy, hold)
-    }
-}
-
-impl ReposMap {
-    fn keep_unhealthy(&mut self) {
-        self.map.iter_mut().for_each(|(_, list)|
-            list.keep_unhealthy());
-        self.map.retain(|_, list|!list.list.is_empty())
-    }
-
-    pub(crate) fn sync(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
-        -> Result<()> 
-    {
-        if hold {
-            self.keep_unhealthy()
-        }
-        if self.map.is_empty() {
-            return Ok(())
-        }
-        let results: Vec<Result<()>> = self.map.par_iter_mut().map(
-            |(domain, list)| 
-        {
-            if *domain == 0xb463cbdec08d6265 { // AUR
-                list.sync_aur(gmr, proxy, hold)
-            } else {
-                list.sync_generic(gmr, proxy, hold)
-            }
-        }).collect();
-        for result in results {
-            if result.is_err() {
-                return result
-            }
-        }
-        Ok(())
     }
 }
 
