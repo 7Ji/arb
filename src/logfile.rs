@@ -1,7 +1,7 @@
 use std::{ffi::OsString, fmt::Display, fs::File, path::{Path, PathBuf}, process::Child};
 use rand::{distributions::Alphanumeric, Rng};
 
-use crate::{Error, Result};
+use crate::{filesystem::{file_create_checked, file_create_new_checked}, Error, Result};
 
 // pub(crate) enum LogFileType {
 //     Pacman,
@@ -71,13 +71,8 @@ impl LogFileBuilder {
             }
             name.push_str(".log");
             let path = logs.join(name);
-            match File::create_new(&path) {
-                Ok(file) => return Ok( LogFile { path, file } ),
-                Err(e) => {
-                    log::error!("Failed to create log file at '{}': {}",
-                        path.display(), e);
-                },
-            }
+            let file = file_create_new_checked(&path)?;
+            return Ok( LogFile { path, file } )
         }
         log::error!("Failed to create log file after 100 tries");
         Err(Error::FilesystemConflict)
@@ -106,7 +101,7 @@ impl TryFrom<OsString> for LogFile {
 
     fn try_from(value: OsString) -> Result<Self> {
         let path = PathBuf::from(value);
-        let file = File::create(&path)?;
+        let file = file_create_checked(&path)?;
         Ok(Self { path, file })
     }
 }

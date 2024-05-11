@@ -1,7 +1,7 @@
 use std::{io::{stdout, Write}, iter::once, path::Path};
 
 // Worker is a finite state machine
-use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, filesystem::write_all_to_file_or_stdout, git::gmr_config_from_urls, rootless::{Root, RootlessHandler}, Error, Result};
+use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, io::write_all_to_file_or_stdout, git::gmr_config_from_urls, rootless::{Root, RootlessHandler}, Error, Result};
 
 #[derive(Default)]
 pub(crate) enum WorkerState {

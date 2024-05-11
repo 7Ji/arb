@@ -2,7 +2,7 @@ use std::{fs::File, io::Read, path::Path};
 
 use pkgbuild::{B2sum, Cksum, Md5sum, Sha1sum, Sha224sum, Sha256sum, Sha384sum, Sha512sum};
 
-use crate::{Error, Result};
+use crate::{filesystem::file_open_checked, Error, Result};
 
 #[derive(PartialEq)]
 pub(crate) enum Checksum {
@@ -120,11 +120,30 @@ pub(crate) fn cksum_file(file: &mut File) -> Result<Cksum> {
     Ok(digest.finalize())
 }
 
+fn string_extend_hex_from_bytearray<B: AsRef<[u8]>>(
+    string: &mut String, bytes: &B
+)
+{
+    const DIGITS: &[char; 16] = &[
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 
+        'a', 'b', 'c', 'd', 'e', 'f'];
+    for byte in bytes.as_ref().iter() {
+        string.push(DIGITS[(byte / 0x10) as usize]);
+        string.push(DIGITS[(byte % 0x10) as usize])
+    }
+}
+
+fn hex_from_bytearray<B: AsRef<[u8]>>(bytes: &B) -> String {
+    let mut buffer = String::new();
+    string_extend_hex_from_bytearray(&mut buffer, bytes);
+    buffer
+}
+
 impl Checksum {
     pub(crate) fn another_try_from_file<P: AsRef<Path>>(&self, path: P) 
         -> Result<Self> 
     {
-        let mut file = File::open(path)?;
+        let mut file = file_open_checked(path)?;
         let file = &mut file;
         Ok(match self {
             Checksum::B2sum(_) => Self::B2sum(b2sum_file(file)?),
@@ -139,6 +158,26 @@ impl Checksum {
     }
 
     pub(crate) fn verify_file<P: AsRef<Path>>(&self, path: P) -> Result<bool> {
+        log::info!("Verifying file '{}'", path.as_ref().display());
         Ok(self.another_try_from_file(path)? == *self)
+    }
+
+    pub(crate) fn extend_string(&self, string: &mut String) {
+        match self {
+            Checksum::B2sum(sum) => string_extend_hex_from_bytearray(string, sum),
+            Checksum::Sha512sum(sum) => string_extend_hex_from_bytearray(string, sum),
+            Checksum::Sha384sum(sum) => string_extend_hex_from_bytearray(string, sum),
+            Checksum::Sha256sum(sum) => string_extend_hex_from_bytearray(string, sum),
+            Checksum::Sha224sum(sum) => string_extend_hex_from_bytearray(string, sum),
+            Checksum::Sha1sum(sum) => string_extend_hex_from_bytearray(string, sum),
+            Checksum::Md5sum(sum) => string_extend_hex_from_bytearray(string, sum),
+            Checksum::Cksum(cksum) => string.push_str(&format!("{}", cksum)),
+        }
+    }
+
+    pub(crate) fn to_string(&self) -> String {
+        let mut string = String::new();
+        self.extend_string(&mut string);
+        string
     }
 }

@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, ffi::{OsStr, OsString}, fmt::Display, fs::File, io::{BufRead, BufReader, Write}, path::Path};
 
-use crate::{logfile::LogFileBuilder, rootless::{BrokerPayload, InitCommand, RootlessHandler}, Error, Result};
+use crate::{filesystem::{file_create_checked, file_open_checked}, logfile::LogFileBuilder, rootless::{BrokerPayload, InitCommand, RootlessHandler}, Error, Result};
 
 type ConfigSection =  BTreeMap<String, Option<String>>;
 
@@ -14,14 +14,7 @@ impl TryFrom<&Path> for PacmanConfig {
     type Error = Error;
 
     fn try_from(path: &Path) -> Result<Self> {
-        let file = match File::open(&path) {
-            Ok(file) => file,
-            Err(e) => {
-                log::error!("Failed to open pacman config file '{}': {}",
-                    path.display(), e);
-                return Err(e.into())
-            },
-        };
+        let file = file_open_checked(&path)?;
         let mut title_last = String::new();
         let mut sections = Vec::new();
         let mut section_last 
@@ -113,14 +106,7 @@ impl PacmanConfig {
     }
 
     pub(crate) fn to_file<P: AsRef<Path>>(&self, pacman_conf: P) -> Result<()> {
-        let mut file = match File::create(&pacman_conf) {
-            Ok(file) => file,
-            Err(e) => {
-                log::error!("Failed to create pacman config file '{}': {}",
-                    pacman_conf.as_ref().display(), e);
-                return Err(e.into())
-            },
-        };
+        let mut file = file_create_checked(&pacman_conf)?;
         if let Err(e) = file.write_fmt(format_args!("{}\n", self)) {
             log::error!("Failed to write config to file: {}", e);
             Err(e.into())

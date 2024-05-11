@@ -7,7 +7,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use super::Pkgbuilds;
 
-use crate::{checksum::Checksum, git::{RepoToOpen, ReposMap}, proxy::Proxy, Error, Result};
+use crate::{checksum::Checksum, filesystem::{clone_file, remove_file_allow_non_existing, rename_checked}, git::{RepoToOpen, ReposMap}, proxy::Proxy, Error, Result};
 
 #[derive(Debug)]
 struct GitSource {
@@ -33,9 +33,37 @@ enum CacheableProtocol {
 }
 
 #[derive(PartialEq, Clone, Debug)]
-struct CachableUrl {
+struct CacheableUrl {
     protocol: CacheableProtocol,
     url: String,
+}
+
+impl CacheableUrl {
+    fn try_download_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        Ok(())
+    }
+
+    fn try_download_ftp<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        Ok(())
+    }
+
+    fn try_download_http_https<P: AsRef<Path>>(&self, path: P, proxy: &Proxy) -> Result<()> {
+        Ok(())
+    }
+
+    fn try_download_rsync<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        Ok(())
+    }
+
+    fn try_download<P: AsRef<Path>>(&self, path: P, proxy: &Proxy) -> Result<()> {
+        match self.protocol {
+            CacheableProtocol::File => self.try_download_file(path),
+            CacheableProtocol::Ftp => self.try_download_ftp(path),
+            CacheableProtocol::Http | CacheableProtocol::Https
+                => self.try_download_http_https(path, proxy),
+            CacheableProtocol::Rsync => self.try_download_rsync(path),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -48,17 +76,8 @@ struct HashedSource {
     sha384sum: Option<Sha384sum>,
     sha512sum: Option<Sha512sum>,
     b2sum: Option<B2sum>,
-    urls: Vec<CachableUrl>,
+    urls: Vec<CacheableUrl>,
 }
-
-fn hex_from_option_bytearray<B: AsRef<[u8]>>(bytes: &Option<B>) -> String {
-    if let Some(bytes) = bytes {
-        bytes.as_ref().iter().map(|byte|format!("{:02x}", byte)).collect()
-    } else {
-        String::new()
-    }
-}
-
 struct HashedFile {
     checksum: Checksum,
     path: PathBuf,
@@ -67,6 +86,62 @@ struct HashedFile {
 impl HashedFile {
     fn verify(&self) -> Result<bool> {
         self.checksum.verify_file(&self.path)
+    }
+
+    fn verify_another(&self, another: &Self) -> Result<bool> {
+        self.checksum.verify_file(&another.path)
+    }
+
+    fn get_path_cache(&self) -> PathBuf {
+        let mut os_string = self.path.clone().into_os_string();
+        os_string.push(".cache");
+        os_string.into()
+    }
+
+    fn absorb_another(&self, another: &Self) -> Result<()> {
+        let path_cache = self.get_path_cache();
+        clone_file(&another.path, &path_cache)?;
+        rename_checked(&path_cache, &self.path)
+    }
+
+    fn absorb_good_files(&self, good_files: &Vec<Self>) -> Result<()> {
+        for good_file in good_files.iter() {
+            if let Ok(true) = self.verify_another(good_file) {
+                if self.absorb_another(good_file).is_ok() {
+                    return Ok(())
+                }
+            }
+        }
+        Err(Error::FilesystemConflict)
+    }
+
+    fn try_download(&self, cacheable_url: &CacheableUrl, proxy: &Proxy) 
+        -> Result<()> 
+    {
+        let path_cache = self.get_path_cache();
+        if let Err(e) = cacheable_url.try_download(&path_cache, proxy) {
+            log::error!("Failed to download {} into cache file {}: {}",
+                &cacheable_url.url, path_cache.display(), e);
+            return Err(e)
+        }
+        rename_checked(&path_cache, &self.path)
+    }
+
+    fn try_download_all(&self, urls: &Vec<CacheableUrl>, proxy: &Proxy) 
+        -> Result<()>
+    {
+        let mut r = Ok(());
+        for url in urls.iter() {
+            r = self.try_download(url, proxy);
+            if r.is_ok() {
+                return Ok(())
+            }
+        }
+        if let Err(e) = &r {
+            log::error!("Failed to download into '{}' after trying all {} \
+                URLs: {}", self.path.display(), urls.len(), e);
+        }
+        r
     }
 
 }
@@ -81,20 +156,48 @@ impl HashedSource {
     /// them, then download files if not trustworthy.
     /// 
     fn cache(&self, proxy: &Proxy, layint: bool) -> Result<()> {
-        let name_b2 = hex_from_option_bytearray(&self.b2sum);
-        if self.b2sum.is_some() {
-
+        let mut good_files = Vec::new();
+        let mut bad_files = Vec::new();
+        macro_rules! push_good_bad {
+            ($checksum: ident, $parent: literal, $type: expr) => {
+                if let Some(checksum) = self.$checksum {
+                    let mut name = $parent.to_string();
+                    let checksum = $type(checksum.clone());
+                    checksum.extend_string(&mut name);
+                    let hashed_file = HashedFile {
+                        checksum,
+                        path: name.into()
+                    };
+                    match hashed_file.verify() {
+                        Ok(true) => good_files.push(hashed_file),
+                        _ => bad_files.push(hashed_file)
+                    }
+                }
+            };
         }
-        let name_sha512 = hex_from_option_bytearray(&self.sha512sum);
-        let name_sha384 = hex_from_option_bytearray(&self.sha384sum);
-        let name_sha256 = hex_from_option_bytearray(&self.sha256sum);
-        let name_sha224 = hex_from_option_bytearray(&self.sha224sum);
-        let name_sha1 = hex_from_option_bytearray(&self.sha1sum);
-        let name_md5 = hex_from_option_bytearray(&self.md5sum);
-
-
-        // Don't trust md5 and ck: only down-hashing to them, no up-hashing from
-        // them
+        push_good_bad!(b2sum, "sources/file-b2/", Checksum::B2sum);
+        push_good_bad!(sha512sum, "sources/file-sha512/", Checksum::Sha512sum);
+        push_good_bad!(sha384sum, "sources/file-sha384/", Checksum::Sha384sum);
+        push_good_bad!(sha256sum, "sources/file-sha256/", Checksum::Sha256sum);
+        push_good_bad!(sha224sum, "sources/file-sha224/", Checksum::Sha224sum);
+        push_good_bad!(sha1sum, "sources/file-sha1/", Checksum::Sha1sum);
+        push_good_bad!(md5sum, "sources/file-md5/", Checksum::Md5sum);
+        push_good_bad!(cksum, "sources/file-ck/", Checksum::Cksum);
+        for bad_file in bad_files {
+            if let Err(e) = bad_file.absorb_good_files(&good_files) {
+                log::error!("Failed to abosrb good hashed files into bad \
+                    hashed file '{}': {}", bad_file.path.display(), e);
+                if let Err(e) = bad_file.try_download_all(
+                    &self.urls, proxy
+                ){
+                    log::error!("Failed to download into bad hashed file '{}' \
+                        to convert it to good file: {}", 
+                        bad_file.path.display(), e);
+                    return Err(e)
+                }
+            }
+            good_files.push(bad_file)
+        }
         Ok(())
     }
 }
@@ -170,7 +273,7 @@ impl CacheableSources {
             log::warn!("Source '{}' is not hashed", url);
             return
         }
-        let cacheable_url = CachableUrl { protocol, url };
+        let cacheable_url = CacheableUrl { protocol, url };
         if let Some(hashed_source) = 
             self.hashed.iter_mut().find(|hashed|{
                 (hashed.b2sum.is_some() && hashed.b2sum == *b2sum) ||

@@ -3,7 +3,7 @@ use std::{ffi::OsString, io::{stdin, Write}, path::{Path, PathBuf}, process::Chi
 use nix::{errno::Errno, libc::pid_t, sys::wait::{wait, WaitStatus}, unistd::{chroot, Pid}};
 use serde::{Deserialize, Serialize};
 
-use crate::{child::command_new_no_stdin, filesystem::chdir, logfile::LogFile, mount::mount_proc, Error, Result};
+use crate::{child::command_new_no_stdin, filesystem::set_current_dir_checked, logfile::LogFile, mount::mount_proc, Error, Result};
 
 use super::{action::run_action_stateless, root::chroot_checked};
 
@@ -73,7 +73,7 @@ impl InitCommand {
             },
             InitCommand::Chdir { path } => {
                 log::debug!("Changing workdir to '{}'", path.to_string_lossy());
-                chdir(path)
+                set_current_dir_checked(path)
             },
             InitCommand::Chroot { path } => {
                 log::debug!("Chrooting to '{}'", path.to_string_lossy());

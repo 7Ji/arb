@@ -3,7 +3,7 @@
 use std::{iter::once, os::unix::fs::{symlink, DirBuilderExt}, path::{Path, PathBuf}};
 use nix::{libc::mode_t, unistd::chroot};
 
-use crate::{filesystem::{create_file_with_content, set_permissions_mode}, pacman::PacmanConfig, rootless::RootlessHandler, Result};
+use crate::{filesystem::{file_create_with_content, set_permissions_mode}, pacman::PacmanConfig, rootless::RootlessHandler, Result};
 
 use super::idmap::IdMaps;
 
@@ -53,7 +53,7 @@ impl Root {
         P: AsRef<Path>, 
         B: AsRef<[u8]>
     {
-        create_file_with_content(self.path.join(suffix), content)
+        file_create_with_content(self.path.join(suffix), content)
     }
 
     pub(crate) fn prepare_layout(&self, pacman_conf: &PacmanConfig) 

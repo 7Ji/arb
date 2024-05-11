@@ -1,41 +1,164 @@
 use std::{
         env::set_current_dir, fs::{
-            create_dir,
-            read_dir,
-            remove_dir,
-            remove_dir_all,
-            remove_file, set_permissions, File,
+            create_dir, hard_link, metadata, read_dir, remove_dir, remove_dir_all, remove_file, rename, set_permissions, symlink_metadata, DirEntry, File, Metadata, ReadDir
         }, io::Write, os::unix::fs::{chown, symlink, PermissionsExt}, path::Path
     };
 
 use nix::libc::mode_t;
 
-use crate::error::{
+use crate::{error::{
         Error,
         Result,
-    };
+    }, io::reader_to_writer};
 
-fn remove_any<P: AsRef<Path>>(path: P) -> Result<()> {
-    let path = path.as_ref();
-    if !path.is_symlink() && path.is_dir() {
+// Wrapper to check calls
+fn remove_file_checked<P: AsRef<Path>>(path: P) -> Result<()> {
+    remove_file(&path).map_err(|e|{
+        log::error!("Failed to remove file '{}': {}", 
+            path.as_ref().display(), e);
+        e.into()
+    })
+}
+
+pub(crate) fn file_create_checked<P: AsRef<Path>>(path: P) -> Result<File> {
+    File::create(&path).map_err(|e| {
+        log::error!("Failed to create file at '{}': {}", 
+                path.as_ref().display(), e);
+        e.into()
+    })
+}
+
+pub(crate) fn file_create_new_checked<P: AsRef<Path>>(path: P) -> Result<File> {
+    File::create_new(&path).map_err(|e| {
+        log::error!("Failed to create new file at '{}': {}",
+                path.as_ref().display(), e);
+        e.into()
+    })
+}
+
+pub(crate) fn file_open_checked<P: AsRef<Path>>(path: P) -> Result<File> {
+    File::open(&path).map_err(|e| {
+        log::error!("Failed to open file at '{}': {}", 
+            path.as_ref().display(), e);
+        e.into()
+    })
+}
+
+pub(crate) fn remove_dir_checked<P: AsRef<Path>>(path: P) -> Result<()> {
+    remove_dir(&path).map_err(|e| {
+        log::error!("Failed to remove dir '{}' recursively: {}",
+                    path.as_ref().display(), e);
+        e.into()
+    })
+}
+
+fn read_dir_checked<P: AsRef<Path>>(path: P) -> Result<ReadDir> {
+    read_dir(&path).map_err(|e| {
+        // Return failure here, but outer logic would still try to delete,
+        // unlike `remove_dir_all()`
+        log::error!("Failed to read dir '{}': {}", path.as_ref().display(), e);
+        e.into()
+    })
+}
+
+fn dir_entry_checked(entry: std::io::Result<DirEntry>) -> Result<DirEntry> {
+    entry.map_err(|e|{
+        log::error!("Failed to read entry from dir: {}", e);
+        e.into()
+    })
+}
+
+fn dir_entry_metadata_checked(entry: &DirEntry) -> Result<Metadata> {
+    entry.metadata().map_err(|e|{
+        log::error!("Failed to read entry metadata: {}", e);
+        e.into()
+    })
+}
+
+fn metadata_checked<P: AsRef<Path>>(path: P) -> Result<Metadata> {
+    metadata(&path).map_err(|e| {
+        log::error!("Failed to read metadata of '{}': {}", 
+            path.as_ref().display(), e);
+        e.into()
+    })
+}
+
+fn symlink_metadata_checked<P: AsRef<Path>>(path: P) -> Result<Metadata> {
+    symlink_metadata(&path).map_err(|e| {
+        log::error!("Failed to read symlink metadata of '{}': {}", 
+            path.as_ref().display(), e);
+        e.into()
+    })
+}
+
+fn create_dir_checked<P: AsRef<Path>>(path: P) -> Result<()> {
+    create_dir(&path).map_err(|e|{
+        log::error!("Failed to create dir at '{}': {}", 
+            path.as_ref().display(), e);
+        e.into()
+    })
+}
+
+pub(crate) fn set_current_dir_checked<P: AsRef<Path>>(path: P) -> Result<()> {
+    set_current_dir(&path).map_err(|e|{
+        log::error!("Failed to set current dir to '{}': {}", 
+            path.as_ref().display(), e);
+        e.into()
+    })
+}
+
+fn path_try_exists_checked<P: AsRef<Path>>(path: P) -> Result<bool> {
+    path.as_ref().try_exists().map_err(|e|{
+        log::error!("Failed to check existence of '{}': {}",
+            path.as_ref().display(), e);
+        e.into()
+    })
+}
+
+// Our own implementations
+pub(crate) fn remove_file_allow_non_existing<P: AsRef<Path>>(path: P) 
+    -> Result<()> 
+{
+    if let Err(e) = remove_file(&path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            log::error!("Failed to remove file/symlink '{}': {}", 
+                        path.as_ref().display(), e);
+            return Err(e.into())
+        }
+    }
+    Ok(())
+}
+
+fn remove_any_with_metadata<P: AsRef<Path>>(path: P, metadata: &Metadata) 
+    -> Result<()> 
+{
+    if metadata.is_dir() {
         let er =
             remove_dir_recursively(&path);
-        if let Err(e) =  remove_dir(&path) {
-            log::error!("Failed to remove dir '{}' recursively: {}",
-                        path.display(), e);
+        if let Err(e) = remove_dir_checked(&path) {
             if let Err(e) = er {
                 log::error!("Failure within this dir: {}", e)
             }
             return Err(e.into())
         }
-    } else if let Err(e) = remove_file(&path) {
-        if e.kind() != std::io::ErrorKind::NotFound {
-            log::error!("Failed to remove file/symlink '{}': {}", 
-                        path.display(), e);
-            return Err(e.into())
-        }
-    }
+    } else {
+        remove_file_allow_non_existing(&path)?
+    }   
     Ok(())
+}
+
+fn remove_any<P: AsRef<Path>>(path: P) -> Result<()> {
+    let metadata = match symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(e) => if e.kind() == std::io::ErrorKind::NotFound {
+            return Ok(())
+        } else {
+            log::error!("Failed to read symlink metadata of '{}' to get file \
+                type: {}", path.as_ref().display(), e);
+            return Err(e.into())
+        },
+    };
+    remove_any_with_metadata(path, &metadata)
 }
 
 /// Rmove a dir recursively, similar logic as `remove_dir_all()`, but does not 
@@ -44,28 +167,10 @@ fn remove_any<P: AsRef<Path>>(path: P) -> Result<()> {
 pub(crate) fn remove_dir_recursively<P: AsRef<Path>>(dir: P)
     -> Result<()>
 {
-    let readdir = match read_dir(&dir) {
-        Ok(readdir) => readdir,
-        Err(e) => {
-            // Return failure here, but outer logic would still try to delete,
-            // unlike `remove_dir_all()`
-            log::error!("Failed to read dir '{}': {}", 
-                        dir.as_ref().display(), e);
-            return Err(e.into())
-        },
-    };
-    for entry in readdir {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(e) => {
-                log::error!("Failed to read entry from dir '{}': {}",
-                            dir.as_ref().display(), e);
-                return Err(e.into())
-            },
-        };
-        let path = entry.path();
-        // Only recursive on real dir
-        remove_any(&path)?
+    for entry in read_dir_checked(&dir)? {
+        let entry = dir_entry_checked(entry)?;
+        remove_any_with_metadata(&entry.path(), 
+            &dir_entry_metadata_checked(&entry)?)?
     }
     Ok(())
 }
@@ -131,13 +236,7 @@ pub(crate) fn create_dir_allow_existing<P: AsRef<Path>>(path: P) -> Result<()> {
         Ok(metadata) => metadata,
         Err(e) => return match e.kind() {
             std::io::ErrorKind::NotFound => 
-                if let Err(e) = create_dir(&path) {
-                    log::error!("Failed to create dir at '{}': {}", 
-                        path.as_ref().display(), e);
-                    Err(e.into())
-                } else {
-                    Ok(())
-                },
+                create_dir_checked(&path),
             _ => {
                 log::error!("Failed to get metadata of '{}': {}", 
                     path.as_ref().display(), e);
@@ -292,43 +391,6 @@ pub(crate) fn set_permissions_mode<P: AsRef<Path>>(path: P, mode: mode_t)
     }
 }
 
-fn create_file_checked<P: AsRef<Path>>(path: P) -> Result<File> {
-    let path = path.as_ref();
-    match File::create(path) {
-        Ok(file) => Ok(file),
-        Err(e) => {
-            log::error!("Failed to create file at '{}': {}", path.display(), e);
-            Err(e.into())
-        },
-    }
-}
-
-pub(crate) fn create_file_with_content<P, B>(path: P, content: B) -> Result<()>
-where
-    P: AsRef<Path>, 
-    B: AsRef<[u8]>
-{
-    let path = path.as_ref();
-    let content = content.as_ref();
-    let mut file = create_file_checked(path)?;
-    if let Err(e) = file.write_all(content) {
-        log::error!("Failed to write {} bytes of content into '{}': {}",
-            content.len(), path.display(), e);
-        Err(e.into())
-    } else {
-        Ok(())
-    }
-}
-
-pub(crate) fn chdir<P: AsRef<Path>>(path: P) -> Result<()> {
-    if let Err(e) = set_current_dir(&path) {
-        log::error!("Failed to chdir to '{}': {}", path.as_ref().display(), e);
-        Err(e.into())
-    } else {
-        Ok(())
-    }
-}
-
 pub(crate) fn touch<P: AsRef<Path>>(path: P) -> Result<()> {
     if let Err(e) = std::fs::OpenOptions::new()
                             .create(true).write(true).open(&path) 
@@ -353,20 +415,86 @@ where
     Ok(())
 }
 
-pub(crate) fn write_all_to_file_or_stdout<B: AsRef<[u8]>>(buffer: B, out: &str) 
-    -> Result<()> 
+
+pub(crate) fn file_create_with_content<P, B>(path: P, content: B) -> Result<()>
+where
+    P: AsRef<Path>, 
+    B: AsRef<[u8]>
 {
-    if let Err(e) = 
-        if out == "-" {
-            std::io::stdout().write_all(buffer.as_ref())
-        } else {
-            std::fs::File::create(out)?
-                .write_all(buffer.as_ref())
-        }
-    {
-        log::error!("Failed to write to file or stdout '{}': {}", out, e);
+    let path = path.as_ref();
+    let content = content.as_ref();
+    let mut file = file_create_checked(path)?;
+    if let Err(e) = file.write_all(content) {
+        log::error!("Failed to write {} bytes of content into '{}': {}",
+            content.len(), path.display(), e);
         Err(e.into())
     } else {
         Ok(())
     }
+}
+
+pub(crate) fn clone_file<P1, P2>(source: P1, target: P2)
+    -> Result<()>
+where
+    P1: AsRef<Path>,
+    P2: AsRef<Path>
+{
+    let source = source.as_ref();
+    let target = target.as_ref();
+    if path_try_exists_checked(target)? {
+        remove_any(target)?
+    }
+    if let Err(e) = hard_link(&source, &target) {
+        log::error!("Failed to link {} to {}: {}, trying heavy copy",
+                    target.display(), source.display(), e)
+    } else {
+        return Ok(())
+    }
+    let mut target_file =  file_create_checked(target)?;
+    let mut source_file = file_open_checked(source)?;
+    match reader_to_writer(
+        &mut source_file, &mut target_file
+    ) {
+        Ok(_) => {
+            log::info!("Cloned '{}' to '{}'", 
+                source.display(), target.display());
+            Ok(())
+        },
+        Err(e) => {
+            log::error!("Failed to hard copy '{}' to '{}': {}", 
+                source.display(), target.display(), e);
+            Err(e)
+        }
+    }
+}
+
+pub(crate) fn rename_checked<P1, P2>(source: P1, target: P2) -> Result<()> 
+where
+    P1: AsRef<Path>,
+    P2: AsRef<Path>
+{
+    let source = source.as_ref();
+    let target = target.as_ref();
+    if let Err(e) = rename(source, target) {
+        log::error!("Failed to rename '{}' to '{}': {}", 
+            source.display(), target.display(), e);
+    }
+    Ok(())
+}
+
+
+pub(crate) fn move_file<P1, P2>(source: P1, target: P2) -> Result<()> 
+where
+    P1: AsRef<Path>,
+    P2: AsRef<Path>
+{
+    let source = source.as_ref();
+    let target = target.as_ref();
+    if rename_checked(source, target).is_ok() {
+        return Ok(())
+    }
+    log::warn!("Failed to rename to lightweight move, \
+                trying clone then delete old");
+    clone_file(source, target)?;
+    remove_file_checked(source)
 }

@@ -2,7 +2,7 @@ use std::{fs::File, path::Path, io::Read, fmt::Display, process::Child};
 
 use nix::{unistd::{getuid, getgid}, libc::{uid_t, pid_t}};
 
-use crate::{child::command_new_no_stdin, Error, Result};
+use crate::{child::command_new_no_stdin, filesystem::{file_create_checked, file_open_checked}, Error, Result};
 
 // Assumption: uid_t == gid_t, on x86_64 they're both u32, on aarch64 both i32
 
@@ -69,14 +69,7 @@ impl SubId {
     fn from_file<P: AsRef<Path>, S: AsRef<str>>(path: P, id: uid_t, name: S) 
         -> Result<Self>
     {
-        let mut file = match File::open(&path) {
-            Ok(file) => file,
-            Err(e) => {
-                log::error!("Failed to open subid file '{}': {}", 
-                    path.as_ref().display(), e);
-                return Err(e.into())
-            },
-        };
+        let mut file = file_open_checked(&path)?;
         let mut buffer = Vec::new();
         if let Err(e) = file.read_to_end(&mut buffer) {
             log::error!("Failed to read content of subid file '{}': {}",
@@ -153,13 +146,7 @@ impl IdMap {
     }
 
     pub(crate) fn ensure_not_mapped(map_file: &str) -> Result<()> {
-        let mut file = match File::open(map_file) {
-            Ok(file) => file,
-            Err(e) => {
-                log::error!("Failed to open mapfile: {}", e);
-                return Err(e.into())
-            },
-        };
+        let mut file = file_open_checked(map_file)?;
         let mut content = Vec::new();
         if let Err(e) = file.read_to_end(&mut content) {
             log::error!("Failed to read mapfile: {}", e);

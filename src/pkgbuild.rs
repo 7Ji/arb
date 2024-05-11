@@ -1,10 +1,10 @@
 mod source;
 
-use std::{ffi::OsString, fs::create_dir, io::{stdout, Read, Write}, iter::once, path::Path};
+use std::{ffi::OsString, io::{stdout, Read, Write}, iter::once, path::Path};
 use git2::Oid;
 use nix::unistd::setgid;
 use pkgbuild;
-use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, filesystem::{chdir, create_dir_allow_existing}, git::{Repo, RepoToOpen, ReposMap}, mount::mount_bind, pkgbuild::source::CacheableSources, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, try_unshare_user_mount_and_wait, BrokerPayload}, Error, Result};
+use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, filesystem::{set_current_dir_checked, create_dir_allow_existing}, git::{Repo, RepoToOpen, ReposMap}, mount::mount_bind, pkgbuild::source::CacheableSources, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, try_unshare_user_mount_and_wait, BrokerPayload}, Error, Result};
 
 #[derive(Debug)]
 pub(crate) struct Pkgbuild {
@@ -156,7 +156,7 @@ impl Pkgbuilds {
 
     pub(crate) fn dump<P: AsRef<Path>>(&self, parent: P) -> Result<()> {
         let parent = parent.as_ref();
-        create_dir(&parent)?;
+        create_dir_allow_existing(&parent)?;
         for pkgbuild in self.pkgbuilds.iter() {
             let path_pkgbuild = parent.join(&pkgbuild.name);
             pkgbuild.dump(&path_pkgbuild)?
@@ -198,7 +198,7 @@ where
     let path_pkgbuilds = path_root.join("PKGBUILDs");
     create_dir_allow_existing(&path_pkgbuilds)?;
     mount_bind("build/PKGBUILDs", &path_pkgbuilds)?;
-    chdir(&path_pkgbuilds)?;
+    set_current_dir_checked(&path_pkgbuilds)?;
     chroot_checked("..")?;
     set_uid_gid(1000, 1000)?;
     let pkgbuilds = match pkgbuild::parse_multi(pkgbuilds)

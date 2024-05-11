@@ -27,7 +27,7 @@ use std::{
         }, str::FromStr
     };
 
-use crate::{aur::AurResult, proxy::{Proxy, NOPROXY}, Error, Result};
+use crate::{aur::AurResult, filesystem::file_create_checked, proxy::{Proxy, NOPROXY}, Error, Result};
 
 const REFSPECS_HEADS_TAGS: &[&str] = &[
     "+refs/heads/*:refs/heads/*",
@@ -641,7 +641,7 @@ impl Repo {
     ) -> Result<()>
     {
         let blob = self.get_branch_pkgbuild(branch, subtree)?;
-        File::create(out)?.write_all(blob.content())?;
+        file_create_checked(out)?.write_all(blob.content())?;
         Ok(())
     }
 
