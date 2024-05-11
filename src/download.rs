@@ -14,7 +14,7 @@ where
 {
     let url = url.as_ref();
     let path = path.as_ref();
-    log::info!("Downloading '{}' (protocol file) to '{}'", path.display(), url);
+    log::info!("Downloading '{}' (protocol file) to '{}'", url, path.display());
     if url.starts_with("file://") {
         clone_file(&url[7..], path)
     } else {
@@ -30,7 +30,7 @@ where
 {
     let url = url.as_ref();
     let path = path.as_ref();
-    log::info!("Downloading '{}' (protocol ftp) to '{}'", path.display(), url);
+    log::info!("Downloading '{}' (protocol ftp) to '{}'", url, path.display());
     spawn_and_wait(
         command_new_no_stdin("curl")
             .arg("-qgfC")
@@ -89,7 +89,7 @@ where
     let url = url.as_ref();
     let path = path.as_ref();
     log::info!("Downloading '{}' (protocol http(s)) to '{}'", 
-        path.display(), url);
+        url, path.display());
     let (tries_without, tries_with) = 
         proxy.tries_without_and_with(3);
     for _ in 0..tries_without {
@@ -128,7 +128,7 @@ where
 {
     let url = url.as_ref();
     let path = path.as_ref();
-    log::info!("Downloading '{}' (protocol ftp) to '{}'", path.display(), url);
+    log::info!("Downloading '{}' (protocol ftp) to '{}'", url, path.display());
     spawn_and_wait(
         command_new_no_stdin("rsync")
             .arg("--no-motd")
@@ -144,7 +144,7 @@ where
 {
     let url = url.as_ref();
     let path = path.as_ref();
-    log::info!("Downloading '{}' (protocol ftp) to '{}'", path.display(), url);
+    log::info!("Downloading '{}' (protocol ftp) to '{}'", url, path.display());
     spawn_and_wait(
         command_new_no_stdin("scp")
             .arg("-C")

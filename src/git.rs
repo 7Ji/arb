@@ -285,17 +285,17 @@ fn gcb_sideband_progress(log: &[u8]) -> bool {
 }
 
 fn fetch_opts_init<'a>() -> FetchOptions<'a> {
-    let mut cbs = RemoteCallbacks::new();
-    if crate::io::is_stdout_terminal() {
-        cbs.sideband_progress(gcb_sideband_progress);
-        cbs.transfer_progress(gcb_transfer_progress);
-    }
+    // let mut cbs = RemoteCallbacks::new();
+    // if crate::io::is_stdout_terminal() {
+    //     cbs.sideband_progress(gcb_sideband_progress);
+    //     cbs.transfer_progress(gcb_transfer_progress);
+    // }
     let mut fetch_opts =
         FetchOptions::new();
     fetch_opts.download_tags(AutotagOption::All)
         .prune(FetchPrune::On)
-        .update_fetchhead(true)
-        .remote_callbacks(cbs);
+        .update_fetchhead(true);
+        // .remote_callbacks(cbs);
     fetch_opts
 }
 

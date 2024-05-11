@@ -2,7 +2,7 @@ use std::{fs::File, io::Read, path::Path};
 
 use pkgbuild::{B2sum, Cksum, Md5sum, Sha1sum, Sha224sum, Sha256sum, Sha384sum, Sha512sum};
 
-use crate::{filesystem::file_open_checked, Error, Result};
+use crate::{filesystem::{file_open_checked, remove_file_checked}, Error, Result};
 
 #[derive(PartialEq)]
 pub(crate) enum Checksum {
@@ -159,7 +159,17 @@ impl Checksum {
 
     pub(crate) fn verify_file<P: AsRef<Path>>(&self, path: P) -> Result<bool> {
         log::info!("Verifying file '{}'", path.as_ref().display());
-        Ok(self.another_try_from_file(path)? == *self)
+        if self.another_try_from_file(&path)? == *self {
+            log::info!("File '{}' is healthy", path.as_ref().display());
+            Ok(true)
+        } else {
+            log::warn!("File '{}' is unhealthy", path.as_ref().display());
+            if let Err(e) = remove_file_checked(&path) {
+                log::warn!("Failed to remove broken file '{}': {}", 
+                    path.as_ref().display(), e);
+            }
+            Ok(false)
+        }
     }
 
     pub(crate) fn extend_string(&self, string: &mut String) {

@@ -12,7 +12,7 @@ use crate::{error::{
     }, io::reader_to_writer};
 
 // Wrapper to check calls
-fn remove_file_checked<P: AsRef<Path>>(path: P) -> Result<()> {
+pub(crate) fn remove_file_checked<P: AsRef<Path>>(path: P) -> Result<()> {
     remove_file(&path).map_err(|e|{
         log::error!("Failed to remove file '{}': {}", 
             path.as_ref().display(), e);

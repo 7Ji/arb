@@ -7,7 +7,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use super::Pkgbuilds;
 
-use crate::{checksum::Checksum, download::{download_file, download_ftp, download_http_https, download_rsync, download_scp}, filesystem::{clone_file, remove_file_allow_non_existing, rename_checked}, git::{RepoToOpen, ReposMap}, proxy::Proxy, Error, Result};
+use crate::{checksum::Checksum, download::{download_file, download_ftp, download_http_https, download_rsync, download_scp}, filesystem::{clone_file, remove_file_allow_non_existing, remove_file_checked, rename_checked}, git::{RepoToOpen, ReposMap}, proxy::Proxy, Error, Result};
 
 #[derive(Debug)]
 struct GitSource {
@@ -132,7 +132,13 @@ impl HashedFile {
                 &cacheable_url.url, path_cache.display(), e);
             return Err(e)
         }
-        rename_checked(&path_cache, &self.path)
+        if self.checksum.verify_file(&path_cache)? {
+            rename_checked(&path_cache, &self.path)
+        } else {
+            log::error!("Downloaded file is broken, removing it");
+            remove_file_checked(&path_cache)?;
+            Err(Error::IntegrityError)
+        }
     }
 
     fn try_download_all(&self, urls: &Vec<CacheableUrl>, proxy: &Proxy) 
@@ -147,7 +153,7 @@ impl HashedFile {
         }
         if let Err(e) = &r {
             log::error!("Failed to download into '{}' after trying all {} \
-                URLs: {}", self.path.display(), urls.len(), e);
+                URLs, last error: {}", self.path.display(), urls.len(), e);
         }
         r
     }
@@ -192,17 +198,26 @@ impl HashedSource {
         push_good_bad!(md5sum, "sources/file-md5/", Checksum::Md5sum);
         push_good_bad!(cksum, "sources/file-ck/", Checksum::Cksum);
         for bad_file in bad_files {
-            if let Err(e) = bad_file.absorb_good_files(&good_files) {
-                log::error!("Failed to abosrb good hashed files into bad \
-                    hashed file '{}': {}", bad_file.path.display(), e);
-                if let Err(e) = bad_file.try_download_all(
-                    &self.urls, proxy
-                ){
-                    log::error!("Failed to download into bad hashed file '{}' \
-                        to convert it to good file: {}", 
-                        bad_file.path.display(), e);
-                    return Err(e)
+            if ! good_files.is_empty() {
+                if let Err(e) = bad_file.absorb_good_files(&good_files) {
+                    log::error!("Failed to absorb good hashed files into bad \
+                        hashed file '{}': {}", bad_file.path.display(), e);
+                } else {
+                    good_files.push(bad_file);
+                    continue
                 }
+            }
+            if self.urls.is_empty() {
+                log::error!("No URLs to fownload file from");
+                return Err(Error::BrokenPKGBUILDs(Default::default()))
+            }
+            if let Err(e) = bad_file.try_download_all(
+                &self.urls, proxy
+            ) {
+                log::error!("Failed to download into bad hashed file '{}' \
+                    to convert it to good file: {}", 
+                    bad_file.path.display(), e);
+                return Err(e)
             }
             good_files.push(bad_file)
         }
