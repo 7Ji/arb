@@ -72,10 +72,11 @@ impl<'a> Gmr<'a> {
 }
 
 pub(crate) struct RepoToOpen {
-    pub(crate) path: PathBuf,
-    pub(crate) url: String,
-    pub(crate) branches: Vec<String>,
-    pub(crate) tags: Vec<String>,
+    path: PathBuf,
+    hash_url: u64,
+    url: String,
+    branches: Vec<String>,
+    tags: Vec<String>,
 }
 
 impl RepoToOpen {
@@ -85,10 +86,10 @@ impl RepoToOpen {
         P: AsRef<Path>
     {
         let url: String = url.into();
-        let xxh3_63 = xxh3_64(url.as_bytes());
+        let hash_url = xxh3_64(url.as_bytes());
         let path = parent.as_ref().join(
-            format!("{:016x}", xxh3_63));
-        Self { path, url, branches: Vec::new(), tags: Vec::new() }
+            format!("{:016x}", hash_url));
+        Self { path, hash_url, url, branches: Vec::new(), tags: Vec::new() }
     }
 
     pub(crate) fn new_with_url_parent_type<S, D>(url: S, parent_type: D) 
@@ -98,10 +99,10 @@ impl RepoToOpen {
         D: Display
     {
         let url: String = url.into();
-        let xxh3_63 = xxh3_64(url.as_bytes());
+        let hash_url = xxh3_64(url.as_bytes());
         let path = PathBuf::from(
-            format!("sources/{}/{:016x}", parent_type ,xxh3_63));
-        Self { path, url, branches: Vec::new(), tags: Vec::new() }
+            format!("sources/{}/{:016x}", parent_type, hash_url));
+        Self { path, hash_url, url, branches: Vec::new(), tags: Vec::new() }
     }
 }
 
@@ -110,6 +111,34 @@ impl TryInto<Repo> for RepoToOpen {
 
     fn try_into(self) -> Result<Repo> {
         Repo::try_new_with_path_url(self.path, &self.url)
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct ReposListToOpen {
+    repos_to_open: Vec<RepoToOpen>
+}
+
+impl ReposListToOpen {
+    pub(crate) fn add<S1, S2, I1, S3, I2, S4>(&mut self, parent: S1, url: S2, branches: I1, tags: I2) 
+    where
+        S1: AsRef<str>,
+        S2: AsRef<str>,
+        I1: IntoIterator<Item = S3>,
+        S3: AsRef<str>,
+        I2: IntoIterator<Item = S4>,
+    {
+
+        let url = url.as_ref();
+        let hash_url = xxh3_64(url.as_bytes());
+        match self.repos_to_open.iter().find(|repo|repo.hash_url == hash_url) {
+            Some(repo_to_open) => {
+                if repo_to_open.branches.is_empty() && repo_to_open.tags.is_empty() {
+
+                }
+            },
+            None => todo!(),
+        }
     }
 }
 
@@ -279,7 +308,7 @@ impl ReposMap {
             },
         }
         Ok(())
-    }   
+    }
 
     pub(crate) fn from_iter_into_repo_to_open<I, R>(iter: I) -> Result<Self>
     where

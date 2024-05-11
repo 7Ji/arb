@@ -7,7 +7,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use super::Pkgbuilds;
 
-use crate::{checksum::Checksum, download::{download_file, download_ftp, download_http_https, download_rsync, download_scp}, filesystem::{clone_file, remove_file_allow_non_existing, remove_file_checked, rename_checked}, git::{RepoToOpen, ReposMap}, proxy::Proxy, Error, Result};
+use crate::{checksum::Checksum, download::{download_file, download_ftp, download_http_https, download_rsync, download_scp}, filesystem::{clone_file, remove_file_allow_non_existing, remove_file_checked, rename_checked}, git::{RepoToOpen, ReposListToOpen, ReposMap}, proxy::Proxy, Error, Result};
 
 #[derive(Debug)]
 struct GitSource {
@@ -16,11 +16,17 @@ struct GitSource {
     tags: Vec<String>,
 }
 
-impl Into<RepoToOpen> for &GitSource {
-    fn into(self) -> RepoToOpen {
-        RepoToOpen::new_with_url_parent_type(&self.url, "git")
-    }
-}
+// impl Into<RepoToOpen> for &GitSource {
+//     fn into(self) -> RepoToOpen {
+//         RepoToOpen { 
+//             path: format!("sources/git/").into(), 
+//             url: self.url.clone(), 
+//             branches: self.branches.clone(), 
+//             tags: self.tags.clone() 
+//         }
+//         // RepoToOpen::new_with_url_parent_type(&self.url, "git")
+//     }
+// }
 
 #[derive(PartialEq, Clone, Debug)]
 enum CacheableProtocol {
@@ -345,8 +351,13 @@ impl CacheableSources {
 
     fn cache_git(&self, gmr: &str, proxy: &Proxy, hold: bool) -> Result<()> {
         log::info!("Caching git sources...");
-        ReposMap::from_iter_into_repo_to_open(
-            self.git.iter())?.sync(gmr, proxy, hold)
+        let mut repos_list = ReposListToOpen::default();
+        for repo in self.git.iter() {
+            repos_list.add("git", &repo.url, &repo.branches, &repo.tags);
+        }
+        Ok(())
+        // ReposMap::from_iter_into_repo_to_open(
+        //     self.git.iter())?.sync(gmr, proxy, hold)
     }
 
     fn cache_hashed(&self, proxy: &Proxy, lazyint: bool) -> Result<()> {
