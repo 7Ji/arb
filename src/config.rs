@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs::File, path::Path};
 
 use serde::Deserialize;
 
-use crate::{cli::ActionArgs, pacman::PacmanConfig, pkgbuild::Pkgbuilds, proxy::Proxy, Error, Result};
+use crate::{cli::ActionArgs, filesystem::read_to_bytes, pacman::PacmanConfig, pkgbuild::Pkgbuilds, proxy::Proxy, Error, Result};
 
 /// The static part that comes from config
 #[derive(Debug, PartialEq, Deserialize)]
@@ -34,6 +34,7 @@ pub(crate) type PersistentPkgbuildsConfig =
 /// This should not be directly used by any logic other than reading config
 #[derive(Debug, PartialEq, serde::Deserialize)]
 pub(crate) struct PersistentConfig {
+    arch: Option<String>,
     basepkgs: Option<Vec<String>>,
     gmr: Option<String>,
     holdgit: Option<bool>,
@@ -41,6 +42,7 @@ pub(crate) struct PersistentConfig {
     homebinds: Option<Vec<String>>,
     lazyint: Option<bool>,
     lazyproxy: Option<usize>,
+    mpconf: Option<String>,
     nobuild: Option<bool>,
     noclean: Option<bool>,
     nonet: Option<bool>,
@@ -80,6 +82,7 @@ impl PersistentConfig {
 }
 /// Unified CLI temporary + file persistent config
 pub(crate) struct RuntimeConfig {
+    pub(crate) arch: String,
     pub(crate) basepkgs: Vec<String>,
     pub(crate) chosen: Vec<String>,
     pub(crate) gengmr: String,
@@ -91,18 +94,66 @@ pub(crate) struct RuntimeConfig {
     pub(crate) nobuild: bool,
     pub(crate) noclean: bool,
     pub(crate) nonet: bool,
+    pub(crate) mpconf: Vec<u8>,
     pub(crate) paconf: PacmanConfig,
     pub(crate) pkgbuilds: Pkgbuilds,
     pub(crate) proxy: Proxy,
     pub(crate) sign: String,
 }
 
+fn string_from_two_options(
+    perferred: Option<String>, less: Option<String>, default: &str
+) -> String 
+{
+    let string = match perferred {
+        Some(string) => string,
+        None => match less {
+            Some(string) => string,
+            None => return default.into(),
+        },
+    };
+    if string.is_empty() {
+        default.into()
+    } else {
+        string
+    }
+}
+
+fn str_from_two_options<'a>(
+    perferred: Option<&'a str>, less: Option<&'a str>, default: &'a str
+) -> &'a str
+{
+    let str = perferred.unwrap_or(
+        less.unwrap_or(
+            ""
+        )
+    );
+    if str.is_empty() {
+        default
+    } else {
+        str
+    }
+}
+
+
 impl TryFrom<(ActionArgs, PersistentConfig)> for RuntimeConfig {
     type Error = Error;
 
     fn try_from(value: (ActionArgs, PersistentConfig)) -> Result<Self> {
         let (args, persistent) = value;
+        let mpconf = read_to_bytes(
+            str_from_two_options(
+                args.mpconf.as_deref(),
+                persistent.mpconf.as_deref(),
+                "/etc/makepkg.conf"))?;
+        let paconf = PacmanConfig::try_read(
+            str_from_two_options(
+                args.paconf.as_deref(),
+                persistent.paconf.as_deref(),
+                "/etc/pacman.conf"))?;
         let config = Self {
+            arch: string_from_two_options(
+                args.arch, persistent.arch, "auto"),
             basepkgs: persistent.basepkgs.unwrap_or_default(),
             chosen: args.chosen,
             gengmr: args.gengmr,
@@ -114,14 +165,13 @@ impl TryFrom<(ActionArgs, PersistentConfig)> for RuntimeConfig {
             homebinds: persistent.homebinds.unwrap_or_default(),
             lazyint: args.lazyint.unwrap_or(
                 persistent.lazyint.unwrap_or_default()),
+            mpconf,
             nobuild: args.nobuild.unwrap_or(
                 persistent.nobuild.unwrap_or_default()),
             noclean: args.noclean.unwrap_or(
                 persistent.noclean.unwrap_or_default()),
             nonet: args.nonet.unwrap_or(persistent.nonet.unwrap_or_default()),
-            paconf: PacmanConfig::try_from(args.paconf.as_deref().unwrap_or(
-                persistent.paconf.as_deref().unwrap_or(
-                    "/etc/pacman.conf")).as_ref())?,
+            paconf,
             pkgbuilds: persistent.pkgbuilds.into(),
             proxy: Proxy::from_url_and_after(
                 args.proxy.unwrap_or(persistent.proxy.unwrap_or_default()), 

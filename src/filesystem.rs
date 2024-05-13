@@ -1,7 +1,7 @@
 use std::{
         env::set_current_dir, fs::{
             create_dir, hard_link, metadata, read_dir, remove_dir, remove_dir_all, remove_file, rename, set_permissions, symlink_metadata, DirEntry, File, Metadata, ReadDir
-        }, io::Write, os::unix::fs::{chown, symlink, PermissionsExt}, path::Path
+        }, io::{Read, Write}, os::unix::fs::{chown, symlink, PermissionsExt}, path::Path
     };
 
 use nix::libc::mode_t;
@@ -497,4 +497,21 @@ where
                 trying clone then delete old");
     clone_file(source, target)?;
     remove_file_checked(source)
+}
+
+pub(crate) fn read_to_bytes<P: AsRef<Path>>(path: P) -> Result<Vec<u8>> {
+    let path = path.as_ref();
+    let mut file = file_open_checked(path)?;
+    let mut buffer = Vec::new();
+    match file.read_to_end(&mut buffer) {
+        Ok(size) => {
+            log::debug!("Read {} bytes from '{}'", size, path.display());
+            Ok(buffer)
+        },
+        Err(e) => {
+            log::error!("Failed to read content from '{}': {}", 
+                        path.display(), e);
+            Err(e.into())
+        },
+    }
 }

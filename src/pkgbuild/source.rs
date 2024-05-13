@@ -157,11 +157,11 @@ impl HashedFile {
         }
         if let Err(e) = &r {
             log::error!("Failed to download into '{}' after trying all {} \
-                URLs, last error: {}", self.path.display(), urls.len(), e);
+                URLs ({:?}), last error: {}", 
+                self.path.display(), urls.len(), urls, e);
         }
         r
     }
-
 }
 
 impl HashedSource {

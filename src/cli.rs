@@ -5,6 +5,11 @@ use crate::{filesystem::action_rm_rf, pkgbuild::action_read_pkgbuilds, rootless:
 
 #[derive(clap::Args, Debug, Clone)]
 pub(crate) struct ActionArgs {
+    /// Architecture, useful if building for multi-arch, note only setting this
+    /// won't make cross-compiling happen magically
+    #[arg(short = 'a', long)]
+    pub(crate) arch: Option<String>,
+
     /// Generate a list of Git repos that could be used by 7Ji/git-mirrorer and 
     /// write it to file, to stdout if set to -
     #[arg(long, default_value_t)]
@@ -31,6 +36,10 @@ pub(crate) struct ActionArgs {
     /// the proxy
     #[arg(short='X', long)]
     pub(crate) lazyproxy: Option<usize>,
+
+    /// Path to makepkg.conf
+    #[arg(short='m', long)]
+    pub(crate) mpconf: Option<String>,
 
     /// Do not actually build the packages after extraction
     #[arg(short='B', long)]

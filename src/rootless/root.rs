@@ -47,7 +47,7 @@ impl Root {
         set_permissions_mode(self.path.join(suffix), mode)
     }
 
-    fn create_file_with_content<P, B>(&self, suffix: P, content: B) 
+    pub(crate) fn create_file_with_content<P, B>(&self, suffix: P, content: B) 
         -> Result<()> 
     where
         P: AsRef<Path>, 

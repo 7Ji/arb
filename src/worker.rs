@@ -99,7 +99,8 @@ impl WorkerState {
 
     pub(crate) fn merge_config(self, args: ActionArgs) -> Result<Self> {
         if let Self::ReadConfig { config } = self {
-            let config = RuntimeConfig::try_from((args, config))?;
+            let config = 
+                RuntimeConfig::try_from((args, config))?;
             if config.pkgbuilds.is_empty() { 
                 log::error!("No PKGBUILDs defined");
                 return Err(Error::InvalidConfig)
@@ -127,7 +128,9 @@ impl WorkerState {
     }
 
     pub(crate) fn prepare_layout(self) -> Result<Self> {
-        if let Self::PreparedRootless { mut config, rootless } = self {
+        if let Self::PreparedRootless { 
+            mut config, rootless 
+        } = self {
             rootless.run_action_no_payload(
                 "rm-rf", once("build"))?;
             crate::filesystem::prepare_layout()?;
@@ -139,8 +142,11 @@ impl WorkerState {
     }
 
     pub(crate) fn fetch_pkgbuilds(self) -> Result<Self> {
-        if let Self::PreparedLayout { config, rootless }= self {
-            config.pkgbuilds.sync(&config.gmr, &config.proxy, config.holdpkg)?;
+        if let Self::PreparedLayout { 
+            config, rootless 
+        }= self {
+            config.pkgbuilds.sync(
+                &config.gmr, &config.proxy, config.holdpkg)?;
             Ok(Self::FetchedPkgbuilds { config, rootless })
         } else {
             Err(self.get_illegal_state())
@@ -148,14 +154,23 @@ impl WorkerState {
     }
 
     pub(crate) fn prepare_to_parse_pkgbuilds(self) -> Result<Self> {
-        if let Self::FetchedPkgbuilds { config, rootless } = self {
+        if let Self::FetchedPkgbuilds {
+            config, rootless
+        } = self {
             config.pkgbuilds.dump("build/PKGBUILDs")?;
             let root = rootless.new_root(
                 "build/root.single.pkgbuild-parser", true);
             let mut paconf = config.paconf.clone();
             paconf.set_option("SigLevel", Some("Never"));
             root.prepare_layout(&paconf)?;
-            rootless.bootstrap_root(&root, once("base-devel"), true)?;
+            rootless.bootstrap_root(
+                &root, once("base-devel"), true)?;
+            if config.arch == "auto" || config.arch == "any" {
+                log::warn!("Architecture is 'auto' or 'any', dumping arch from \
+                    makepkg.conf");
+                root.create_file_with_content("etc/makepkg.conf", 
+                &config.mpconf)?;
+            }
             Ok(Self::PreparedToParsePkgbuilds { config, rootless, root })
         } else {
             Err(self.get_illegal_state())
@@ -163,9 +178,12 @@ impl WorkerState {
     }
 
     pub(crate) fn parse_pkgbuilds(self) -> Result<Self> {
-        if let Self::PreparedToParsePkgbuilds { mut config, rootless, root } = self {
+        if let Self::PreparedToParsePkgbuilds {
+            mut config, rootless, root 
+        } = self {
             rootless.complete_pkgbuilds_in_root(&root, &mut config.pkgbuilds)?;
-            log::debug!("Parsed PKGBUILDs from secured chroot: {:?}", &config.pkgbuilds);
+            log::debug!("Parsed PKGBUILDs from secured chroot: {:?}", 
+                &config.pkgbuilds);
             Ok(Self::ParsedPkgbuilds { config, rootless })
         } else {
             Err(self.get_illegal_state())
@@ -173,16 +191,21 @@ impl WorkerState {
     }
 
     pub(crate) fn fetch_sources(self) -> Result<Self> {
-        if let Self::ParsedPkgbuilds { config, rootless }= self {
-            let cacheable_sources = config.pkgbuilds.get_cacheable_sources();
+        if let Self::ParsedPkgbuilds { 
+            config, rootless 
+        }= self {
+            let cacheable_sources = 
+                config.pkgbuilds.get_cacheable_sources();
             if ! config.gengmr.is_empty() {
                 let mut urls = config.pkgbuilds.git_urls();
                 urls.append(&mut cacheable_sources.git_urls());
                 let gmr_config = gmr_config_from_urls(&mut urls);
                 log::debug!("Generated git-mirroer config: {}", &gmr_config);
-                write_all_to_file_or_stdout(&gmr_config, &config.gengmr)?
+                write_all_to_file_or_stdout(
+                    &gmr_config, &config.gengmr)?
             }
-            cacheable_sources.cache(&config.gmr, &config.proxy, config.holdgit, config.lazyint)?;
+            cacheable_sources.cache(
+                &config.gmr, &config.proxy, config.holdgit, config.lazyint)?;
             Ok(Self::FetchedSources { config, rootless })
         } else {
             Err(self.get_illegal_state())
@@ -190,7 +213,9 @@ impl WorkerState {
     }
 
     pub(crate) fn fetch_pkgs(self) -> Result<Self> {
-        if let Self::FetchedSources { config, rootless } = self {
+        if let Self::FetchedSources { 
+            config, rootless 
+        } = self {
             Ok(Self::FetchedPkgs { config, rootless })
         } else {
             Err(self.get_illegal_state())
@@ -198,7 +223,9 @@ impl WorkerState {
     }
 
     pub(crate) fn make_base_chroot(self) -> Result<Self> {
-        if let Self::FetchedPkgs { config, rootless } = self {
+        if let Self::FetchedPkgs { 
+            config, rootless
+        } = self {
             Ok(Self::MadeBaseChroot { config, rootless } )
         } else {
             Err(self.get_illegal_state())
@@ -206,7 +233,9 @@ impl WorkerState {
     }
 
     pub(crate) fn make_chroots(self) -> Result<Self> {
-        if let Self::MadeBaseChroot { config, rootless } = self {
+        if let Self::MadeBaseChroot {
+            config, rootless
+        } = self {
             Ok(Self::MadeChroots { config, rootless} )
         } else {
             Err(self.get_illegal_state())
@@ -214,7 +243,9 @@ impl WorkerState {
     }
 
     pub(crate) fn build(self) -> Result<Self> {
-        if let Self::MadeChroots { config, rootless } = self {
+        if let Self::MadeChroots {
+            config, rootless
+        } = self {
             Ok(Self::Built { config, rootless } )
         } else {
             Err(self.get_illegal_state())
@@ -222,7 +253,9 @@ impl WorkerState {
     }
 
     pub(crate) fn release(self) -> Result<Self> {
-        if let Self::Built { config, rootless } = self {
+        if let Self::Built {
+            config, rootless
+        } = self {
             let _ = config;
             let _ = rootless;
             Ok(Self::Released)

@@ -460,7 +460,7 @@ impl TryFrom<ReposList> for ReposMap {
                 },
             }
         }
-        log::info!("Splitted {} git repos into {} groups by domain", 
+        log::debug!("Splitted {} git repos into {} groups by domain", 
                         count_repos, map.len());
         Ok(Self { map })
     }

@@ -67,6 +67,9 @@ impl TryFrom<&Path> for PacmanConfig {
 }
 
 impl PacmanConfig {
+    pub(crate) fn try_read<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::try_from(path.as_ref())
+    }
     pub(crate) fn set_option<S1, S2>(&mut self, key: S1, value: Option<S2>)
     where
         S1: Into<String>,
