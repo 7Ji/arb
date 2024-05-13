@@ -76,18 +76,18 @@ impl Pkgbuild {
 
     fn dump<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         log::debug!("Dumping PKGBUILD '{}'", &self.name);
-        let repo: RepoToOpen = self.into();
-        let repo: Repo = repo.try_into()?;
-        repo.dump_branch_pkgbuild(
-            &self.branch, self.subtree.as_ref(), path.as_ref())
+        RepoToOpen::new_with_url_parent(&self.url, "PKGBUILD")
+            .try_open_only()?
+            .dump_branch_pkgbuild(
+                &self.branch, self.subtree.as_ref(), path.as_ref())
     }
 }
 
-impl Into<RepoToOpen> for &Pkgbuild {
-    fn into(self) -> RepoToOpen {
-        RepoToOpen::new_with_url_parent_type(&self.url, "PKGBUILD")
-    }
-}
+// impl Into<RepoToOpen> for &Pkgbuild {
+//     fn into(self) -> RepoToOpen {
+//         RepoToOpen::new_with_url_parent_type(&self.url, "PKGBUILD")
+//     }
+// }
 
 #[derive(Default, Debug)]
 pub(crate) struct Pkgbuilds {
@@ -158,7 +158,7 @@ impl Pkgbuilds {
                 "PKGBUILD", &pkgbuild.url, 
                 once(&pkgbuild.branch), empty())
         }
-        repos_list.try_into_repos_map()?.sync(gmr, proxy, hold)?;
+        repos_list.try_open_init_into_map()?.sync(gmr, proxy, hold)?;
         log::info!("Synced PKGBUILDs");
         Ok(())
     }

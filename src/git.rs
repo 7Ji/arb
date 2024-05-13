@@ -80,30 +80,119 @@ pub(crate) struct RepoToOpen {
 }
 
 impl RepoToOpen {
-    pub(crate) fn new_with_url_parent<S, P>(url: S, parent: P) -> Self 
+    pub(crate) fn new_with_url_parent<S1, S2>(url: S1, parent: S2) -> Self 
     where
-        S: Into<String>,
-        P: AsRef<Path>
+        S1: Into<String>,
+        S2: AsRef<str>
     {
         let url: String = url.into();
         let hash_url = xxh3_64(url.as_bytes());
-        let path = parent.as_ref().join(
-            format!("{:016x}", hash_url));
+        let path = format!("sources/{}/{:016x}", 
+            parent.as_ref(), hash_url).into();
         Self { path, hash_url, url, branches: Vec::new(), tags: Vec::new() }
     }
 
-    pub(crate) fn new_with_url_parent_type<S, D>(url: S, parent_type: D) 
-        -> Self 
-    where
-        S: Into<String>,
-        D: Display
-    {
-        let url: String = url.into();
-        let hash_url = xxh3_64(url.as_bytes());
-        let path = PathBuf::from(
-            format!("sources/{}/{:016x}", parent_type, hash_url));
-        Self { path, hash_url, url, branches: Vec::new(), tags: Vec::new() }
+    pub(crate) fn try_open_only(self) -> Result<Repo> {
+        match Repository::open_bare(&self.path) {
+            Ok(repo) => Ok(Repo {
+                path: self.path,
+                hash_url: self.hash_url,
+                url: self.url,
+                branches: self.branches,
+                tags: self.tags,
+                repo,
+                refspecs: Vec::new(),
+            }),
+            Err(e) => {
+                log::error!("Failed to open {}: {}", 
+                        self.path.display(), e);
+                Err(e.into())
+            },
+        }
     }
+
+    pub(crate) fn try_open_init(self) -> Result<Repo> {
+        let mut refspecs = Vec::new();
+        for branch in self.branches.iter() {
+            refspecs.push(format!(
+                "+refs/heads/{}:refs/heads/{}", branch, branch))
+        }
+        for tag in self.tags.iter() {
+            refspecs.push(format!(
+                "+refs/tags/{}:refs/tags/{}", tag, tag))
+        }
+        if refspecs.is_empty() {
+            refspecs.push("+refs/heads/*:refs/heads/*".into())
+        }
+        let repo = match Repository::open_bare(&self.path) {
+            Ok(repo) => repo,
+            Err(e) =>
+                if e.class() == ErrorClass::Os &&
+                    e.code() == ErrorCode::NotFound 
+                {
+                    match Repository::init_bare(&self.path) {
+                        Ok(repo) => repo,
+                        Err(e) => {
+                            log::error!("Failed to create {}: {}",
+                                        self.path.display(), e);
+                            return Err(e.into())
+                        }
+                    }
+                } else {
+                    log::error!("Failed to open {}: {}", 
+                            self.path.display(), e);
+                    return Err(e.into())
+                },
+        };
+        if let Err(e) = repo.remote_delete("origin") {
+            log::warn!("Failed to delete remote 'origin': {}", e);
+        }
+        let first_fetch = match refspecs.first() {
+            Some(refspec) => refspec,
+            None => {
+                log::error!("Failed to lookup first refspec");
+                return Err(Error::ImpossibleLogic)
+            },
+        };
+        if let Err(e) = repo.remote_with_fetch(
+            "origin", &self.url, &first_fetch
+        ) {
+            log::error!("Failed to create remote 'origin' with \
+                        url '{}': {}", &self.url, e);
+            return Err(e.into())
+        }
+        for refspec in &refspecs[1..] {
+            if let Err(e) = repo.remote_add_fetch(
+                                "origin", refspec) 
+            {
+                log::error!("Failed to add fetch spec '{}' to remote 'origin' \
+                    (url '{}'): {}", refspec, &self.url, e);
+                return Err(e.into())
+            }
+        }
+        Ok(Repo {
+            path: self.path,
+            hash_url: self.hash_url,
+            url: self.url,
+            branches: self.branches,
+            tags: self.tags,
+            repo,
+            refspecs,
+        })
+    }
+
+    // pub(crate) fn new_with_url_parent_type<S, D>(url: S, parent_type: D) 
+    //     -> Self 
+    // where
+    //     S: Into<String>,
+    //     D: Display
+    // {
+    //     let url: String = url.into();
+    //     let hash_url = xxh3_64(url.as_bytes());
+    //     let path = PathBuf::from(
+    //         format!("sources/{}/{:016x}", parent_type, hash_url));
+    //     Self { path, hash_url, url, branches: Vec::new(), tags: Vec::new() }
+    // }
 }
 
 #[derive(Default)]
@@ -183,20 +272,20 @@ impl ReposListToOpen {
         }
     }
 
-    fn try_open(self) -> Result<ReposList> {
+    fn try_open_init(self) -> Result<ReposList> {
         log::debug!("Opening {} repos", self.repos_to_open.len());
         let mut repos = Vec::new();
         for repo_to_open in self.repos_to_open {
             log::debug!("Trying to open local repo for '{}'", &repo_to_open.url);
-            repos.push(repo_to_open.try_into()?)
+            repos.push(repo_to_open.try_open_init()?)
         }
         Ok(ReposList {
             list: repos,
         })
     }
 
-    pub(crate) fn try_into_repos_map(self) -> Result<ReposMap> {
-        self.try_open()?.try_into()
+    pub(crate) fn try_open_init_into_map(self) -> Result<ReposMap> {
+        self.try_open_init()?.try_into()
     }
 }
 
@@ -215,80 +304,6 @@ fn refspec_same_branch_or_all(branch: &str) -> String {
         "+refs/heads/*:refs/heads/*".into()
     } else {
         format!("+refs/heads/{}:refs/heads/{}", branch, branch)
-    }
-}
-
-impl TryFrom<RepoToOpen> for Repo {
-    type Error = Error;
-
-    fn try_from(value: RepoToOpen) -> Result<Self> {
-        let mut refspecs = Vec::new();
-        for branch in value.branches.iter() {
-            refspecs.push(format!(
-                "+refs/heads/{}:refs/heads/{}", branch, branch))
-        }
-        for tag in value.tags.iter() {
-            refspecs.push(format!(
-                "+refs/tags/{}:refs/tags/{}", tag, tag))
-        }
-        if refspecs.is_empty() {
-            refspecs.push("+refs/heads/*:refs/heads/*".into())
-        }
-        let repo = match Repository::open_bare(&value.path) {
-            Ok(repo) => repo,
-            Err(e) =>
-                if e.class() == ErrorClass::Os &&
-                    e.code() == ErrorCode::NotFound 
-                {
-                    match Repository::init_bare(&value.path) {
-                        Ok(repo) => repo,
-                        Err(e) => {
-                            log::error!("Failed to create {}: {}",
-                                        value.path.display(), e);
-                            return Err(e.into())
-                        }
-                    }
-                } else {
-                    log::error!("Failed to open {}: {}", 
-                            value.path.display(), e);
-                    return Err(e.into())
-                },
-        };
-        if let Err(e) = repo.remote_delete("origin") {
-            log::warn!("Failed to delete remote 'origin': {}", e);
-        }
-        let first_fetch = match refspecs.first() {
-            Some(refspec) => refspec,
-            None => {
-                log::error!("Failed to lookup first refspec");
-                return Err(Error::ImpossibleLogic)
-            },
-        };
-        if let Err(e) = repo.remote_with_fetch(
-            "origin", &value.url, &first_fetch
-        ) {
-            log::error!("Failed to create remote 'origin' with \
-                        url '{}': {}", &value.url, e);
-            return Err(e.into())
-        }
-        for refspec in &refspecs[1..] {
-            if let Err(e) = repo.remote_add_fetch(
-                                "origin", refspec) 
-            {
-                log::error!("Failed to add fetch spec '{}' to remote 'origin' \
-                    (url '{}'): {}", refspec, &value.url, e);
-                return Err(e.into())
-            }
-        }
-        Ok(Self {
-            path: value.path,
-            hash_url: value.hash_url,
-            url: value.url,
-            branches: value.branches,
-            tags: value.tags,
-            repo,
-            refspecs,
-        })
     }
 }
 

@@ -355,7 +355,7 @@ impl CacheableSources {
         for repo in self.git.iter() {
             repos_list.add("git", &repo.url, &repo.branches, &repo.tags);
         }
-        repos_list.try_into_repos_map()?.sync(gmr, proxy, hold)
+        repos_list.try_open_init_into_map()?.sync(gmr, proxy, hold)
     }
 
     fn cache_hashed(&self, proxy: &Proxy, lazyint: bool) -> Result<()> {
