@@ -220,6 +220,8 @@ where
             return Err(e.into())
         },
     };
+    log::info!("Parsed {} PKGBUILDs, writing to stdout to pass them back to \
+        parent...", pkgbuilds.len());
     let output = match rmp_serde::to_vec(&pkgbuilds) {
         Ok(output) => output,
         Err(e) => {

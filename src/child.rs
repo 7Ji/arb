@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, fmt::Display, io::Write, process::{Child, ChildStdin, ChildStdout, Command, Stdio}};
+use std::{ffi::OsStr, fmt::Display, io::{Read, Write}, process::{Child, ChildStdin, ChildStdout, Command, Stdio}};
 
 use nix::{libc::pid_t, unistd::Pid};
 
@@ -41,6 +41,22 @@ pub(crate) fn write_to_child<B: AsRef<[u8]>>(child: &mut Child, content:B)
         Err(e.into())
     } else {
         Ok(())
+    }
+}
+
+pub(crate) fn read_from_child(child: &mut Child) -> Result<Vec<u8>> 
+{
+    let mut child_out = get_child_out(child)?;
+    let mut buffer = Vec::new();
+    match child_out.read_to_end(&mut buffer) {
+        Ok(size) => {
+            log::debug!("Read {} bytes from child {}", size, child.id());
+            Ok(buffer)
+        },
+        Err(e) => {
+            log::error!("Failed to read from child {}: {}", child.id(), e);
+            Err(e.into())
+        },
     }
 }
 

@@ -8,7 +8,7 @@ mod root;
 mod unshare;
 use std::{ffi::{OsStr, OsString}, io::Write, iter::empty, path::{Path, PathBuf}, process::Child};
 use nix::{libc::pid_t, unistd::getpid};
-use crate::{child::{get_child_in_out, get_child_out, wait_child, write_to_child}, logfile::LogFile, pacman::try_get_install_pkgs_payload, pkgbuild::Pkgbuilds, Error, Result};
+use crate::{child::{get_child_in_out, get_child_out, read_from_child, wait_child, write_to_child}, logfile::LogFile, pacman::try_get_install_pkgs_payload, pkgbuild::Pkgbuilds, Error, Result};
 use self::{action::start_action, idmap::IdMaps};
 
 pub(crate) use self::id::set_uid_gid;
@@ -173,6 +173,19 @@ impl RootlessHandler {
         Ok(())
     }
 
+    fn start_broker(&self, pipe_out: bool) -> Result<Child> {
+        start_action::<_, _, _, &str>(
+            Some(&self.exe), "broker", empty(), 
+            true, pipe_out)
+    }
+
+    fn map_and_write_to_child<B: AsRef<[u8]>> (
+        &self, child: &mut Child, payload: B
+    ) -> Result<()> {
+        self.map_child(child)?;
+        write_to_child(child, payload)
+    }
+
     pub(crate) fn complete_pkgbuilds_in_root(
         &self, root: &Root, pkgbuilds: &mut Pkgbuilds
     ) -> Result<()> 
@@ -180,13 +193,22 @@ impl RootlessHandler {
         let payload = 
             pkgbuilds.get_reader_payload(root.get_path())
                 .try_into_bytes()?;
-        let mut child = start_action::<_, _, _, &str>(
-            Some(&self.exe), "broker", empty(), 
-            true, true)?;
-        self.map_child(&mut child)?;
-        write_to_child(&mut child, &payload)?;
+        let mut child = self.start_broker(true)?;
+        self.map_and_write_to_child(&mut child, &payload)?;
         pkgbuilds.complete_from_reader(get_child_out(&mut child)?)?;
         wait_child(&mut child)
+    }
+
+    pub(crate) fn dump_arch_in_root(&self, root: &Root) -> Result<String> {
+        let mut payload = root.new_broker_payload();
+        payload.add_init_command_run_program("", "bash", 
+            ["-c", "source /etc/makepkg.conf; echo $CARCH"]);
+        let payload_bytes = payload.try_into_bytes()?;
+        let mut child = self.start_broker(true)?;
+        self.map_and_write_to_child(&mut child, &payload_bytes)?;
+        let output = read_from_child(&mut child)?;
+        wait_child(&mut child)?;
+        Ok(String::from_utf8_lossy(&output).trim().into())
     }
 }
 

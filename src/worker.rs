@@ -155,11 +155,11 @@ impl WorkerState {
 
     pub(crate) fn prepare_to_parse_pkgbuilds(self) -> Result<Self> {
         if let Self::FetchedPkgbuilds {
-            config, rootless
+            mut config, rootless
         } = self {
             config.pkgbuilds.dump("build/PKGBUILDs")?;
             let root = rootless.new_root(
-                "build/root.single.pkgbuild-parser", true);
+                "build/root.single.parser", true);
             let mut paconf = config.paconf.clone();
             paconf.set_option("SigLevel", Some("Never"));
             root.prepare_layout(&paconf)?;
@@ -170,6 +170,10 @@ impl WorkerState {
                     makepkg.conf");
                 root.create_file_with_content("etc/makepkg.conf", 
                 &config.mpconf)?;
+                let arch = rootless.dump_arch_in_root(&root)?;
+                log::info!("Dumped arch '{}' from makepkg.conf in secured root",
+                    arch);
+                config.arch = arch;
             }
             Ok(Self::PreparedToParsePkgbuilds { config, rootless, root })
         } else {

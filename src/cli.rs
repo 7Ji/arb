@@ -6,7 +6,8 @@ use crate::{filesystem::action_rm_rf, pkgbuild::action_read_pkgbuilds, rootless:
 #[derive(clap::Args, Debug, Clone)]
 pub(crate) struct ActionArgs {
     /// Architecture, useful if building for multi-arch, note only setting this
-    /// won't make cross-compiling happen magically
+    /// won't make cross-compiling happen magically. If 'auto' or 'any', arb 
+    /// would dump the actual arch from `makepkg.conf`
     #[arg(short = 'a', long)]
     pub(crate) arch: Option<String>,
 

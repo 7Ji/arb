@@ -5,7 +5,7 @@ use nix::{libc::mode_t, unistd::chroot};
 
 use crate::{filesystem::{file_create_with_content, set_permissions_mode}, pacman::PacmanConfig, rootless::RootlessHandler, Result};
 
-use super::idmap::IdMaps;
+use super::{idmap::IdMaps, BrokerPayload};
 
 /// An Arch Linux root, 
 pub(crate) struct Root {
@@ -111,6 +111,10 @@ impl Root {
         } else {
             Ok(())
         }
+    }
+
+    pub(crate) fn new_broker_payload(&self) -> BrokerPayload {
+        BrokerPayload::new_with_root(&self.path)
     }
 }
 
