@@ -1,5 +1,5 @@
 [package]
-name = "arch_repo_builder"
+name = "arb"
 version = "0.2.0"
 edition = "2021"
 
