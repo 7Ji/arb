@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fs::File, path::Path};
 
+use pkgbuild::Architecture;
 use serde::Deserialize;
 
 use crate::{cli::ActionArgs, filesystem::read_to_bytes, pacman::PacmanConfig, pkgbuild::Pkgbuilds, proxy::Proxy, Error, Result};
@@ -82,7 +83,7 @@ impl PersistentConfig {
 }
 /// Unified CLI temporary + file persistent config
 pub(crate) struct RuntimeConfig {
-    pub(crate) arch: String,
+    pub(crate) arch: Architecture,
     pub(crate) basepkgs: Vec<String>,
     pub(crate) chosen: Vec<String>,
     pub(crate) gengmr: String,
@@ -99,24 +100,6 @@ pub(crate) struct RuntimeConfig {
     pub(crate) pkgbuilds: Pkgbuilds,
     pub(crate) proxy: Proxy,
     pub(crate) sign: String,
-}
-
-fn string_from_two_options(
-    perferred: Option<String>, less: Option<String>, default: &str
-) -> String 
-{
-    let string = match perferred {
-        Some(string) => string,
-        None => match less {
-            Some(string) => string,
-            None => return default.into(),
-        },
-    };
-    if string.is_empty() {
-        default.into()
-    } else {
-        string
-    }
 }
 
 fn str_from_two_options<'a>(
@@ -152,8 +135,10 @@ impl TryFrom<(ActionArgs, PersistentConfig)> for RuntimeConfig {
                 persistent.paconf.as_deref(),
                 "/etc/pacman.conf"))?;
         let config = Self {
-            arch: string_from_two_options(
-                args.arch, persistent.arch, "auto"),
+            arch: str_from_two_options(
+                args.arch.as_deref(),
+                persistent.arch.as_deref(),
+                "auto").into(),
             basepkgs: persistent.basepkgs.unwrap_or_default(),
             chosen: args.chosen,
             gengmr: args.gengmr,

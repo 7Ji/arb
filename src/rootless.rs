@@ -8,6 +8,7 @@ mod root;
 mod unshare;
 use std::{ffi::{OsStr, OsString}, io::Write, iter::empty, path::{Path, PathBuf}, process::Child};
 use nix::{libc::pid_t, unistd::getpid};
+use pkgbuild::Architecture;
 use crate::{child::{get_child_in_out, get_child_out, read_from_child, wait_child, write_to_child}, logfile::LogFile, pacman::try_get_install_pkgs_payload, pkgbuild::Pkgbuilds, Error, Result};
 use self::{action::start_action, idmap::IdMaps};
 
@@ -199,7 +200,7 @@ impl RootlessHandler {
         wait_child(&mut child)
     }
 
-    pub(crate) fn dump_arch_in_root(&self, root: &Root) -> Result<String> {
+    pub(crate) fn dump_arch_in_root(&self, root: &Root) -> Result<Architecture>{
         let mut payload = root.new_broker_payload();
         payload.add_init_command_run_program("", "bash", 
             ["-c", "source /etc/makepkg.conf; echo $CARCH"]);

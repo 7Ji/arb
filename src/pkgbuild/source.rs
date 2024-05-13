@@ -1,7 +1,7 @@
-use std::{fs::File, io::{BufReader, Read}, path::{Path, PathBuf}};
+use std::{fs::File, io::{BufReader, Read}, iter::empty, path::{Path, PathBuf}};
 
 // use blake2::Blake2b512;
-use pkgbuild::{B2sum, Cksum, GitSourceFragment, Md5sum, Sha1sum, Sha224sum, Sha256sum, Sha384sum, Sha512sum};
+use pkgbuild::{Architecture, B2sum, Cksum, GitSourceFragment, Md5sum, PkgbuildArchSpecific, Sha1sum, Sha224sum, Sha256sum, Sha384sum, Sha512sum, SourceWithChecksum};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 // use sha1::{digest::{generic_array::GenericArray, OutputSizeUser}, Digest};
 
@@ -381,43 +381,74 @@ impl CacheableSources {
         self.git.iter().map(
             |git|git.url.clone()).collect()
     }
-}
 
-impl From<&Pkgbuilds> for CacheableSources {
-    fn from(pkgbuilds: &Pkgbuilds) -> Self {
+    fn add_from_source_with_checksum(&mut self, source_with_checksum: &SourceWithChecksum) {
+        let source = &source_with_checksum.source;
+        let url = &source.url;
+        let protocol = match &source.protocol {
+            pkgbuild::SourceProtocol::File => CacheableProtocol::File,
+            pkgbuild::SourceProtocol::Ftp => CacheableProtocol::Ftp,
+            pkgbuild::SourceProtocol::Http => CacheableProtocol::Http,
+            pkgbuild::SourceProtocol::Https => CacheableProtocol::Https,
+            pkgbuild::SourceProtocol::Rsync => CacheableProtocol::Rsync,
+            pkgbuild::SourceProtocol::Scp => CacheableProtocol::Scp,
+            pkgbuild::SourceProtocol::Git { 
+                fragment, signed: _ 
+            } => {
+                self.add_git_source(url, fragment);
+                return
+            },
+            _ => return,
+        };
+        self.add_hashed_source(url, protocol, 
+            &source_with_checksum.cksum,
+            &source_with_checksum.md5sum,
+            &source_with_checksum.sha1sum,
+            &source_with_checksum.sha224sum,
+            &source_with_checksum.sha256sum,
+            &source_with_checksum.sha384sum,
+            &source_with_checksum.sha512sum,
+            &source_with_checksum.b2sum
+        )
+    }
+
+    fn add_from_pkgbuild_arch_specific(
+        &mut self, pkgbuild_arch_specific: &PkgbuildArchSpecific
+    ) {
+        for source_with_checksum in 
+            pkgbuild_arch_specific.sources_with_checksums.iter() 
+        {
+            self.add_from_source_with_checksum(source_with_checksum)
+        }
+    }
+
+    pub(crate) fn from_pkgbuilds(pkgbuilds: &Pkgbuilds, arch: Option<&Architecture>) 
+        -> Self 
+    {
         let mut cacheable_sources = Self::default();
         for pkgbuild in pkgbuilds.pkgbuilds.iter() {
-            for source_with_checksum in 
-                pkgbuild.inner.sources_with_checksums() 
-            {
-                let source = &source_with_checksum.source;
-                let url = &source.url;
-                let protocol = match &source.protocol {
-                    pkgbuild::SourceProtocol::File => CacheableProtocol::File,
-                    pkgbuild::SourceProtocol::Ftp => CacheableProtocol::Ftp,
-                    pkgbuild::SourceProtocol::Http => CacheableProtocol::Http,
-                    pkgbuild::SourceProtocol::Https => CacheableProtocol::Https,
-                    pkgbuild::SourceProtocol::Rsync => CacheableProtocol::Rsync,
-                    pkgbuild::SourceProtocol::Scp => CacheableProtocol::Scp,
-                    pkgbuild::SourceProtocol::Git { fragment, signed: _ } => {
-                        cacheable_sources.add_git_source(url, fragment);
-                        continue
-                    },
-                    _ => continue,
-                };
-                cacheable_sources.add_hashed_source(url, protocol, 
-                    &source_with_checksum.cksum,
-                    &source_with_checksum.md5sum,
-                    &source_with_checksum.sha1sum,
-                    &source_with_checksum.sha224sum,
-                    &source_with_checksum.sha256sum,
-                    &source_with_checksum.sha384sum,
-                    &source_with_checksum.sha512sum,
-                    &source_with_checksum.b2sum
-                )
+            let multiarch = 
+                &pkgbuild.inner.multiarch;
+            cacheable_sources.add_from_pkgbuild_arch_specific(&multiarch.any);
+            if let Some(arch) = arch {
+                if let Some(pkgbuild_arch_specific) = 
+                    multiarch.arches.get(arch)
+                {
+                    cacheable_sources.add_from_pkgbuild_arch_specific(
+                        pkgbuild_arch_specific)
+                }
+            } else {
+                for pkgbuild_arch_specific in 
+                    multiarch.arches.values() 
+                {
+                    cacheable_sources.add_from_pkgbuild_arch_specific(
+                        pkgbuild_arch_specific)
+                }
             }
         }
-        cacheable_sources.git.sort_unstable_by(|some, other|some.url.cmp(&other.url));
+        cacheable_sources.git.sort_unstable_by(
+            |some, other|
+                some.url.cmp(&other.url));
         cacheable_sources
     }
 }

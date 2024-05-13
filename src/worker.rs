@@ -1,5 +1,7 @@
 use std::{io::{stdout, Write}, iter::once, path::Path};
 
+use pkgbuild::Architecture;
+
 // Worker is a finite state machine
 use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, io::write_all_to_file_or_stdout, git::gmr_config_from_urls, rootless::{Root, RootlessHandler}, Error, Result};
 
@@ -165,7 +167,16 @@ impl WorkerState {
             root.prepare_layout(&paconf)?;
             rootless.bootstrap_root(
                 &root, once("base-devel"), true)?;
-            if config.arch == "auto" || config.arch == "any" {
+            let get_arch = match &config.arch {
+                Architecture::Other(arch) => 
+                    match arch.to_lowercase().as_str() 
+                {
+                    "auto" | "any" => true,
+                    _ => false
+                },
+                _ => false
+            };
+            if get_arch {
                 log::warn!("Architecture is 'auto' or 'any', dumping arch from \
                     makepkg.conf");
                 root.create_file_with_content("etc/makepkg.conf", 
@@ -199,7 +210,7 @@ impl WorkerState {
             config, rootless 
         }= self {
             let cacheable_sources = 
-                config.pkgbuilds.get_cacheable_sources();
+                config.pkgbuilds.get_cacheable_sources(Some(&config.arch));
             if ! config.gengmr.is_empty() {
                 let mut urls = config.pkgbuilds.git_urls();
                 urls.append(&mut cacheable_sources.git_urls());
