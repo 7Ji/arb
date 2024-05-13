@@ -10,10 +10,8 @@ pub(crate) struct PacmanConfig {
     repos: BTreeMap<String, ConfigSection>,
 }
 
-impl TryFrom<&Path> for PacmanConfig {
-    type Error = Error;
-
-    fn try_from(path: &Path) -> Result<Self> {
+impl PacmanConfig {
+    pub(crate) fn try_read<P: AsRef<Path>>(path: P) -> Result<Self> {
         let file = file_open_checked(&path)?;
         let mut title_last = String::new();
         let mut sections = Vec::new();
@@ -54,22 +52,37 @@ impl TryFrom<&Path> for PacmanConfig {
         if ! title_last.is_empty() {
             sections.push((title_last, section_last));
         }
+        log::debug!("All pacman.conf sections: {:?}", sections);
         let mut config = Self::default();
+        let mut repo_core = None;
+        let mut repo_extra = None;
+        let mut repo_multilib = None;
         for (key, value) in sections {
-            if key == "options" {
-                config.options = value
-            } else {
-                config.repos.insert(key, value);
+            match key.as_ref() {
+                "options" => config.options = value,
+                "core" => repo_core = Some((key, value)),
+                "extra" => repo_extra = Some((key, value)),
+                "multilib" => repo_multilib = Some((key, value)),
+                _ => ()
             }
         }
+        for repo in 
+            [repo_core, repo_extra, repo_multilib] 
+        {
+            if let Some((key, value)) 
+                = repo 
+            {
+                if config.repos.insert(key, value).is_some() {
+                    log::error!("Impossible: duplicated core/extra/multilib \
+                        repo when parsing pacman.conf");
+                    return Err(Error::ImpossibleLogic);
+                }
+            }
+        }
+        log::debug!("Read pacman config: {:?}", config);
         Ok(config)
     }
-}
 
-impl PacmanConfig {
-    pub(crate) fn try_read<P: AsRef<Path>>(path: P) -> Result<Self> {
-        Self::try_from(path.as_ref())
-    }
     pub(crate) fn set_option<S1, S2>(&mut self, key: S1, value: Option<S2>)
     where
         S1: Into<String>,
@@ -108,7 +121,18 @@ impl PacmanConfig {
         self.set_option("HookDir", Some(&path));
     }
 
-    pub(crate) fn to_file<P: AsRef<Path>>(&self, pacman_conf: P) -> Result<()> {
+    pub(crate) fn retain_official_repos(&mut self) {
+        self.repos.retain(|key, _|
+            match key.as_str() {
+                "core" | "extra" | "multilib" => true,
+                _ => false
+            }
+        )
+    }
+
+    pub(crate) fn try_write<P: AsRef<Path>>(&self, pacman_conf: P) 
+        -> Result<()> 
+    {
         let mut file = file_create_checked(&pacman_conf)?;
         if let Err(e) = file.write_fmt(format_args!("{}\n", self)) {
             log::error!("Failed to write config to file: {}", e);
