@@ -1,10 +1,10 @@
 mod source;
 
-use std::{ffi::OsString, io::{stdout, Read, Write}, iter::once, path::Path};
+use std::{ffi::OsString, io::{stdout, Read, Write}, iter::{empty, once}, path::Path};
 use git2::Oid;
 use nix::unistd::setgid;
 use pkgbuild;
-use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, filesystem::{set_current_dir_checked, create_dir_allow_existing}, git::{Repo, RepoToOpen, ReposMap}, mount::mount_bind, pkgbuild::source::CacheableSources, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, try_unshare_user_mount_and_wait, BrokerPayload}, Error, Result};
+use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, filesystem::{create_dir_allow_existing, set_current_dir_checked}, git::{Repo, RepoToOpen, ReposListToOpen, ReposMap}, mount::mount_bind, pkgbuild::source::CacheableSources, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, try_unshare_user_mount_and_wait, BrokerPayload}, Error, Result};
 
 #[derive(Debug)]
 pub(crate) struct Pkgbuild {
@@ -75,6 +75,7 @@ impl Pkgbuild {
     }
 
     fn dump<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        log::debug!("Dumping PKGBUILD '{}'", &self.name);
         let repo: RepoToOpen = self.into();
         let repo: Repo = repo.try_into()?;
         repo.dump_branch_pkgbuild(
@@ -84,7 +85,7 @@ impl Pkgbuild {
 
 impl Into<RepoToOpen> for &Pkgbuild {
     fn into(self) -> RepoToOpen {
-        RepoToOpen::new_with_url_parent_type(&self.url, "PKGBUILDs")
+        RepoToOpen::new_with_url_parent_type(&self.url, "PKGBUILD")
     }
 }
 
@@ -150,17 +151,27 @@ impl Pkgbuilds {
     pub(crate) fn sync(&self, gmr: &str, proxy: &Proxy, hold: bool) 
         -> Result<()> 
     {
-        ReposMap::from_iter_into_repo_to_open(
-            self.pkgbuilds.iter())?.sync(gmr, proxy, hold)
+        log::info!("Syncing PKGBUILDs...");
+        let mut repos_list = ReposListToOpen::default();
+        for pkgbuild in self.pkgbuilds.iter() {
+            repos_list.add::<_, _, _, _, _, &str>(
+                "PKGBUILD", &pkgbuild.url, 
+                once(&pkgbuild.branch), empty())
+        }
+        repos_list.try_into_repos_map()?.sync(gmr, proxy, hold)?;
+        log::info!("Synced PKGBUILDs");
+        Ok(())
     }
 
     pub(crate) fn dump<P: AsRef<Path>>(&self, parent: P) -> Result<()> {
+        log::info!("Dumping PKGBUILDs...");
         let parent = parent.as_ref();
         create_dir_allow_existing(&parent)?;
         for pkgbuild in self.pkgbuilds.iter() {
             let path_pkgbuild = parent.join(&pkgbuild.name);
             pkgbuild.dump(&path_pkgbuild)?
         }
+        log::info!("Dumped PKGBUILDs");
         Ok(())
     }
 
