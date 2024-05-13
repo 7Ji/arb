@@ -141,8 +141,6 @@ impl HashedFile {
         if self.checksum.verify_file(&path_cache)? {
             rename_checked(&path_cache, &self.path)
         } else {
-            log::error!("Downloaded file is broken, removing it");
-            remove_file_checked(&path_cache)?;
             Err(Error::IntegrityError)
         }
     }

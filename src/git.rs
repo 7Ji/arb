@@ -126,50 +126,50 @@ impl RepoToOpen {
         }
         let repo = match Repository::open_bare(&self.path) {
             Ok(repo) => repo,
-            Err(e) =>
-                if e.class() == ErrorClass::Os &&
-                    e.code() == ErrorCode::NotFound 
+            Err(e) => {
+                if ! (e.class() == ErrorClass::Os &&
+                    e.code() == ErrorCode::NotFound) 
                 {
-                    match Repository::init_bare(&self.path) {
-                        Ok(repo) => repo,
-                        Err(e) => {
-                            log::error!("Failed to create {}: {}",
-                                        self.path.display(), e);
-                            return Err(e.into())
-                        }
-                    }
-                } else {
                     log::error!("Failed to open {}: {}", 
-                            self.path.display(), e);
+                        self.path.display(), e);
                     return Err(e.into())
-                },
-        };
-        if let Err(e) = repo.remote_delete("origin") {
-            log::warn!("Failed to delete remote 'origin': {}", e);
-        }
-        let first_fetch = match refspecs.first() {
-            Some(refspec) => refspec,
-            None => {
-                log::error!("Failed to lookup first refspec");
-                return Err(Error::ImpossibleLogic)
-            },
-        };
-        if let Err(e) = repo.remote_with_fetch(
-            "origin", &self.url, &first_fetch
-        ) {
-            log::error!("Failed to create remote 'origin' with \
-                        url '{}': {}", &self.url, e);
-            return Err(e.into())
-        }
-        for refspec in &refspecs[1..] {
-            if let Err(e) = repo.remote_add_fetch(
-                                "origin", refspec) 
-            {
-                log::error!("Failed to add fetch spec '{}' to remote 'origin' \
-                    (url '{}'): {}", refspec, &self.url, e);
-                return Err(e.into())
+                }
+                log::warn!("Initializing git repo at '{}'", 
+                        self.path.display());
+                let repo = match Repository::init_bare(&self.path) {
+                    Ok(repo) => repo,
+                    Err(e) => {
+                        log::error!("Failed to create {}: {}",
+                                    self.path.display(), e);
+                        return Err(e.into())
+                    }
+                };
+                let first_fetch = match refspecs.first() {
+                    Some(refspec) => refspec,
+                    None => {
+                        log::error!("Failed to lookup first refspec");
+                        return Err(Error::ImpossibleLogic)
+                    },
+                };
+                if let Err(e) = repo.remote_with_fetch(
+                    "origin", &self.url, &first_fetch
+                ) {
+                    log::error!("Failed to create remote 'origin' with \
+                                url '{}': {}", &self.url, e);
+                    return Err(e.into())
+                }
+                for refspec in &refspecs[1..] {
+                    if let Err(e) = repo.remote_add_fetch(
+                                        "origin", refspec) 
+                    {
+                        log::error!("Failed to add fetch spec '{}' to remote \
+                            'origin' (url '{}'): {}", refspec, &self.url, e);
+                        return Err(e.into())
+                    }
+                }
+                repo
             }
-        }
+        };
         Ok(Repo {
             path: self.path,
             hash_url: self.hash_url,
@@ -560,7 +560,10 @@ impl ReposMap {
         let results: Vec<Result<()>> = self.map.par_iter_mut().map(
             |(domain, list)| 
         {
-            if *domain == 0xb463cbdec08d6265 { // AUR
+            let is_aur = *domain == 0xb463cbdec08d6265;
+            log::debug!("Repos group {:016x} (AUR: {}) with {} members", 
+                        domain, is_aur, list.list.len());
+            if is_aur { // AUR
                 list.sync_aur(gmr, proxy, hold)
             } else {
                 list.sync_generic(gmr, proxy, hold)

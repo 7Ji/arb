@@ -147,7 +147,7 @@ fn remove_any_with_metadata<P: AsRef<Path>>(path: P, metadata: &Metadata)
     Ok(())
 }
 
-fn remove_any<P: AsRef<Path>>(path: P) -> Result<()> {
+pub(crate) fn remove_any<P: AsRef<Path>>(path: P) -> Result<()> {
     let metadata = match symlink_metadata(&path) {
         Ok(metadata) => metadata,
         Err(e) => if e.kind() == std::io::ErrorKind::NotFound {
