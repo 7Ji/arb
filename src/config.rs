@@ -53,10 +53,9 @@ pub(crate) struct PersistentConfig {
     sign: Option<String>,
 }
 
-impl TryFrom<&Path> for PersistentConfig {
-    type Error = Error;
-
-    fn try_from(path: &Path) -> Result<Self> {
+impl PersistentConfig {
+    pub(crate) fn try_read<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let path = path.as_ref();
         let file = match File::open(path) {
             Ok(file) => file,
             Err(e) => {
@@ -73,12 +72,6 @@ impl TryFrom<&Path> for PersistentConfig {
                 Err(e.into())
             },
         }
-    }
-}
-
-impl PersistentConfig {
-    fn try_read<P: AsRef<Path>>(path: P) -> Result<Self> {
-        Self::try_from(path.as_ref())
     }
 }
 /// Unified CLI temporary + file persistent config

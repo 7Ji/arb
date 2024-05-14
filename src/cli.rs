@@ -1,7 +1,7 @@
 
 use std::path::PathBuf;
 
-use crate::{filesystem::action_rm_rf, pkgbuild::action_read_pkgbuilds, rootless::{action_broker, action_init, action_map_assert}, worker::WorkerState, Result};
+use crate::{filesystem::action_rm_rf, pkgbuild::action_read_pkgbuilds, rootless::{action_broker, action_init, action_map_assert}, worker::{WorkerStateBuilt, WorkerStateFetchedPkgbuilds, WorkerStateFetchedPkgs, WorkerStateFetchedSources, WorkerStateReadConfig, WorkerStateReleased}, Result};
 
 #[derive(clap::Args, Debug, Clone)]
 pub(crate) struct ActionArgs {
@@ -75,45 +75,35 @@ pub(crate) struct ActionArgs {
 }
 
 impl ActionArgs {
-    fn fetch_pkgbuilds(self) -> Result<WorkerState> {
-        WorkerState::new()
-            .read_config(&self.config)?
-            .merge_config(self)?
-            .prepare_rootless()?
-            .prepare_layout()?
-            .fetch_pkgbuilds()
+    fn try_fetch_pkgbuilds(self) -> Result<WorkerStateFetchedPkgbuilds> {
+        WorkerStateReadConfig::try_new(&self.config)?
+            .try_merge_config(self)?
+            .try_prepare_rootless()?
+            .try_prepare_layout()?
+            .try_fetch_pkgbuilds()
     }
 
-    fn fetch_sources(self) -> Result<WorkerState> {
-        self.fetch_pkgbuilds()?
-            .prepare_to_parse_pkgbuilds()?
-            .parse_pkgbuilds()?
-            .fetch_sources()
+    fn try_fetch_sources(self) -> Result<WorkerStateFetchedSources> {
+        self.try_fetch_pkgbuilds()?
+            .try_prepare_base_root()?
+            .try_dump_arch()?
+            .try_parse_pkgbuilds()?
+            .try_fetch_sources()
     }
 
-    fn fetch_pkgs(self) -> Result<WorkerState> {
-        self.fetch_sources()?
-            .fetch_pkgs()
+    fn try_fetch_pkgs(self) -> Result<WorkerStateFetchedPkgs> {
+        self.try_fetch_sources()?
+            .try_fetch_pkgs()
     }
 
-    fn make_base_chroot(self) -> Result<WorkerState> {
-        self.fetch_pkgs()?
-            .make_base_chroot()
+    fn try_build(self) -> Result<WorkerStateBuilt> {
+        self.try_fetch_pkgs()?
+            .try_build()
     }
 
-    fn make_chroots(self) -> Result<WorkerState> {
-        self.make_base_chroot()?
-            .make_chroots()
-    }
-
-    fn build(self) -> Result<WorkerState> {
-        self.make_chroots()?
-            .build()
-    }
-
-    fn release(self) -> Result<WorkerState> {
-        self.build()?
-            .release()
+    fn try_release(self) -> Result<WorkerStateReleased> {
+        self.try_build()?
+            .try_release()
     }
 }
 
@@ -131,16 +121,6 @@ enum Action {
     ),
     /// ..., then fetch dependent pkgs
     FetchPkgs (
-        #[command(flatten)]
-        ActionArgs
-    ),
-    /// ..., then make base chroot
-    MakeBaseChroot (
-        #[command(flatten)]
-        ActionArgs
-    ),
-    /// ..., then make PKGBUILD-specific chroots
-    MakeChroots (
         #[command(flatten)]
         ActionArgs
     ),
@@ -189,14 +169,12 @@ pub(crate) fn work() -> Result<()> {
     log::debug!("Args: {:?}", std::env::args());
     let arg: Arg = clap::Parser::parse();
     match arg.action {
-        Action::FetchPkgbuilds(args) => args.fetch_pkgbuilds().and(Ok(())),
-        Action::FetchSources(args) => args.fetch_sources().and(Ok(())),
-        Action::FetchPkgs(args) => args.fetch_pkgs().and(Ok(())),
-        Action::MakeBaseChroot(args) => args.make_base_chroot().and(Ok(())),
-        Action::MakeChroots(args) => args.make_chroots().and(Ok(())),
-        Action::Build(args) => args.build().and(Ok(())),
-        Action::Release(args) => args.release().and(Ok(())),
-        Action::DoEverything(args) => args.release().and(Ok(())),
+        Action::FetchPkgbuilds(args) => args.try_fetch_pkgbuilds().and(Ok(())),
+        Action::FetchSources(args) => args.try_fetch_sources().and(Ok(())),
+        Action::FetchPkgs(args) => args.try_fetch_pkgs().and(Ok(())),
+        Action::Build(args) => args.try_build().and(Ok(())),
+        Action::Release(args) => args.try_release().and(Ok(())),
+        Action::DoEverything(args) => args.try_release().and(Ok(())),
         Action::MapAssert => action_map_assert(),
         Action::ReadPkgbuilds { root, pkgbuilds } => action_read_pkgbuilds(root, &pkgbuilds),
         Action::RmRf { paths } => action_rm_rf(paths),
