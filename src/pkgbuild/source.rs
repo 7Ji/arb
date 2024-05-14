@@ -348,7 +348,8 @@ impl CacheableSources {
     }
 
     fn cache_git(&self, gmr: &str, proxy: &Proxy, hold: bool) -> Result<()> {
-        log::info!("Caching git sources...");
+        log::info!("Caching git sources (gmr: '{}', proxy: {}, hold: {})...",
+                                                    gmr, proxy, hold);
         let mut repos_list = ReposListToOpen::default();
         for repo in self.git.iter() {
             repos_list.add("git", &repo.url, &repo.branches, &repo.tags);
@@ -357,6 +358,8 @@ impl CacheableSources {
     }
 
     fn cache_hashed(&self, proxy: &Proxy, lazyint: bool) -> Result<()> {
+        log::info!("Caching hashed netfile sources (proxy: {}, \
+                lazy integrity: {})...", proxy, lazyint);
         let results: Vec<Result<()>> = self.hashed.par_iter().map(
             |source|source.cache(
                         proxy, lazyint)
@@ -373,6 +376,8 @@ impl CacheableSources {
         &self, gmr: &str, proxy: &Proxy, holdgit: bool, lazyint: bool
     ) -> Result<()> 
     {
+        log::info!("Caching sources (gmr: '{}', proxy: {}, hold git: {}, \
+            lazy integrity: {})...", gmr, proxy, holdgit, lazyint);
         self.cache_git(gmr, proxy, holdgit)?;
         self.cache_hashed(proxy, lazyint)
     }

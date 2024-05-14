@@ -1,18 +1,7 @@
 // Todo: use `gitoxide` instead of `git2-rs`, for memory safety
 
 use git2::{
-        Blob,
-        Branch,
-        build::CheckoutBuilder,
-        Commit,
-        FetchOptions,
-        Oid,
-        Remote,
-        RemoteCallbacks,
-        Repository,
-        Progress,
-        ProxyOptions,
-        Tree, AutotagOption, FetchPrune, ErrorClass, ErrorCode, BranchType,
+        build::CheckoutBuilder, AutotagOption, Blob, Branch, BranchType, Commit, ErrorClass, ErrorCode, FetchOptions, FetchPrune, Oid, Progress, ProxyOptions, Reference, Remote, RemoteCallbacks, Repository, Tree
     };
 use nix::NixPath;
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
@@ -390,7 +379,7 @@ impl ReposList {
     }
 
     fn keep_unhealthy(&mut self) {
-        self.list.retain(|repo|!repo.is_head_healthy())
+        self.list.retain(|repo|!repo.is_healthy())
     }
 
     fn sync_single_thread(&mut self, gmr: &str, proxy: &Proxy, hold: bool) 
@@ -686,6 +675,17 @@ where
     Err(last_error)
 }
 
+fn is_reference_healthy(reference: &Reference) -> bool {
+    match reference.peel_to_commit() {
+        Ok(_) => true,
+        Err(e) => {
+            log::warn!("Reference '{}' is unhealthy as we could not peel it to \
+                commit: {}", reference.name().unwrap_or("NONE"), e);
+            false
+        },
+    }
+}
+
 impl Repo {
     // pub(crate) fn try_new_with_path_url<P: Into<PathBuf>, S: Into<String>>(
     //     path: P, url: S) -> Result<Self>
@@ -833,7 +833,9 @@ impl Repo {
     {
         log::debug!("Syncing git repo '{}' with remote '{}', refspecs: {:?}",
             self.path.display(), &self.url, &self.refspecs);
-        if hold && self.is_head_healthy() {
+        if hold && self.is_healthy() {
+            log::info!("Skipping healthy repo '{}' in holding mode", 
+                            self.path.display());
             Ok(())
         } else if self.refspecs.is_empty() {
             self.sync_with_refspecs(gmr, proxy, REFSPECS_HEADS_TAGS)
@@ -975,23 +977,60 @@ impl Repo {
     }
 
     /// Check if a repo's HEAD both exists and points to a valid commit
-    pub(crate) fn is_head_healthy(&self) -> bool {
-        let head = match self.repo.head() {
-            Ok(head) => head,
+    fn is_head_healthy(&self) -> bool {
+        match self.repo.head() {
+            Ok(head) => is_reference_healthy(&head),
             Err(e) => {
-                log::error!("Failed to get head of repo '{}': {}",
-                        self.path.display(), e);
-                return false
-            },
-        };
-        return match head.peel_to_commit() {
-            Ok(_) => true,
-            Err(e) => {
-                log::error!("Failed to get head of repo '{}': {}",
+                log::warn!("Failed to get head of repo '{}', unhealthy: {}",
                         self.path.display(), e);
                 false
             },
-        };
+        }
+    }
+
+    fn is_branch_healthy(&self, branch: &str) -> bool {
+        match self.repo.find_branch(branch, BranchType::Local) {
+            Ok(branch) => 
+                is_reference_healthy(&branch.into_reference()),
+            Err(e) => {
+                log::warn!("Failed to find branch '{}' from repo '{}', \
+                    unhealthy: {}",
+                    branch, self.path.display(), e);
+                false
+            },
+        }
+    }
+
+    fn is_reference_healthy(&self, reference: &str) -> bool {
+        match self.repo.find_reference(reference) {
+            Ok(reference) => is_reference_healthy(&reference),
+            Err(e) => {
+                log::warn!("Failed to find reference '{}' from repo '{}', \
+                    unhealthy: {}", reference, self.path.display(), e);
+                false
+            },
+        }
+    }
+
+    fn is_tag_healthy(&self, tag: &str) -> bool {
+        self.is_reference_healthy(&format!("refs/tags/{}", tag))
+    }
+
+    fn is_healthy(&self) -> bool {
+        if ! self.is_head_healthy() {
+            return false
+        }
+        for branch in self.branches.iter() {
+            if ! self.is_branch_healthy(branch) {
+                return false
+            }
+        }
+        for tag in self.tags.iter() {
+            if ! self.is_tag_healthy(tag) {
+                return false
+            }
+        }
+        true
     }
 
     /// Checkout a repo to `target`, from `branch` and optionally from `subtree`

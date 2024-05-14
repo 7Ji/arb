@@ -151,7 +151,8 @@ impl Pkgbuilds {
     pub(crate) fn sync(&self, gmr: &str, proxy: &Proxy, hold: bool) 
         -> Result<()> 
     {
-        log::info!("Syncing PKGBUILDs...");
+        log::info!("Syncing PKGBUILDs (gmr: '{}', proxy: {}, hold: {})...",
+            gmr, proxy, hold);
         let mut repos_list = ReposListToOpen::default();
         for pkgbuild in self.pkgbuilds.iter() {
             repos_list.add::<_, _, _, _, _, &str>(

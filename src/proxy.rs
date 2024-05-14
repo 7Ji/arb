@@ -1,7 +1,15 @@
+use std::fmt::Display;
+
 #[derive(Default, Clone)]
 pub(crate) struct Proxy {
     url: String,
     after: usize,
+}
+
+impl Display for Proxy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Proxy (url: '{}', after: {})", &self.url, self.after)
+    }
 }
 
 pub(crate) const NOPROXY: Proxy = Proxy { url: String::new(), after: 0 };
