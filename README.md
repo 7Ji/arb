@@ -2,6 +2,11 @@
 
 A naive builder to build Arch packages, mainly those from AUR, and create a sane folder structure for repo hosted on Github releases, written initially for https://github.com/7Ji/archrepo
 
+## Ongoing rewrite warning
+A rewrite to introduce incremental sub-versioning and utilize user namespaces to achieve rootless building is ongoing, it lives in `rewrite` branch and would replace the `master` branch to become the main branch. The PKGBUILD-parsing functionality is splitted as a library into a seperate repo, [7Ji/pkgbuild-rs](https://github.com/7Ji/pkgbuild-rs), and it's already usable.
+
+This branch (`production`) is the old branch that was built up quickly as a conception proof and would only receive bug fixes before `rewrite` finishes. Please don't open feature requests on this branch.
+
 ## Features
  - Multi-threaded downloading, bootstrapping, bulding and cleaning, highly parallelized.
  - Most logic happens in the Rust world as native code, not in Bash. `makepkg` only gets the prepared sources we pass to it, and only build and pack.
