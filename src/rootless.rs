@@ -169,6 +169,16 @@ impl RootlessHandler {
                 "useradd-arb")?,
             "useradd",
             ["-u", "1000", "-m", "arb"]);
+        payload.add_init_command_run_program(
+            LogFile::try_new("pacman-key", 
+                "init")?,
+            "pacman-key",
+            ["--init"]);
+        payload.add_init_command_run_program(
+            LogFile::try_new("pacman-key", 
+                "populate")?,
+            "pacman-key",
+            ["--populate"]);
         self.run_broker(&payload)?;
         log::info!("Bootstrapped root at '{}'", path_root.display());
         Ok(())

@@ -1,9 +1,9 @@
-use std::{ffi::OsString, io::{stdin, Write}, path::{Path, PathBuf}, process::Child};
+use std::{collections::HashMap, ffi::OsString, fs::File, io::{stdin, Write}, path::{Path, PathBuf}, process::Child};
 
 use nix::{errno::Errno, libc::pid_t, sys::wait::{wait, WaitStatus}, unistd::{chroot, Pid}};
 use serde::{Deserialize, Serialize};
 
-use crate::{child::command_new_no_stdin, filesystem::set_current_dir_checked, logfile::LogFile, mount::mount_proc, Error, Result};
+use crate::{child::command_new_no_stdin, filesystem::set_current_dir_checked, logfile::LogFile, mount::{mount_bind, mount_proc}, Error, Result};
 
 use super::{action::run_action_stateless, root::chroot_checked};
 
@@ -31,8 +31,12 @@ pub(crate) enum InitCommand {
     },
 }
 
+struct InitCache {
+    logfiles: HashMap<OsString, (File, File)>,
+}
+
 impl InitCommand {
-    fn work(self) -> Result<()> {
+    fn work(self, cache: &mut InitCache) -> Result<()> {
         match self {
             InitCommand::RunApplet { applet, args } => {
                 log::debug!("Running applet '{}' with args {:?}", 
@@ -45,10 +49,14 @@ impl InitCommand {
                     program.to_string_lossy(), args);
                 let mut command = command_new_no_stdin(&program);
                 if ! logfile.is_empty() {
-                    let logfile = LogFile::try_from(logfile)?;
                     log::info!("Program log file: '{}' => '{}'",
-                        program.to_string_lossy(), logfile.path.display());
-                    let (child_out, child_err) = logfile.try_split()?;
+                        program.to_string_lossy(), logfile.to_string_lossy());
+                    let (child_out, child_err) = match 
+                        cache.logfiles.remove(&logfile) 
+                    {
+                        Some(value) => value,
+                        None => LogFile::try_open(logfile)?.try_split()?,
+                    };
                     command.stdout(child_out)
                         .stderr(child_err);
                 }
@@ -77,7 +85,8 @@ impl InitCommand {
             },
             InitCommand::Chroot { path } => {
                 log::debug!("Chrooting to '{}'", path.to_string_lossy());
-                chroot_checked(path)
+                set_current_dir_checked(path)?;
+                chroot_checked(".")
             },
         }
     }
@@ -122,9 +131,31 @@ impl InitPayload {
         }
     }
 
+    fn try_cache(&self) -> Result<InitCache> {
+        let mut logfiles = HashMap::new();
+        for command in self.commands.iter() {
+            if let InitCommand::RunProgram { 
+                logfile, program: _, args: _ } = command 
+            {
+                if logfile.is_empty() {
+                    continue
+                }
+                if logfiles.insert(
+                    logfile.clone(), 
+                    LogFile::try_open(logfile)?.try_split()?
+                ).is_some() {
+                    log::warn!("Duplicated log file '{}'", 
+                            logfile.to_string_lossy());
+                }
+            }
+        }
+        Ok(InitCache { logfiles })
+    }
+
     pub(crate) fn work(self) -> Result<()> {
+        let mut cache = self.try_cache()?;
         for command in self.commands {
-            command.work()?
+            command.work(&mut cache)?
         }
         Ok(())
     }
@@ -175,7 +206,11 @@ fn wait_all(child: Child) -> Result<()> {
             Ok(r) => 
                 if let WaitStatus::Exited(pid, code_this) = r {
                     if pid == pid_direct {
-                        code = Some(code_this)
+                        code = Some(code_this); 
+                        // We will send out SIGCHILD to all children when we
+                        // quit, Just let these children die (especially
+                        // gpg-agent)
+                        break
                     }
                 },
             Err(e) =>

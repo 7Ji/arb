@@ -125,4 +125,8 @@ impl LogFile {
     {
         LogFileBuilder::new(log_file_type, suffix).try_create()
     }
+
+    pub(crate) fn try_open<O: Into<OsString>>(path: O) -> Result<Self> {
+        Self::try_from(path.into())
+    }
 }

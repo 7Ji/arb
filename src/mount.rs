@@ -103,7 +103,8 @@ pub(crate) fn mount_bind<P1: AsRef<Path>, P2: AsRef<Path>>(source: P1, target: P
 /// This is not actually mounting, but pretending to be a /dev
 fn mount_dev<P: AsRef<Path>>(path_dev: P) -> Result<()> {
     let path_dev_target = path_dev.as_ref();
-    mount_tmpfs(&path_dev_target, "devtmpfs", MsFlags::MS_NOSUID, "")?;
+    mount_tmpfs(&path_dev_target, "devtmpfs", 
+        MsFlags::MS_NOSUID, "mode=0755")?;
     let path_dev_source = PathBuf::from("/dev");
     for target in &["full", "null", "random", "tty", "urandom", "zero"] {
         let path_device_target = path_dev_target.join(target);

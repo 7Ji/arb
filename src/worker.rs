@@ -102,7 +102,7 @@ impl WorkerStateFetchedPkgbuilds {
         paconf.set_option("SigLevel", Some("Never"));
         root.prepare_layout(&paconf)?;
         self.rootless.bootstrap_root(
-            &root, once("base-devel"), true)?;
+            &root, ["base", "base-devel"], true)?;
         Ok(WorkerStatePreparedBaseRoot { 
             config: self.config,
             rootless: self.rootless,
