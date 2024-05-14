@@ -107,6 +107,7 @@ where
     let mut sources = vec![];
     let mut started = false;
     for line in  output.stdout.split(|byte| byte == &b'\n') {
+        log::debug!("Parsing line: {}", String::from_utf8_lossy(line));
         if line.len() == 0 {
             continue;
         }
@@ -136,8 +137,14 @@ where
         }
         let mut it =
             line.splitn(2, |byte| byte == &b':');
-        let key = it.next().expect("Failed to get key");
-        let value = it.next().expect("Failed to get value");
+        let key = match it.next() {
+            Some(key) => key,
+            None => continue,
+        };
+        let value = match it.next() {
+            Some(value) => value,
+            None => continue,
+        };
         match key {
             b"name" => {
                 name = Some(String::from_utf8_lossy(value).into_owned());
