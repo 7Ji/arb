@@ -100,6 +100,16 @@ pub(crate) fn mount_bind<P1: AsRef<Path>, P2: AsRef<Path>>(source: P1, target: P
                 target.display())
 }
 
+fn mount_bind_root<P: AsRef<Path>>(root: P) -> Result<()> {
+    let root = root.as_ref();
+    mount_checked(Some(root), root,
+                None::<&str>,
+                MsFlags::MS_BIND | MsFlags::MS_REC | MsFlags::MS_PRIVATE,
+                None::<&str>,
+                root.display(),
+                root.display())
+}
+
 /// This is not actually mounting, but pretending to be a /dev
 fn mount_dev<P: AsRef<Path>>(path_dev: P) -> Result<()> {
     let path_dev_target = path_dev.as_ref();
@@ -130,6 +140,7 @@ fn mount_dev<P: AsRef<Path>>(path_dev: P) -> Result<()> {
 
 pub(crate) fn mount_all_except_proc<P: AsRef<Path>>(root: P) -> Result<()> {
     let root = root.as_ref();
+    mount_bind_root(root)?;
     mount_tmp(root.join("tmp"))?;
     mount_run(root.join("run"))?;
     mount_dev(root.join("dev"))?;
@@ -138,6 +149,6 @@ pub(crate) fn mount_all_except_proc<P: AsRef<Path>>(root: P) -> Result<()> {
 }
 
 pub(crate) fn mount_all<P: AsRef<Path>>(root: P) -> Result<()> {
-    mount_proc(root.as_ref().join("proc"))?;
-    mount_all_except_proc(root)
+    mount_all_except_proc(&root)?;
+    mount_proc(&root.as_ref().join("proc"))
 }

@@ -159,6 +159,11 @@ impl RootlessHandler {
         payload.add_init_command(InitCommand::Chroot { 
             path: root.get_path().into() });
         payload.add_init_command_run_program(
+            LogFile::try_new("bash", 
+                "readpwd")?,
+            "bash",
+            ["-c", "/usr/bin/pwd; readlink -f ."]);
+        payload.add_init_command_run_program(
             LogFile::try_new("bootstrap",
                 "localedef-en_GB.UTF-8")?,
             "localedef", 

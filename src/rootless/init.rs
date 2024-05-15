@@ -3,7 +3,7 @@ use std::{collections::HashMap, ffi::OsString, fs::File, io::{stdin, Write}, pat
 use nix::{errno::Errno, libc::pid_t, sys::wait::{wait, WaitStatus}, unistd::{chroot, Pid}};
 use serde::{Deserialize, Serialize};
 
-use crate::{child::command_new_no_stdin, filesystem::set_current_dir_checked, logfile::LogFile, mount::{mount_bind, mount_proc}, Error, Result};
+use crate::{child::command_new_no_stdin, filesystem::set_current_dir_checked, logfile::LogFile, mount::mount_proc, Error, Result};
 
 use super::{action::run_action_stateless, root::chroot_checked};
 
