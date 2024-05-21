@@ -1,9 +1,9 @@
-use std::{collections::HashMap, ffi::OsString, fs::File, io::{stdin, Write}, path::{Path, PathBuf}, process::Child};
+use std::{collections::HashMap, ffi::OsString, fs::File, io::{stdin, Write}, path::{Path, PathBuf}, process::{Child, Stdio}};
 
 use nix::{errno::Errno, libc::pid_t, sys::wait::{wait, WaitStatus}, unistd::{chroot, Pid}};
 use serde::{Deserialize, Serialize};
 
-use crate::{child::command_new_no_stdin, filesystem::set_current_dir_checked, logfile::LogFile, mount::mount_proc, Error, Result};
+use crate::{child::{command_new_no_stdin, command_new_no_stdin_with_piped_out_err, pid_from_child, ChildLoggers}, filesystem::set_current_dir_checked, logfile::LogFile, mount::mount_proc, Error, Result};
 
 use super::{action::run_action_stateless, root::chroot_checked};
 
@@ -32,7 +32,7 @@ pub(crate) enum InitCommand {
 }
 
 struct InitCache {
-    logfiles: HashMap<OsString, (File, File)>,
+    logfiles: HashMap<OsString, LogFile>,
 }
 
 impl InitCommand {
@@ -47,24 +47,15 @@ impl InitCommand {
             InitCommand::RunProgram { logfile, program, args } => {
                 log::debug!("Running program '{}' with args {:?}", 
                     program.to_string_lossy(), args);
-                let mut command = command_new_no_stdin(&program);
-                if ! logfile.is_empty() {
-                    log::info!("Program log file: '{}' => '{}'",
-                        program.to_string_lossy(), logfile.to_string_lossy());
-                    let (child_out, child_err) = match 
-                        cache.logfiles.remove(&logfile) 
-                    {
-                        Some(value) => value,
-                        None => LogFile::try_open(logfile)?.try_split()?,
-                    };
-                    command.stdout(child_out)
-                        .stderr(child_err);
+                let mut child = match if logfile.is_empty() {
+                    command_new_no_stdin(&program)
+                } else {
+                    command_new_no_stdin_with_piped_out_err(&program)
                 }
-                let child = match command
                     .env_clear()
                     .env("LANG", "en_US.UTF-8") // 7Ji: No en_US
                     .args(args)
-                    .spawn() 
+                    .spawn()
                 {
                     Ok(child) => child,
                     Err(e) => {
@@ -73,7 +64,23 @@ impl InitCommand {
                         return Err(e.into())
                     },
                 };
-                wait_all(child)
+                let mut child_loggers = None;
+                if ! logfile.is_empty() {
+                    log::info!("Program log file: '{}' => '{}'",
+                        program.to_string_lossy(), logfile.to_string_lossy());
+                    if let Some(logfile) = cache.logfiles.remove(&logfile) {
+                        child_loggers = Some(ChildLoggers::try_new(&mut child, logfile)?)
+                    } else {
+                        log::warn!("Failed to find cached log file but \
+                            requested to write to log file, redirecting to \
+                            our own stdout & stderr");
+                    }
+                }
+                wait_all(child)?;
+                if let Some(child_loggers) = child_loggers {
+                    child_loggers.try_join()?
+                }
+                Ok(())
             },
             InitCommand::MountProc { path } => {
                 log::debug!("Mounting proc to '{}'", path.to_string_lossy());
@@ -142,7 +149,7 @@ impl InitPayload {
                 }
                 if logfiles.insert(
                     logfile.clone(), 
-                    LogFile::try_open(logfile)?.try_split()?
+                    LogFile::try_open(logfile)?
                 ).is_some() {
                     log::warn!("Duplicated log file '{}'", 
                             logfile.to_string_lossy());
@@ -199,7 +206,7 @@ impl InitPayload {
 
 /// A dump init implementation that wait for all children
 fn wait_all(child: Child) -> Result<()> {
-    let pid_direct = Pid::from_raw(child.id() as pid_t);
+    let pid_direct = pid_from_child(&child);
     let mut code = None;
     loop {
         match wait() {

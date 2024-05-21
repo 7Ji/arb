@@ -1,7 +1,7 @@
 use std::{fs::read_link, process::Child, thread::sleep, time::Duration};
 
 use nix::{libc::pid_t, sched::{unshare, CloneFlags}, unistd::{getpid, Pid}};
-use crate::{Error, Result};
+use crate::{child::pid_from_child, Error, Result};
 
 use super::id::ResUidGid;
 
@@ -23,7 +23,7 @@ pub(crate) fn try_wait_as_parent(child: &mut Child) -> Result<()> {
                     log::error!("Child {} exited with '{}' before being mapped",
                         child.id(), r);
                     return Err(Error::BadChild { 
-                        pid: Some(Pid::from_raw(child.id() as pid_t)), 
+                        pid: Some(pid_from_child(child)), 
                         code: r.code() })
                 },
             Err(e) => {

@@ -1,8 +1,12 @@
-use std::{ffi::OsStr, fmt::Display, io::{Read, Write}, process::{Child, ChildStdin, ChildStdout, Command, Stdio}};
+use std::{ffi::OsStr, fmt::Display, io::{stdin, BufRead, BufReader, BufWriter, Read, Write}, process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio}, sync::{Arc, Mutex, RwLock}, thread::JoinHandle, time::Instant};
 
 use nix::{libc::pid_t, unistd::Pid};
 
-use crate::{Error, Result};
+use crate::{io::prefixed_reader_to_shared_writer, logfile::LogFile, Error, Result};
+
+pub(crate) fn pid_from_child(child: &Child) -> Pid {
+    Pid::from_raw(child.id() as pid_t)
+}
 
 pub(crate) fn wait_child(child: &mut Child) -> Result<()> {
     match child.wait() {
@@ -11,7 +15,7 @@ pub(crate) fn wait_child(child: &mut Child) -> Result<()> {
         } else {
             log::error!("Child {} bad return {}", child.id(), status);
             Err(Error::BadChild { 
-                pid: Some(Pid::from_raw(child.id() as pid_t)), 
+                pid: Some(pid_from_child(child)), 
                 code: status.code() })
         },
         Err(e) => {
@@ -27,6 +31,13 @@ pub(crate) fn wait_child(child: &mut Child) -> Result<()> {
 pub(crate) fn command_new_no_stdin<S: AsRef<OsStr>>(exe: S) -> Command {
     let mut command = Command::new(exe);
     command.stdin(Stdio::null());
+    command
+}
+
+pub(crate) fn command_new_no_stdin_with_piped_out_err<S: AsRef<OsStr>>(exe: S) 
+-> Command {
+    let mut command = command_new_no_stdin(exe);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
     command
 }
 
@@ -66,7 +77,7 @@ pub(crate) fn get_child_in(child: &mut Child) -> Result<ChildStdin> {
         None => {
             log::error!("Failed to take stdin from child {}", child.id());
             Err(Error::BadChild { 
-                pid: Some(Pid::from_raw(child.id() as pid_t)), 
+                pid: Some(pid_from_child(child)), 
                 code: None })
         },
     }
@@ -78,7 +89,19 @@ pub(crate) fn get_child_out(child: &mut Child) -> Result<ChildStdout> {
         None => {
             log::error!("Failed to take stdout from child {}", child.id());
             Err(Error::BadChild { 
-                pid: Some(Pid::from_raw(child.id() as pid_t)), 
+                pid: Some(pid_from_child(child)), 
+                code: None })
+        },
+    }
+}
+
+pub(crate) fn get_child_err(child: &mut Child) -> Result<ChildStderr> {
+    match child.stderr.take() {
+        Some(child_err) => Ok(child_err),
+        None => {
+            log::error!("Failed to take stderr from child {}", child.id());
+            Err(Error::BadChild { 
+                pid: Some(pid_from_child(child)), 
                 code: None })
         },
     }
@@ -100,3 +123,70 @@ pub(crate) fn spawn_and_wait(command: &mut Command) -> Result<()> {
     };
     wait_child(&mut child)
 }
+
+pub(crate) struct ChildLoggers {
+    child_id: Pid,
+    logger_stdout: JoinHandle<Result<()>>,
+    logger_stderr: JoinHandle<Result<()>>,
+}
+
+impl ChildLoggers {
+    pub(crate) fn try_new(child: &mut Child, logfile: LogFile) -> Result<Self> {
+        let child_out = get_child_out(child)?;
+        let child_err = get_child_err(child)?;
+        let file = Arc::new(Mutex::new(BufWriter::new(logfile.file)));
+        let time_start = Instant::now();
+        let file_cloned = file.clone();
+        let logger_stdout = std::thread::spawn(move||{
+            prefixed_reader_to_shared_writer(child_out, file_cloned, "out", time_start)
+        });
+        let logger_stderr = std::thread::spawn(move||{
+            prefixed_reader_to_shared_writer(child_err, file, "err", time_start)
+        });
+        Ok(Self {
+            child_id: pid_from_child(child),
+            logger_stdout,
+            logger_stderr
+        })
+    }
+
+    pub(crate) fn try_join(self) -> Result<()> {
+        let mut r = Ok(());
+        if let Err(e) = self.logger_stdout.join() {
+            log::error!("Failed to join stdout logger for child {}", self.child_id);
+            r = Err(Error::ThreadFailure(Some(e)));
+        }
+        if let Err(e) = self.logger_stderr.join() {
+            log::error!("Failed to join stderr logger for child {}", self.child_id);
+            r = Err(Error::ThreadFailure(Some(e)));
+        }
+        r
+    }
+}
+
+// pub(crate) struct ChildWithLoggers {
+//     child: Child,
+//     logger_stdout: JoinHandle<Result<()>>,
+//     logger_stderr: JoinHandle<Result<()>>,
+// }
+
+// impl ChildWithLoggers {
+//     fn try_new(mut child: Child, logfile: LogFile) -> Result<Self> {
+//         let child_out = get_child_out(&mut child)?;
+//         let child_err = get_child_err(&mut child)?;
+//         let file = Arc::new(Mutex::new(BufWriter::new(logfile.file)));
+//         let time_start = Instant::now();
+//         let file_cloned = file.clone();
+//         let logger_stdout = std::thread::spawn(move||{
+//             prefixed_reader_to_shared_writer(child_out, file_cloned, "out", time_start)
+//         });
+//         let logger_stderr = std::thread::spawn(move||{
+//             prefixed_reader_to_shared_writer(child_err, file, "err", time_start)
+//         });
+//         Ok(Self {
+//             child,
+//             logger_stdout,
+//             logger_stderr,
+//         })
+//     }
+// }

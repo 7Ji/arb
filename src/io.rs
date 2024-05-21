@@ -1,6 +1,6 @@
-use std::io::{Read, Write};
+use std::{io::{BufRead, BufReader,  BufWriter, Read, Write}, ops::DerefMut, path::Path, sync::{Arc, Mutex}, thread::JoinHandle, time::Instant};
 use is_terminal;
-use crate::{filesystem::file_create_checked, Result};
+use crate::{error::Error, filesystem::file_create_checked, Result};
 
 pub(crate) fn flush_stdout() -> Result<()> {
     if let Err(e) = std::io::stdout().flush() {
@@ -55,4 +55,35 @@ where
     } else {
         Ok(())
     }
+}
+
+pub(crate) fn prefixed_reader_to_shared_writer<R, W, S>(reader: R, writer: Arc<Mutex<BufWriter<W>>>, prefix: S, time_start: Instant) -> Result<()>
+where
+    R: Read,
+    W: Write,
+    S: AsRef<str>,
+{
+    let prefix = prefix.as_ref();
+    for line in BufReader::new(reader).lines() {
+        let line = match line {
+            Ok(line) => line,
+            Err(e) => {
+                log::error!("Failed to read line: {}", e);
+                return Err(e.into())
+            },
+        };
+        let mut writer = match writer.lock() {
+            Ok(writer) => writer,
+            Err(_) => {
+                log::error!("Failed to get writer");
+                return Err(Error::ThreadFailure(None))
+            },
+        };
+        let elapsed = (Instant::now() - time_start).as_secs_f64();
+        if let Err(e) = writer.get_mut().write_fmt(format_args!("[{:12.6}/{}] {}\n", elapsed, prefix, line)) {
+            log::error!("Failed to write line: {}", e);
+            return Err(e.into())
+        }
+    }
+    Ok(())
 }
