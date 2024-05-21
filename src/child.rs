@@ -1,8 +1,8 @@
-use std::{ffi::OsStr, fmt::Display, io::{stdin, BufRead, BufReader, BufWriter, Read, Write}, process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio}, sync::{Arc, Mutex, RwLock}, thread::JoinHandle, time::Instant};
+use std::{ffi::OsStr, fmt::Display, fs::File, io::{stdin, BufRead, BufReader, BufWriter, Read, Write}, path::PathBuf, process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio}, sync::{Arc, Mutex, RwLock}, thread::JoinHandle, time::Instant};
 
 use nix::{libc::pid_t, unistd::Pid};
 
-use crate::{io::prefixed_reader_to_shared_writer, logfile::LogFile, Error, Result};
+use crate::{filesystem::{file_open_append, file_open_checked}, io::prefixed_reader_to_shared_writer, logfile::LogFile, Error, Result};
 
 pub(crate) fn pid_from_child(child: &Child) -> Pid {
     Pid::from_raw(child.id() as pid_t)
@@ -126,6 +126,9 @@ pub(crate) fn spawn_and_wait(command: &mut Command) -> Result<()> {
 
 pub(crate) struct ChildLoggers {
     child_id: Pid,
+    time_start: Instant,
+    log_file: Arc<Mutex<BufWriter<File>>>,
+    path_log_file: PathBuf,
     logger_stdout: JoinHandle<Result<()>>,
     logger_stderr: JoinHandle<Result<()>>,
 }
@@ -140,11 +143,15 @@ impl ChildLoggers {
         let logger_stdout = std::thread::spawn(move||{
             prefixed_reader_to_shared_writer(child_out, file_cloned, "out", time_start)
         });
+        let file_cloned = file.clone();
         let logger_stderr = std::thread::spawn(move||{
-            prefixed_reader_to_shared_writer(child_err, file, "err", time_start)
+            prefixed_reader_to_shared_writer(child_err, file_cloned, "err", time_start)
         });
         Ok(Self {
             child_id: pid_from_child(child),
+            time_start,
+            log_file: file,
+            path_log_file: logfile.path,
             logger_stdout,
             logger_stderr
         })
@@ -160,7 +167,23 @@ impl ChildLoggers {
             log::error!("Failed to join stderr logger for child {}", self.child_id);
             r = Err(Error::ThreadFailure(Some(e)));
         }
-        r
+        let mut writer = match self.log_file.lock() {
+            Ok(writer) => writer,
+            Err(_) => {
+                log::error!("Failed to get log writer for child {}", self.child_id);
+                return Err(Error::ThreadFailure(None))
+            },
+        };
+        let elapsed = (Instant::now() - self.time_start).as_secs_f64();
+        if let Err(e) = writer.write_fmt(
+            format_args!("[{:12.6}/---] --- end of log file ---\n", elapsed)
+        ) {
+            log::error!("Failed to write end-of-file to log file '{}': {}",
+                self.path_log_file.display(), e);
+            Err(e.into())
+        } else {
+            r
+        }
     }
 }
 

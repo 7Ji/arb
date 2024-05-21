@@ -1,6 +1,6 @@
 use std::{
         env::set_current_dir, fs::{
-            create_dir, hard_link, metadata, read_dir, remove_dir, remove_dir_all, remove_file, rename, set_permissions, symlink_metadata, DirEntry, File, Metadata, ReadDir
+            create_dir, hard_link, metadata, read_dir, remove_dir, remove_dir_all, remove_file, rename, set_permissions, symlink_metadata, DirEntry, File, Metadata, OpenOptions, ReadDir
         }, io::{Read, Write}, os::unix::fs::{chown, symlink, PermissionsExt}, path::Path
     };
 
@@ -514,4 +514,20 @@ pub(crate) fn read_to_bytes<P: AsRef<Path>>(path: P) -> Result<Vec<u8>> {
             Err(e.into())
         },
     }
+}
+
+pub(crate) fn file_open_append<P: AsRef<Path>>(path: P) -> Result<File> {
+    match OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(&path)
+    {
+        Ok(file) => Ok(file),
+        Err(e) => {
+            log::error!("Failed to open '{}' as append mode: {}", 
+                path.as_ref().display(), e);
+            Err(e.into())
+        },
+    }
+
 }
