@@ -97,24 +97,8 @@ impl InitCommand {
                 log::debug!("Chrooting to '{}'", path.to_string_lossy());
                 set_current_dir_checked(&path)?;
                 chroot_checked(".")?;
-                let path: PathBuf = path.into();
                 if ! cache.proc.is_empty() {
                     cache.proc = "/proc".into();
-                    // if cache.proc.starts_with(&path) {
-                    //     match cache.proc.strip_prefix(&path) {
-                    //         Ok(proc) => cache.proc = proc.into(),
-                    //         Err(e) => {
-                    //             log::warn!("Could not strip parent root prefix,
-                    //                 assuming proc would be at /proc: {}", e);
-                    //             cache.proc = "/proc".into()
-                    //         },
-                    //     }
-                    // } else {
-                    //     log::warn!("/proc ('{}') is outside of the new chroot \
-                    //                 ('{}'), remounting proc", 
-                    //                 cache.proc.display(), path.display());
-                    //     cache.proc = "/proc".into();
-                    //     mount_proc(&cache.proc)?
                 }
                 Ok(())
             },

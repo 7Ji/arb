@@ -301,15 +301,6 @@ pub(crate) fn kill_children<P: AsRef<Path>>(proc: P) -> Result<()> {
                     children_alive.insert(pid, 1);
                 },
             }
-            // if children_alive.contains_key(&pid) {
-
-            //     if let Err(e) =  kill(pid, Signal::SIGKILL) {
-            //         log::error!("Failed to send SIGKILL to child {}: {}", pid, e);
-            //         return Err(Error::BadChild { pid: Some(pid), code: None })
-            //     }
-            //     log::warn!("Sent SIGKILL to child {}", pid);
-            // } else {
-            // }
         }
         if ! met_children {
             break
@@ -318,30 +309,3 @@ pub(crate) fn kill_children<P: AsRef<Path>>(proc: P) -> Result<()> {
     }
     Ok(())
 }
-
-// pub(crate) struct ChildWithLoggers {
-//     child: Child,
-//     logger_stdout: JoinHandle<Result<()>>,
-//     logger_stderr: JoinHandle<Result<()>>,
-// }
-
-// impl ChildWithLoggers {
-//     fn try_new(mut child: Child, logfile: LogFile) -> Result<Self> {
-//         let child_out = get_child_out(&mut child)?;
-//         let child_err = get_child_err(&mut child)?;
-//         let file = Arc::new(Mutex::new(BufWriter::new(logfile.file)));
-//         let time_start = Instant::now();
-//         let file_cloned = file.clone();
-//         let logger_stdout = std::thread::spawn(move||{
-//             prefixed_reader_to_shared_writer(child_out, file_cloned, "out", time_start)
-//         });
-//         let logger_stderr = std::thread::spawn(move||{
-//             prefixed_reader_to_shared_writer(child_err, file, "err", time_start)
-//         });
-//         Ok(Self {
-//             child,
-//             logger_stdout,
-//             logger_stderr,
-//         })
-//     }
-// }
