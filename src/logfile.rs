@@ -1,7 +1,7 @@
-use std::{ffi::OsString, fmt::Display, fs::File, path::{Path, PathBuf}, process::Child};
+use std::{ffi::OsString, fmt::Display, fs::File, io::{BufWriter, Write}, path::{Path, PathBuf}, process::Child, sync::{Arc, Mutex}, time::Instant};
 use rand::{distributions::Alphanumeric, Rng};
 
-use crate::{filesystem::{file_create_checked, file_create_new_checked}, Error, Result};
+use crate::{filesystem::{file_create_checked, file_create_new_checked}, io::MTSharedBufferedFile, Error, Result};
 
 // pub(crate) enum LogFileType {
 //     Pacman,
@@ -27,6 +27,21 @@ use crate::{filesystem::{file_create_checked, file_create_new_checked}, Error, R
 //     }
 // }
 
+const DATE_TIME_FORMAT: &[time::format_description::FormatItem<'_>] = 
+    time::macros::format_description!(
+        "[year][month][day]_[hour][minute][second]");
+
+fn time_now_utc_formatted() -> String {
+    match time::OffsetDateTime::now_utc().format(DATE_TIME_FORMAT) 
+    {
+        Ok(time_formatted) => time_formatted,
+        Err(e) => {
+            log::warn!("Failed to format time: {}", e);
+            "19700101_000000".into()
+        },
+    }
+}
+
 pub(crate) struct LogFileBuilder {
     stem: String,
 }
@@ -47,21 +62,11 @@ impl LogFileBuilder {
     }
 
     pub(crate) fn try_create(&self) -> Result<LogFile> {
-        const DATE_TIME_FORMAT: &[time::format_description::FormatItem<'_>] = 
-            time::macros::format_description!(
-                "[year][month][day]_[hour][minute][second]");
         let logs = PathBuf::from("logs");
         for i in 0..100 {
-            let mut name = match 
-                time::OffsetDateTime::now_utc().format(DATE_TIME_FORMAT) 
-            {
-                Ok(time_formatted) => 
-                    format!("{}_{}", time_formatted, &self.stem),
-                Err(e) => {
-                    log::warn!("Failed to format time: {}", e);
-                    format!("19700101_000000_{}", &self.stem)
-                },
-            };
+            let mut name = time_now_utc_formatted();
+            name.push('-');
+            name.push_str(&self.stem);
             if i > 0 {
                 name.push('-');
                 rand::thread_rng()
@@ -128,5 +133,19 @@ impl LogFile {
 
     pub(crate) fn try_open<O: Into<OsString>>(path: O) -> Result<Self> {
         Self::try_from(path.into())
+    }
+}
+
+impl MTSharedBufferedFile {
+    pub(crate) fn write_start(&self) -> Result<()> {
+        self.write_fmt_nobuf(
+            format_args!("[    0.000000/---] --- begin at {}\n", 
+            time::OffsetDateTime::now_utc()))
+    }
+
+    pub(crate) fn write_end(&self, time_start: Instant) -> Result<()> {
+        let elapsed = (Instant::now() - time_start).as_secs_f64();
+        self.write_fmt(
+            format_args!("[{:12.6}/---] --- end of log file ---\n", elapsed))
     }
 }

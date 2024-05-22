@@ -2,7 +2,7 @@ use std::{collections::HashMap, ffi::OsStr, fmt::Display, fs::File, io::{stdin, 
 
 use nix::{libc::pid_t, sys::{signal::{kill, Signal}, wait::{waitpid, WaitPidFlag, WaitStatus}}, unistd::Pid, NixPath};
 
-use crate::{filesystem::{dir_entry_checked, dir_entry_metadata_checked, file_open_append, file_open_checked, read_dir_checked}, io::{prefixed_reader_to_shared_writer, reader_to_buffer}, logfile::LogFile, Error, Result};
+use crate::{filesystem::{dir_entry_checked, dir_entry_metadata_checked, file_open_append, file_open_checked, read_dir_checked}, io::{prefixed_reader_to_shared_writer, reader_to_buffer, MTSharedBufferedFile}, logfile::LogFile, Error, Result};
 
 pub(crate) fn pid_from_child(child: &Child) -> Pid {
     Pid::from_raw(child.id() as pid_t)
@@ -127,7 +127,7 @@ pub(crate) fn spawn_and_wait(command: &mut Command) -> Result<()> {
 pub(crate) struct ChildLoggers {
     child_id: Pid,
     time_start: Instant,
-    log_file: Arc<Mutex<BufWriter<File>>>,
+    log_file: MTSharedBufferedFile,
     path_log_file: PathBuf,
     logger_stdout: JoinHandle<Result<()>>,
     logger_stderr: JoinHandle<Result<()>>,
@@ -137,20 +137,21 @@ impl ChildLoggers {
     pub(crate) fn try_new(child: &mut Child, logfile: LogFile) -> Result<Self> {
         let child_out = get_child_out(child)?;
         let child_err = get_child_err(child)?;
-        let file = Arc::new(Mutex::new(BufWriter::new(logfile.file)));
+        let log_file = MTSharedBufferedFile::new(logfile.file);
+        log_file.write_start()?;
         let time_start = Instant::now();
-        let file_cloned = file.clone();
+        let file_cloned = log_file.clone_raw();
         let logger_stdout = std::thread::spawn(move||{
             prefixed_reader_to_shared_writer(child_out, file_cloned, "out", time_start)
         });
-        let file_cloned = file.clone();
+        let file_cloned = log_file.clone_raw();
         let logger_stderr = std::thread::spawn(move||{
             prefixed_reader_to_shared_writer(child_err, file_cloned, "err", time_start)
         });
         Ok(Self {
             child_id: pid_from_child(child),
             time_start,
-            log_file: file,
+            log_file,
             path_log_file: logfile.path,
             logger_stdout,
             logger_stderr
@@ -167,23 +168,8 @@ impl ChildLoggers {
             log::error!("Failed to join stderr logger for child {}", self.child_id);
             r = Err(Error::ThreadFailure(Some(e)));
         }
-        let mut writer = match self.log_file.lock() {
-            Ok(writer) => writer,
-            Err(_) => {
-                log::error!("Failed to get log writer for child {}", self.child_id);
-                return Err(Error::ThreadFailure(None))
-            },
-        };
-        let elapsed = (Instant::now() - self.time_start).as_secs_f64();
-        if let Err(e) = writer.write_fmt(
-            format_args!("[{:12.6}/---] --- end of log file ---\n", elapsed)
-        ) {
-            log::error!("Failed to write end-of-file to log file '{}': {}",
-                self.path_log_file.display(), e);
-            Err(e.into())
-        } else {
-            r
-        }
+        self.log_file.write_end(self.time_start)?;
+        r
     }
 }
 

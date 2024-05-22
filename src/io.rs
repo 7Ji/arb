@@ -1,4 +1,4 @@
-use std::{io::{BufRead, BufReader,  BufWriter, Read, Write}, ops::DerefMut, path::Path, sync::{Arc, Mutex}, thread::JoinHandle, time::Instant};
+use std::{fs::File, io::{BufRead, BufReader,  BufWriter, Read, Write}, ops::DerefMut, path::Path, sync::{Arc, Mutex, MutexGuard}, thread::JoinHandle, time::Instant};
 use is_terminal;
 use crate::{error::Error, filesystem::file_create_checked, Result};
 
@@ -99,5 +99,54 @@ pub(crate) fn reader_to_buffer<R: Read>(mut reader: R) -> Result<Vec<u8>> {
             log::error!("Failed to read from reader into buffer");
             Err(e.into())
         },
+    }
+}
+
+type RawBufferedFile = BufWriter<File>;
+type RawMTSharedBufferedFile = Arc<Mutex<RawBufferedFile>>;
+
+pub(crate) struct MTSharedBufferedFile {
+    file: RawMTSharedBufferedFile
+}
+
+impl MTSharedBufferedFile {
+    pub(crate) fn new(file: File) -> Self {
+        Self {
+            file: Arc::new(Mutex::new(BufWriter::new(file)))
+        }
+    }
+
+    pub(crate) fn clone_raw(&self) -> RawMTSharedBufferedFile {
+        self.file.clone()
+    }
+
+    fn try_lock(&self) -> Result<MutexGuard<RawBufferedFile>> {
+        match self.file.lock() {
+            Ok(file) => Ok(file),
+            Err(_) => {
+                log::error!("Failed to lock log file");
+                Err(Error::ThreadFailure(None))
+            },
+        }
+    }
+
+    pub(crate) fn write_fmt(&self, fmt: std::fmt::Arguments<'_>) -> Result<()> {
+        let mut writer = self.try_lock()?;
+        if let Err(e) = writer.write_fmt(fmt) {
+            log::error!("Failed to write format args to log file");
+            Err(e.into())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn write_fmt_nobuf(&self, fmt: std::fmt::Arguments<'_>) -> Result<()> {
+        let mut writer = self.try_lock()?;
+        if let Err(e) = writer.get_mut().write_fmt(fmt) {
+            log::error!("Failed to write format args to log file");
+            Err(e.into())
+        } else {
+            Ok(())
+        }
     }
 }
