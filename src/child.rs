@@ -200,9 +200,11 @@ fn get_cmd_from_pid<P: AsRef<Path>>(proc: P, pid: Pid)
 pub(crate) fn kill_children<P: AsRef<Path>>(proc: P) -> Result<()> {
     let mut met_children;
     let mut children_alive = HashMap::new();
-    let mut proc = proc.as_ref();
+    let proc = proc.as_ref();
     if proc.is_empty() {
-        proc = "/proc".as_ref()
+        log::warn!("/proc is not mounted for the current PID namespace, skipped
+            reaping children");
+        return Ok(())
     }
     loop {
         met_children = false;

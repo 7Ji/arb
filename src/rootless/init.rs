@@ -77,7 +77,7 @@ impl InitCommand {
                             our own stdout & stderr");
                     }
                 }
-                wait_all(child, &cache.proc)?;
+                wait_any_till(child)?;
                 if let Some(child_loggers) = child_loggers {
                     child_loggers.try_join()?
                 }
@@ -171,6 +171,7 @@ impl InitPayload {
         for command in self.commands {
             command.work(&mut cache)?
         }
+        kill_children(&cache.proc)?;
         Ok(())
     }
 
@@ -211,8 +212,9 @@ impl InitPayload {
     }
 }
 
-/// A dump init implementation that wait for all children
-fn wait_all<P: AsRef<Path>>(child: Child, proc: P) -> Result<()> {
+/// A dump init implementation that wait for any children until a specific
+/// child exited
+fn wait_any_till(child: Child) -> Result<()> {
     let pid_direct = pid_from_child(&child);
     let mut code = None;
     loop {
@@ -236,8 +238,6 @@ fn wait_all<P: AsRef<Path>>(child: Child, proc: P) -> Result<()> {
                 }
         }
     }
-    // As we break, try to kill all other children
-    kill_children(proc)?;
     if Some(0) == code {
         Ok(())
     } else {
