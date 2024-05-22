@@ -1,4 +1,4 @@
-use std::{io::{stdout, Write}, iter::once, path::Path};
+use std::{iter::once, path::Path};
 
 use pkgbuild::Architecture;
 

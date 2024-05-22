@@ -2,7 +2,7 @@ use std::{path::Path, io::Read};
 
 use ureq::{Request, Response};
 
-use crate::{child::{command_new_no_stdin, spawn_and_wait, wait_child}, filesystem::{clone_file, file_create_checked}, io::reader_to_writer, proxy::Proxy, Error, Result};
+use crate::{child::{command_new_no_stdin, spawn_and_wait}, filesystem::{clone_file, file_create_checked}, io::reader_to_writer, proxy::Proxy, Error, Result};
 
 const TRIES: usize = 3;
 const TRIES_STR: &str = "3";

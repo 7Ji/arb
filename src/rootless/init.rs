@@ -1,6 +1,6 @@
-use std::{collections::HashMap, ffi::OsString, fs::File, io::{stdin, Write}, path::{Path, PathBuf}, process::{Child, Stdio}};
+use std::{collections::HashMap, ffi::OsString, io::stdin, path::{Path, PathBuf}, process::Child};
 
-use nix::{errno::Errno, libc::pid_t, sys::wait::{wait, WaitStatus}, unistd::{chroot, Pid}, NixPath};
+use nix::{errno::Errno, sys::wait::{wait, WaitStatus}, NixPath};
 use serde::{Deserialize, Serialize};
 
 use crate::{child::{command_new_no_stdin, command_new_no_stdin_with_piped_out_err, kill_children, pid_from_child, ChildLoggers}, filesystem::set_current_dir_checked, logfile::LogFile, mount::mount_proc, Error, Result};

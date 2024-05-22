@@ -1,6 +1,6 @@
 use std::{fmt::Display, fs::{create_dir, read_link}, os::unix::fs::symlink, path::{Path, PathBuf}};
 
-use nix::{libc::MS_NOSUID, mount::{mount, MsFlags}, NixPath};
+use nix::{mount::{mount, MsFlags}, NixPath};
 
 use crate::{filesystem::touch, Result};
 

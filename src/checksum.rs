@@ -2,7 +2,7 @@ use std::{fs::File, io::Read, path::Path};
 
 use pkgbuild::{B2sum, Cksum, Md5sum, Sha1sum, Sha224sum, Sha256sum, Sha384sum, Sha512sum};
 
-use crate::{filesystem::{file_open_checked, remove_file_checked}, Error, Result};
+use crate::{filesystem::{file_open_checked, remove_file_checked}, Result};
 
 #[derive(PartialEq)]
 pub(crate) enum Checksum {

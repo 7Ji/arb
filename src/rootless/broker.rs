@@ -1,8 +1,8 @@
-use std::{ffi::OsString, io::{stdin, Write}, iter::empty, path::{Path, PathBuf}};
+use std::{ffi::OsString, io::stdin, path::Path};
 
 use serde::{Serialize, Deserialize};
 
-use crate::{mount::{mount_all, mount_all_except_proc}, Error, Result};
+use crate::{mount::mount_all_except_proc, Result};
 
 use super::{action::run_action_stateless_no_program_no_args, init::InitPayload, InitCommand};
 

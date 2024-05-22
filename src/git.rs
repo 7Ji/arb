@@ -1,16 +1,14 @@
 // Todo: use `gitoxide` instead of `git2-rs`, for memory safety
 
 use git2::{
-        build::CheckoutBuilder, AutotagOption, Blob, Branch, BranchType, Commit, ErrorClass, ErrorCode, FetchOptions, FetchPrune, Oid, Progress, ProxyOptions, Reference, Remote, RemoteCallbacks, Repository, Tree
+        build::CheckoutBuilder, AutotagOption, Blob, Branch, BranchType, Commit, ErrorClass, ErrorCode, FetchOptions, FetchPrune, Oid, Progress, ProxyOptions, Reference, Remote, Repository, Tree
     };
 use nix::NixPath;
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use url::Url;
 use xxhash_rust::xxh3::xxh3_64;
-// use threadpool::ThreadPool;
-// use url::Url;
 use std::{
-        collections::HashMap, fmt::Display, fs::{metadata, File}, io::Write, os::unix::fs::MetadataExt, path::{
+        collections::HashMap, fs::metadata, io::Write, os::unix::fs::MetadataExt, path::{
             Path,
             PathBuf
         }, str::FromStr
@@ -169,19 +167,6 @@ impl RepoToOpen {
             refspecs,
         })
     }
-
-    // pub(crate) fn new_with_url_parent_type<S, D>(url: S, parent_type: D) 
-    //     -> Self 
-    // where
-    //     S: Into<String>,
-    //     D: Display
-    // {
-    //     let url: String = url.into();
-    //     let hash_url = xxh3_64(url.as_bytes());
-    //     let path = PathBuf::from(
-    //         format!("sources/{}/{:016x}", parent_type, hash_url));
-    //     Self { path, hash_url, url, branches: Vec::new(), tags: Vec::new() }
-    // }
 }
 
 #[derive(Default)]
@@ -480,57 +465,6 @@ impl ReposMap {
         Ok(())
     }
 
-    // pub(crate) fn from_iter_into_repo_to_open<I, R>(iter: I) -> Result<Self>
-    // where
-    //     I: IntoIterator<Item = R>,
-    //     R: Into<RepoToOpen>
-    // {
-    //     let mut map_to_open: HashMap<u64, Vec<RepoToOpen>> = HashMap::new();
-    //     for item in iter.into_iter() {
-    //         let repo_to_open: RepoToOpen = item.into();
-    //         let key = match Url::parse(&repo_to_open.url) {
-    //             Ok(url) => if let Some(domain) = url.domain() {
-    //                 xxh3_64(domain.as_bytes())
-    //             } else {
-    //                 log::warn!("Repo URL '{}' does not have domain", url);
-    //                 0
-    //             },
-    //             Err(e) => {
-    //                 log::warn!("Failed to parse repo URL '{}': {}", 
-    //                     repo_to_open.url, e);
-    //                 0
-    //             },
-    //         };
-    //         match map_to_open.get_mut(&key) {
-    //             Some(list) => list.push(repo_to_open),
-    //             None => 
-    //             if map_to_open.insert(key, vec![repo_to_open]).is_some() {
-    //                 log::error!("Impossible key {} already in repos map", key);
-    //                 return Err(Error::ImpossibleLogic)
-    //             },
-    //         }
-    //     }
-    //     let mut map = HashMap::new();
-    //     for (key, mut list_to_open) in map_to_open {
-    //         list_to_open.sort_unstable_by(
-    //             |some, other|
-    //                 some.path.cmp(&other.path));
-    //         list_to_open.dedup_by(
-    //             |some, other|
-    //                 some.path == other.path);
-    //         if list_to_open.is_empty() { continue }
-    //         let mut list = Vec::new();
-    //         for repo_to_open in list_to_open {
-    //             list.push(repo_to_open.try_into()?)
-    //         }
-    //         if map.insert(key, ReposList { list } ).is_some() {
-    //             log::error!("Impossible key {} already in repos map", key);
-    //             return Err(Error::ImpossibleLogic)
-    //         }
-    //     }
-    //     Ok(Self { map })
-    // }
-
     fn keep_unhealthy(&mut self) {
         self.map.iter_mut().for_each(|(_, list)|
             list.keep_unhealthy());
@@ -687,76 +621,6 @@ fn is_reference_healthy(reference: &Reference) -> bool {
 }
 
 impl Repo {
-    // pub(crate) fn try_new_with_path_url<P: Into<PathBuf>, S: Into<String>>(
-    //     path: P, url: S) -> Result<Self>
-    // {
-    //     let path = path.into();
-    //     let url = url.into();
-    //     match Repository::open_bare(&path) {
-    //         Ok(repo) => Ok(Self {
-    //             path,
-    //             url,
-    //             branches: Vec::new(),
-    //             tags: Vec::new(),
-    //             repo,
-    //             refspecs: Default::default(),
-    //         }),
-    //         Err(e) => {
-    //             if e.class() == ErrorClass::Os &&
-    //             e.code() == ErrorCode::NotFound {
-    //                 match Repository::init_bare(&path) {
-    //                     Ok(repo) => {
-    //                         let repo = Self {
-    //                             path,
-    //                             url,
-    //                             branches: Vec::new(),
-    //                             tags: Vec::new(),
-    //                             repo,
-    //                             refspecs: Default::default(),
-    //                         };
-    //                         repo.add_remote()?;
-    //                         Ok(repo)
-    //                     },
-    //                     Err(e) => {
-    //                         log::error!("Failed to create {}: {}",
-    //                                     path.display(), e);
-    //                         Err(e.into())
-    //                     }
-    //                 }
-    //             } else {
-    //                 log::error!("Failed to open {}: {}", path.display(), e);
-    //                 Err(e.into())
-    //             }
-    //         },
-    //     }
-    // }
-
-    // pub(crate) fn try_new_with_url_branch(
-    //     url: &str, subtype: &str, branch: &str
-    // ) -> Result<Self> 
-    // {
-    //     let path = format!("sources/{}/{:016x}", 
-    //         subtype, xxh3_64(url.as_bytes()));
-    //     let mut repo = Self::try_new_with_path_url(&path, url)?;
-    //     repo.refspecs.push(refspec_same_branch_or_all(branch));
-    //     Ok(repo)
-    // }
-
-    // fn add_remote(&self) -> Result<()> {
-    //     match self.repo.remote_with_fetch(
-    //         "origin", &self.url, "+refs/*:refs/*") {
-    //         Ok(_) => Ok(()),
-    //         Err(e) => {
-    //             log::error!("Failed to add remote {}: {}",
-    //                         self.path.display(), e);
-    //             if let Err(e) = std::fs::remove_dir_all(&self.path) {
-    //                 return Err(e.into())
-    //             }
-    //             Err(e.into())
-    //         }
-    //     }
-    // }
-
     fn update_head_raw(repo: &Repository, remote: &mut Remote)
         -> Result<()>
     {

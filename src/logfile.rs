@@ -1,31 +1,7 @@
-use std::{ffi::OsString, fmt::Display, fs::File, io::{BufWriter, Write}, path::{Path, PathBuf}, process::Child, sync::{Arc, Mutex}, time::Instant};
+use std::{ffi::OsString, fs::File, path::PathBuf, time::Instant};
 use rand::{distributions::Alphanumeric, Rng};
 
 use crate::{filesystem::{file_create_checked, file_create_new_checked}, io::MTSharedBufferedFile, Error, Result};
-
-// pub(crate) enum LogFileType {
-//     Pacman,
-//     Localedef,
-//     Extract,
-//     Build,
-// }
-
-// impl Into<&str> for &LogFileType {
-//     fn into(self) -> &'static str {
-//         match self {
-//             LogFileType::Pacman => "pacman",
-//             LogFileType::Localedef => "localedef",
-//             LogFileType::Extract => "extract",
-//             LogFileType::Build => "build",
-//         }
-//     }
-// }
-
-// impl LogFileType {
-//     fn to_str(&self) -> &'static str {
-//         self.into()
-//     }
-// }
 
 const DATE_TIME_FORMAT: &[time::format_description::FormatItem<'_>] = 
     time::macros::format_description!(

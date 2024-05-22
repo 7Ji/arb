@@ -1,8 +1,8 @@
-use std::{collections::HashMap, ffi::OsStr, fmt::Display, fs::File, io::{stdin, BufRead, BufReader, BufWriter, Read, Write}, path::{Path, PathBuf}, process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio}, sync::{Arc, Mutex, RwLock}, thread::JoinHandle, time::Instant};
+use std::{collections::HashMap, ffi::OsStr, io::{Read, Write}, path::{Path, PathBuf}, process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio}, thread::JoinHandle, time::Instant};
 
 use nix::{libc::pid_t, sys::{signal::{kill, Signal}, wait::{waitpid, WaitPidFlag, WaitStatus}}, unistd::Pid, NixPath};
 
-use crate::{filesystem::{dir_entry_checked, dir_entry_metadata_checked, file_open_append, file_open_checked, read_dir_checked}, io::{prefixed_reader_to_shared_writer, reader_to_buffer, MTSharedBufferedFile}, logfile::LogFile, Error, Result};
+use crate::{filesystem::{dir_entry_checked, dir_entry_metadata_checked, file_open_checked, read_dir_checked}, io::{prefixed_reader_to_shared_writer, reader_to_buffer, MTSharedBufferedFile}, logfile::LogFile, Error, Result};
 
 pub(crate) fn pid_from_child(child: &Child) -> Pid {
     Pid::from_raw(child.id() as pid_t)
@@ -128,7 +128,6 @@ pub(crate) struct ChildLoggers {
     child_id: Pid,
     time_start: Instant,
     log_file: MTSharedBufferedFile,
-    path_log_file: PathBuf,
     logger_stdout: JoinHandle<Result<()>>,
     logger_stderr: JoinHandle<Result<()>>,
 }
@@ -152,7 +151,6 @@ impl ChildLoggers {
             child_id: pid_from_child(child),
             time_start,
             log_file,
-            path_log_file: logfile.path,
             logger_stdout,
             logger_stderr
         })

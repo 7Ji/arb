@@ -1,4 +1,4 @@
-use std::{fs::File, io::{BufRead, BufReader,  BufWriter, Read, Write}, ops::DerefMut, path::Path, sync::{Arc, Mutex, MutexGuard}, thread::JoinHandle, time::Instant};
+use std::{fs::File, io::{BufRead, BufReader,  BufWriter, Read, Write}, sync::{Arc, Mutex, MutexGuard}, time::Instant};
 use is_terminal;
 use crate::{error::Error, filesystem::file_create_checked, Result};
 
@@ -40,8 +40,6 @@ pub(crate) fn write_all_to_file_or_stdout<B: AsRef<[u8]>>(buffer: B, out: &str)
         Ok(())
     }
 }
-
-const BUFFER_SIZE: usize = 0x100000;
 
 pub(crate) fn reader_to_writer<R, W>(reader: &mut R, writer: &mut W) 
     -> Result<()>

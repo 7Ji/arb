@@ -1,8 +1,8 @@
-use std::{fs::File, path::Path, io::Read, fmt::Display, process::Child};
+use std::{path::Path, io::Read, fmt::Display, process::Child};
 
 use nix::{unistd::{getuid, getgid}, libc::{uid_t, pid_t}};
 
-use crate::{child::command_new_no_stdin, filesystem::{file_create_checked, file_open_checked}, Error, Result};
+use crate::{child::command_new_no_stdin, filesystem::file_open_checked, Error, Result};
 
 // Assumption: uid_t == gid_t, on x86_64 they're both u32, on aarch64 both i32
 

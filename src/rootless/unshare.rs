@@ -1,6 +1,6 @@
 use std::{fs::read_link, process::Child, thread::sleep, time::Duration};
 
-use nix::{libc::pid_t, sched::{unshare, CloneFlags}, unistd::{getpid, Pid}};
+use nix::{sched::{unshare, CloneFlags}, unistd::getpid};
 use crate::{child::pid_from_child, Error, Result};
 
 use super::id::ResUidGid;

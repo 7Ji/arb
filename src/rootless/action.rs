@@ -1,7 +1,7 @@
 
-use std::{ffi::OsStr, io::stdout, iter::empty, path::Path, process::{Child, Command, Stdio}};
+use std::{ffi::OsStr, iter::empty, path::Path, process::{Child, Command, Stdio}};
 
-use crate::{child::{wait_child, write_to_child}, Error, Result};
+use crate::{child::{wait_child, write_to_child}, Result};
 
 use super::arg0::get_arg0;
 

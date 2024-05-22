@@ -1,6 +1,6 @@
-use std::{collections::BTreeMap, ffi::{OsStr, OsString}, fmt::Display, fs::File, io::{BufRead, BufReader, Write}, path::Path};
+use std::{collections::BTreeMap, ffi::OsString, fmt::Display, io::{BufRead, BufReader, Write}, path::Path};
 
-use crate::{filesystem::{file_create_checked, file_open_checked}, logfile::LogFileBuilder, rootless::{BrokerPayload, InitCommand, RootlessHandler}, Error, Result};
+use crate::{filesystem::{file_create_checked, file_open_checked}, logfile::LogFileBuilder, rootless::BrokerPayload, Error, Result};
 
 type ConfigSection =  BTreeMap<String, Option<String>>;
 

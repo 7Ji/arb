@@ -2,9 +2,8 @@ mod source;
 
 use std::{ffi::OsString, io::{stdout, Read, Write}, iter::{empty, once}, path::Path};
 use git2::Oid;
-use nix::unistd::setgid;
 use pkgbuild::{self, Architecture};
-use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, filesystem::{create_dir_allow_existing, set_current_dir_checked}, git::{Repo, RepoToOpen, ReposListToOpen, ReposMap}, mount::mount_bind, pkgbuild::source::CacheableSources, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, try_unshare_user_mount_and_wait, BrokerPayload}, Error, Result};
+use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, filesystem::{create_dir_allow_existing, set_current_dir_checked}, git::{RepoToOpen, ReposListToOpen}, mount::mount_bind, pkgbuild::source::CacheableSources, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, BrokerPayload}, Error, Result};
 
 #[derive(Debug)]
 pub(crate) struct Pkgbuild {
