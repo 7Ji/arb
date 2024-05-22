@@ -87,3 +87,17 @@ where
     }
     Ok(())
 }
+
+pub(crate) fn reader_to_buffer<R: Read>(mut reader: R) -> Result<Vec<u8>> {
+    let mut buffer = Vec::new();
+    match reader.read_to_end(&mut buffer) {
+        Ok(size) => {
+            log::debug!("Read {} bytes from buffer", size);
+            Ok(buffer)
+        },
+        Err(e) => {
+            log::error!("Failed to read from reader into buffer");
+            Err(e.into())
+        },
+    }
+}

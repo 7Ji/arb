@@ -2,7 +2,7 @@ use std::{collections::HashMap, ffi::OsStr, fmt::Display, fs::File, io::{stdin, 
 
 use nix::{libc::pid_t, sys::{signal::{kill, Signal}, wait::{waitpid, WaitPidFlag, WaitStatus}}, unistd::Pid, NixPath};
 
-use crate::{filesystem::{dir_entry_checked, dir_entry_metadata_checked, file_open_append, file_open_checked, read_dir_checked}, io::prefixed_reader_to_shared_writer, logfile::LogFile, Error, Result};
+use crate::{filesystem::{dir_entry_checked, dir_entry_metadata_checked, file_open_append, file_open_checked, read_dir_checked}, io::{prefixed_reader_to_shared_writer, reader_to_buffer}, logfile::LogFile, Error, Result};
 
 pub(crate) fn pid_from_child(child: &Child) -> Pid {
     Pid::from_raw(child.id() as pid_t)
@@ -187,9 +187,33 @@ impl ChildLoggers {
     }
 }
 
+fn try_get_cmd_from_pid<P: AsRef<Path>>(proc: P, pid: Pid) 
+    -> Result<Vec<String>> 
+{
+    let buffer = reader_to_buffer(
+        file_open_checked(
+                proc.as_ref().join(
+                        format!("{}/cmdline", pid.as_raw())))?)?;
+    Ok(buffer
+        .split(|byte| *byte == 0)
+        .map(|bytes|
+            String::from_utf8_lossy(bytes).into())
+        .collect())
+}
+
+fn get_cmd_from_pid<P: AsRef<Path>>(proc: P, pid: Pid) 
+    -> Vec<String>
+{
+    match try_get_cmd_from_pid(proc, pid) {
+        Ok(cmd) => cmd,
+        Err(_) => vec!["--unknown--".into()],
+    }
+}
+
+
 /// Kill all children by iterating through /proc
 pub(crate) fn kill_children<P: AsRef<Path>>(proc: P) -> Result<()> {
-    let mut met_children = false;
+    let mut met_children;
     let mut children_alive = HashMap::new();
     let mut proc = proc.as_ref();
     if proc.is_empty() {
@@ -289,7 +313,8 @@ pub(crate) fn kill_children<P: AsRef<Path>>(proc: P) -> Result<()> {
                         log::error!("Failed to send SIGKILL to child {}: {}", pid, e);
                         return Err(Error::BadChild { pid: Some(pid), code: None })
                     }
-                    log::warn!("Sent SIGKILL to child {}", pid);
+                    log::warn!("Sent SIGKILL to child {} ({:?})", pid, 
+                        get_cmd_from_pid(proc, pid));
                     *count += 1
                 },
                 None => {
@@ -297,7 +322,8 @@ pub(crate) fn kill_children<P: AsRef<Path>>(proc: P) -> Result<()> {
                         log::error!("Failed to send SIGTERM to child {}: {}", pid, e);
                         return Err(Error::BadChild { pid: Some(pid), code: None })
                     }
-                    log::warn!("Sent SIGTERM to child {}", pid);
+                    log::warn!("Sent SIGTERM to child {} ({:?})", pid,
+                        get_cmd_from_pid(proc, pid));
                     children_alive.insert(pid, 1);
                 },
             }
