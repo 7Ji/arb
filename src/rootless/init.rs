@@ -1,9 +1,9 @@
 use std::{collections::HashMap, ffi::OsString, fs::File, io::{stdin, Write}, path::{Path, PathBuf}, process::{Child, Stdio}};
 
-use nix::{errno::Errno, libc::pid_t, sys::wait::{wait, WaitStatus}, unistd::{chroot, Pid}};
+use nix::{errno::Errno, libc::pid_t, sys::wait::{wait, WaitStatus}, unistd::{chroot, Pid}, NixPath};
 use serde::{Deserialize, Serialize};
 
-use crate::{child::{command_new_no_stdin, command_new_no_stdin_with_piped_out_err, pid_from_child, ChildLoggers}, filesystem::set_current_dir_checked, logfile::LogFile, mount::mount_proc, Error, Result};
+use crate::{child::{command_new_no_stdin, command_new_no_stdin_with_piped_out_err, kill_children, pid_from_child, ChildLoggers}, filesystem::set_current_dir_checked, logfile::LogFile, mount::mount_proc, Error, Result};
 
 use super::{action::run_action_stateless, root::chroot_checked};
 
@@ -32,6 +32,7 @@ pub(crate) enum InitCommand {
 }
 
 struct InitCache {
+    proc: PathBuf,
     logfiles: HashMap<OsString, LogFile>,
 }
 
@@ -76,7 +77,7 @@ impl InitCommand {
                             our own stdout & stderr");
                     }
                 }
-                wait_all(child)?;
+                wait_all(child, &cache.proc)?;
                 if let Some(child_loggers) = child_loggers {
                     child_loggers.try_join()?
                 }
@@ -84,7 +85,9 @@ impl InitCommand {
             },
             InitCommand::MountProc { path } => {
                 log::debug!("Mounting proc to '{}'", path.to_string_lossy());
-                mount_proc(path)
+                mount_proc(&path)?;
+                cache.proc = path.into();
+                Ok(())
             },
             InitCommand::Chdir { path } => {
                 log::debug!("Changing workdir to '{}'", path.to_string_lossy());
@@ -92,8 +95,28 @@ impl InitCommand {
             },
             InitCommand::Chroot { path } => {
                 log::debug!("Chrooting to '{}'", path.to_string_lossy());
-                set_current_dir_checked(path)?;
-                chroot_checked(".")
+                set_current_dir_checked(&path)?;
+                chroot_checked(".")?;
+                let path: PathBuf = path.into();
+                if ! cache.proc.is_empty() {
+                    cache.proc = "/proc".into();
+                    // if cache.proc.starts_with(&path) {
+                    //     match cache.proc.strip_prefix(&path) {
+                    //         Ok(proc) => cache.proc = proc.into(),
+                    //         Err(e) => {
+                    //             log::warn!("Could not strip parent root prefix,
+                    //                 assuming proc would be at /proc: {}", e);
+                    //             cache.proc = "/proc".into()
+                    //         },
+                    //     }
+                    // } else {
+                    //     log::warn!("/proc ('{}') is outside of the new chroot \
+                    //                 ('{}'), remounting proc", 
+                    //                 cache.proc.display(), path.display());
+                    //     cache.proc = "/proc".into();
+                    //     mount_proc(&cache.proc)?
+                }
+                Ok(())
             },
         }
     }
@@ -156,7 +179,7 @@ impl InitPayload {
                 }
             }
         }
-        Ok(InitCache { logfiles })
+        Ok(InitCache { logfiles, proc: PathBuf::new() })
     }
 
     pub(crate) fn work(self) -> Result<()> {
@@ -205,7 +228,7 @@ impl InitPayload {
 }
 
 /// A dump init implementation that wait for all children
-fn wait_all(child: Child) -> Result<()> {
+fn wait_all<P: AsRef<Path>>(child: Child, proc: P) -> Result<()> {
     let pid_direct = pid_from_child(&child);
     let mut code = None;
     loop {
@@ -229,6 +252,8 @@ fn wait_all(child: Child) -> Result<()> {
                 }
         }
     }
+    // As we break, try to kill all other children
+    kill_children(proc)?;
     if Some(0) == code {
         Ok(())
     } else {

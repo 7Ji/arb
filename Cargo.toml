@@ -30,7 +30,7 @@ features = ["https"]
 
 [dependencies.nix]
 version = "0.27"
-features = ["fs", "mount", "process", "sched", "user"]
+features = ["fs", "mount", "process", "sched", "signal", "user"]
 
 [dependencies.pkgbuild]
 version = "0.1"

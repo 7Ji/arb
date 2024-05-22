@@ -52,7 +52,7 @@ pub(crate) fn remove_dir_checked<P: AsRef<Path>>(path: P) -> Result<()> {
     })
 }
 
-fn read_dir_checked<P: AsRef<Path>>(path: P) -> Result<ReadDir> {
+pub(crate) fn read_dir_checked<P: AsRef<Path>>(path: P) -> Result<ReadDir> {
     read_dir(&path).map_err(|e| {
         // Return failure here, but outer logic would still try to delete,
         // unlike `remove_dir_all()`
@@ -61,14 +61,14 @@ fn read_dir_checked<P: AsRef<Path>>(path: P) -> Result<ReadDir> {
     })
 }
 
-fn dir_entry_checked(entry: std::io::Result<DirEntry>) -> Result<DirEntry> {
+pub(crate) fn dir_entry_checked(entry: std::io::Result<DirEntry>) -> Result<DirEntry> {
     entry.map_err(|e|{
         log::error!("Failed to read entry from dir: {}", e);
         e.into()
     })
 }
 
-fn dir_entry_metadata_checked(entry: &DirEntry) -> Result<Metadata> {
+pub(crate) fn dir_entry_metadata_checked(entry: &DirEntry) -> Result<Metadata> {
     entry.metadata().map_err(|e|{
         log::error!("Failed to read entry metadata: {}", e);
         e.into()
