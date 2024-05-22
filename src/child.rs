@@ -178,11 +178,12 @@ fn try_get_cmd_from_pid<P: AsRef<Path>>(proc: P, pid: Pid)
         file_open_checked(
                 proc.as_ref().join(
                         format!("{}/cmdline", pid.as_raw())))?)?;
-    Ok(buffer
-        .split(|byte| *byte == 0)
-        .map(|bytes|
-            String::from_utf8_lossy(bytes).into())
-        .collect())
+    let mut cmd = Vec::new();
+    for part in buffer.split(|byte|*byte == 0) {
+        if part.is_empty() { continue }
+        cmd.push(String::from_utf8_lossy(part).into())
+    }
+    Ok(cmd)
 }
 
 fn get_cmd_from_pid<P: AsRef<Path>>(proc: P, pid: Pid) 
