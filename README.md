@@ -168,6 +168,35 @@ pkgs/
  - [ ] Use `gitoxide` instead of `git2-rs`, for memory safety
 
 ## Internal
+
+`arb` binary is a "multi-call" executable that works differently depending on its arg1 (instead of the `arg0` common "multi-call"s use). Each of these "identity" is called an "applet". The main executable runs in the parent namespace as non-root, then the children run possibly in child namespaces and possibly mapped to root. The most important `arb` applets are the followings:
+### main (aliases: `fetch-pkgbuilds`, `fetch-sources`, `fetch-pkgs`, `build`, `release`, `do-everything`)
+The main applet runs in the parent namespace, it is responsible for the following jobs:
+- Fetching PKGBUILD repos
+- Spawn root depolyers to boostrap sub-roots
+- Spawn a PKGBUILD reader to read PKGBUILD in a secured sub-root, then read back
+- Fetching all sources and cache them with hash checksums as key
+- Spawn builders to build packages
+### broker
+The broker applet mainly functions as a middle man between the init applet and the main applet. It would do jobs depending on the `BrokerPayload` sent by parent. It unshares the user, mount, pid namespaces, maps itself to root, then spawns the init applet to function as PID 1 in the child PID namespace and as a subreaper. The broker itself always starts in parent namespace and ends half in child namespace.
+### init
+The init applet is a dump init implementation that functions as PID 1 in the child namespace, it would do jobs depending on the `InitPayload` sent by broker (embedded in `BrokerPayload` sent from parent). Before exiting, init applet would reap all existing children by `SIGTERM` first them `SIGKILL` if that does not work. The init applet is needed instead of spawning child directly from broker because:
+- The first process created in the new PID namespace would be its PID 1, when PID 1 exits the PID namespace would be torn down, so broker could not spawn multiple processes in this case.
+- None of the generic process would do PID 1 job to reap their children. They would leave a pile of zombine processes if not correctly reaped.
+- There should be one responsible for mounting the child `procfs`, while `Commnad::exec()` after mounting everything up would also do the job, doing `exec` from Rust would blow up some Rust destroyers and that's not nice.
+
+Note that init would only every live in the child namespace and is always mapped to root. An init implementation that either lives as non PID 1 or non root is of no use.
+### PKGBUILD reader (alias: `read-pkgbuilds`)
+`arb` uses `pkgbuild-rs` for fast PKGBUILD parsing (12K Arch official repos in less than 6 seconds). For safety the `read-pkgbuilds` applet would be spawned by `init` applet and map itself to non-root user to work in a sub-root: Even if there're malicious PKGBUILDs, they could only temper with data inside the sub-root, not on host. 
+
+The reader would serialize parsed PKGBUILDs into MessagePack data, then write to its stdout. The parent `main` applet could read its stdout and deserialize it.
+
+### cleaner (alias: `rm-rf`)
+As sub-roots could be deployed in the child namespace with a full UID-range and a full GID-range mapped in, the folder could not be expected to be cleaned directly by the host user without issue: If there're anything owned by a mapped non-root user in sub-root, then it would be owned by a non-mapped user that's different from the host user, and the host user would lack permission to delete sub file/folder.
+
+The `cleaner` applet would be spawned by `main` applet, unshare user namespace from parent, then map itself to root in the child namespace, it therefore gains the permission to clean up eveyrhing in the child namespace.
+
+### Caching mechanism
 The builder does the following to save a great chunk of build time and resource:
  1. All PKGBUILDs are maintained locally as bare git repos under `sources/PKGBUILDs`, update is MT and can be skippped.
  2. All git sources are cached locally under `sources/git`, update is MT and can be skippped.
