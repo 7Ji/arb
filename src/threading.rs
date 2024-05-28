@@ -36,7 +36,7 @@ impl<T: Send + 'static> ThreadPool<T> {
         if self.threads.is_empty() {
             log::error!("Trying to wait for thread {} when no thread available", 
                         &self.job);
-            return Err(Error::ThreadFailure(None))
+            return Err(Error::ThreadFailure)
         }
         let mut thread_id_finished = None;
         loop {
@@ -62,12 +62,12 @@ impl<T: Send + 'static> ThreadPool<T> {
                 Err(e) => {
                     log::error!("Failed to join finished thread {}: {:?}", 
                         &self.job, e);
-                    Err(Error::ThreadFailure(None))
+                    Err(Error::ThreadFailure)
                 },
             }
         } else {
             log::error!("Failed to get finished thread ID {}", &self.job);
-            Err(Error::ThreadFailure(None))
+            Err(Error::ThreadFailure)
         }
     }
 
@@ -107,8 +107,10 @@ impl<T: Send + 'static> ThreadPool<T> {
         self.threads.into_iter().map(|thread|
             match thread.join() {
                 Ok(r) => r,
-                Err(e) => 
-                    Err(Error::ThreadFailure(Some(e))),
+                Err(e) => {
+                    log::error!("Failed to join thread, artiface: {:?}", e);
+                    Err(Error::ThreadFailure)
+                },
             }).collect()
     }
 
@@ -118,7 +120,7 @@ impl<T: Send + 'static> ThreadPool<T> {
         for result in results.iter() {
             if let Err(e) = result {
                 log::error!("One of remaining threads {} failed: {}", &job, e);
-                return (results, Err(Error::ThreadFailure(None)))
+                return (results, Err(Error::ThreadFailure))
             }
         }
         (results, Ok(()))

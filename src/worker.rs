@@ -175,6 +175,21 @@ pub(crate) struct WorkerStateParsedPkgbuilds {
 }
 
 impl WorkerStateParsedPkgbuilds {
+    pub(crate) fn try_fetch_pkgs(self) -> Result<WorkerStateFetchedPkgs> {
+        Ok(WorkerStateFetchedPkgs { 
+            config: self.config, 
+            rootless: self.rootless, 
+            root: self.root })
+    }
+}
+
+pub(crate) struct WorkerStateFetchedPkgs {
+    config: RuntimeConfig,
+    rootless: RootlessHandler,
+    root: Root,
+}
+
+impl WorkerStateFetchedPkgs {
     pub(crate) fn try_fetch_sources(self) -> Result<WorkerStateFetchedSources> {
         let cacheable_sources = self.config.pkgbuilds
             .get_cacheable_sources(Some(&self.config.arch));
@@ -201,22 +216,8 @@ pub(crate) struct WorkerStateFetchedSources {
     root: Root,
 }
 
+
 impl WorkerStateFetchedSources {
-    pub(crate) fn try_fetch_pkgs(self) -> Result<WorkerStateFetchedPkgs> {
-        Ok(WorkerStateFetchedPkgs { 
-            config: self.config, 
-            rootless: self.rootless, 
-            root: self.root })
-    }
-}
-
-pub(crate) struct WorkerStateFetchedPkgs {
-    config: RuntimeConfig,
-    rootless: RootlessHandler,
-    root: Root,
-}
-
-impl WorkerStateFetchedPkgs {
     pub(crate) fn try_build(self) -> Result<WorkerStateBuilt> {
         Ok(WorkerStateBuilt { 
             config: self.config })

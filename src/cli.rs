@@ -83,21 +83,21 @@ impl ActionArgs {
             .try_fetch_pkgbuilds()
     }
 
-    fn try_fetch_sources(self) -> Result<WorkerStateFetchedSources> {
+    fn try_fetch_pkgs(self) -> Result<WorkerStateFetchedPkgs> {
         self.try_fetch_pkgbuilds()?
             .try_prepare_base_root()?
             .try_dump_arch()?
             .try_parse_pkgbuilds()?
-            .try_fetch_sources()
-    }
-
-    fn try_fetch_pkgs(self) -> Result<WorkerStateFetchedPkgs> {
-        self.try_fetch_sources()?
             .try_fetch_pkgs()
     }
 
-    fn try_build(self) -> Result<WorkerStateBuilt> {
+    fn try_fetch_sources(self) -> Result<WorkerStateFetchedSources> {
         self.try_fetch_pkgs()?
+            .try_fetch_sources()
+    }
+
+    fn try_build(self) -> Result<WorkerStateBuilt> {
+        self.try_fetch_sources()?
             .try_build()
     }
 
@@ -114,13 +114,13 @@ enum Action {
         #[command(flatten)]
         ActionArgs
     ),
-    /// ..., then fetch sources
-    FetchSources (
+    /// ..., then fetch dependent pkgs
+    FetchPkgs (
         #[command(flatten)]
         ActionArgs
     ),
-    /// ..., then fetch dependent pkgs
-    FetchPkgs (
+    /// ..., then fetch sources
+    FetchSources (
         #[command(flatten)]
         ActionArgs
     ),
@@ -170,8 +170,8 @@ pub(crate) fn work() -> Result<()> {
     let arg: Arg = clap::Parser::parse();
     match arg.action {
         Action::FetchPkgbuilds(args) => args.try_fetch_pkgbuilds().and(Ok(())),
-        Action::FetchSources(args) => args.try_fetch_sources().and(Ok(())),
         Action::FetchPkgs(args) => args.try_fetch_pkgs().and(Ok(())),
+        Action::FetchSources(args) => args.try_fetch_sources().and(Ok(())),
         Action::Build(args) => args.try_build().and(Ok(())),
         Action::Release(args) => args.try_release().and(Ok(())),
         Action::DoEverything(args) => args.try_release().and(Ok(())),

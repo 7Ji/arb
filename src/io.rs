@@ -74,7 +74,7 @@ where
             Ok(writer) => writer,
             Err(_) => {
                 log::error!("Failed to get writer");
-                return Err(Error::ThreadFailure(None))
+                return Err(Error::ThreadFailure)
             },
         };
         let elapsed = (Instant::now() - time_start).as_secs_f64();
@@ -123,7 +123,7 @@ impl MTSharedBufferedFile {
             Ok(file) => Ok(file),
             Err(_) => {
                 log::error!("Failed to lock log file");
-                Err(Error::ThreadFailure(None))
+                Err(Error::ThreadFailure)
             },
         }
     }

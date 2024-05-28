@@ -359,10 +359,10 @@ where
         };
         if metadata.is_dir() {
             log::info!("Removing symlink target which is a dir...");
-            remove_dir_all_try_best(&original)?;
+            remove_dir_all_try_best(&original)?
         } else {
             log::info!("Removing symlink target which is not a dir...");
-            remove_file(&link).map_err(|e|Error::IoError(e))?
+            remove_file(&link)?
         }
         if let Err(e) = symlink(&original, &link) {
             log::error!("Failed to force symlink '{}' to '{}': {}",

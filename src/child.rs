@@ -159,12 +159,14 @@ impl ChildLoggers {
     pub(crate) fn try_join(self) -> Result<()> {
         let mut r = Ok(());
         if let Err(e) = self.logger_stdout.join() {
-            log::error!("Failed to join stdout logger for child {}", self.child_id);
-            r = Err(Error::ThreadFailure(Some(e)));
+            log::error!("Failed to join stdout logger for child {}, artifact: \
+                {:?}", self.child_id, e);
+            r = Err(Error::ThreadFailure);
         }
         if let Err(e) = self.logger_stderr.join() {
-            log::error!("Failed to join stderr logger for child {}", self.child_id);
-            r = Err(Error::ThreadFailure(Some(e)));
+            log::error!("Failed to join stderr logger for child {}, artiface: \
+                {:?}", self.child_id, e);
+            r = Err(Error::ThreadFailure);
         }
         self.log_file.write_end(self.time_start)?;
         r

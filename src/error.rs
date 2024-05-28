@@ -1,6 +1,7 @@
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum Error {
     // AlpmError (alpm::Error),
+    AlnopmError (alnopm::Error),
     BadChild {
         pid: Option<nix::unistd::Pid>,
         code: Option<i32>,
@@ -11,25 +12,31 @@ pub(crate) enum Error {
     Collapsed(String),
     DependencyMissing (Vec<String>),
     FilesystemConflict,
-    GitError (git2::Error),
+    /// Collapsed git error
+    GitError (String),
     GitObjectMissing,
     IllegalWorkerState (&'static str),
     ImpossibleLogic,
     IntegrityError,
     InvalidArgument,
     InvalidConfig,
-    IoError (std::io::Error),
+    IoError (String),
     MappingFailure,
     NixErrno (nix::errno::Errno),
     PkgbuildLibError (pkgbuild::Error),
-    RmpDecodeError (rmp_serde::decode::Error),
-    RmpEncodeError (rmp_serde::encode::Error),
+    /// Collapse rmp decode error
+    RmpDecodeError (String),
+    /// Collapse rmp encode error
+    RmpEncodeError (String),
     // ProcError (procfs::ProcError),
-    ThreadFailure (Option<Box<dyn std::any::Any + Send + 'static>>),
+    ThreadFailure,
     // TimeError (time::Error),
-    UreqError (ureq::Error),
+    /// Collapsed ureq error
+    UreqError (String),
+    /// Collapsed url parsing error
     UrlParseError (url::ParseError),
-    YAMLParseError (serde_yaml::Error),
+    /// Collapsed YAML parse error
+    YAMLParseError (String),
 }
 
 pub(crate) type Result<T> = std::result::Result<T, Error>;
@@ -43,6 +50,7 @@ impl Default for Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::AlnopmError(e) => write!(f, "Alnopm library error: {}", e),
             // Self::AlpmError(e) => write!(f, "Alpm Error: {}", e),
             Self::BadChild { pid, code } => write!(f, "Bad child, pid {:?}, code {:?}", pid, code),
             Self::BrokenEnvironment => write!(f, "Broken Environment"),
@@ -65,7 +73,7 @@ impl std::fmt::Display for Error {
             Self::RmpDecodeError(e) => write!(f, "RMP Decode Error: {}", e),
             Self::RmpEncodeError(e) => write!(f, "RMP Encode Error: {}", e),
             // Self::ProcError(e) => write!(f, "Proc Error: {}", e),
-            Self::ThreadFailure(artifact) => write!(f, "Thread Failure, artifact: {:?}", artifact),
+            Self::ThreadFailure => write!(f, "Thread Failure"),
             // Self::TimeError(e) => write!(f, "Time Error: {}", e),
             Self::UreqError(e) => write!(f, "Ureq Error: {}", e),
             Self::UrlParseError(e) => write!(f, "URL Parse Error: {}", e),
@@ -74,124 +82,44 @@ impl std::fmt::Display for Error {
     }
 }
 
-// impl From<alpm::Error> for Error {
-//     fn from(value: alpm::Error) -> Self {
-//         Self::AlpmError(value)
-//     }
-// }
-
-impl From<git2::Error> for Error {
-    fn from(value: git2::Error) -> Self {
-        Self::GitError(value)
-    }
+macro_rules! impl_from_error_move {
+    ($external: ty, $internal: tt) => {
+        impl From<$external> for Error {
+            fn from(value: $external) -> Self {
+                Self::$internal(value)
+            }
+        }
+    };
 }
 
-impl From<std::io::Error> for Error {
-    fn from(value: std::io::Error) -> Self {
-        Self::IoError(value)
-    }
+macro_rules! impl_from_error_collapse {
+    ($external: ty, $internal: tt) => {
+        impl From<&$external> for Error {
+            fn from(value: &$external) -> Self {
+                Self::$internal(format!("{}", value))
+            }
+        }
+        impl From<$external> for Error {
+            fn from(value: $external) -> Self {
+                Self::$internal(format!("{}", value))
+            }
+        }
+    };
 }
 
-impl From<nix::errno::Errno> for Error {
-    fn from(value: nix::errno::Errno) -> Self {
-        Self::NixErrno(value)
-    }
-}
-
-// impl From<procfs::ProcError> for Error {
-//     fn from(value: procfs::ProcError) -> Self {
-//         Self::ProcError(value)
-//     }
-// }
-
-impl From<ureq::Error> for Error {
-    fn from(value: ureq::Error) -> Self {
-        Self::UreqError(value)
-    }
-}
-
-impl From<url::ParseError> for Error {
-    fn from(value: url::ParseError) -> Self {
-        Self::UrlParseError(value)
-    }
-}
-
-// impl From<time::Error> for Error {
-//     fn from(value: time::Error) -> Self {
-//         Self::TimeError(value)
-//     }
-// }
-
-impl From<serde_yaml::Error> for Error {
-    fn from(value: serde_yaml::Error) -> Self {
-        Self::YAMLParseError(value)
-    }
-}
-
-impl From<rmp_serde::decode::Error> for Error {
-    fn from(value: rmp_serde::decode::Error) -> Self {
-        Self::RmpDecodeError(value)
-    }
-}
-
-impl From<rmp_serde::encode::Error> for Error {
-    fn from(value: rmp_serde::encode::Error) -> Self {
-        Self::RmpEncodeError(value)
-    }
-}
-
-impl From<pkgbuild::Error> for Error {
-    fn from(value: pkgbuild::Error) -> Self {
-        Self::PkgbuildLibError(value)
-    }
-}
+impl_from_error_move!(alnopm::Error, AlnopmError);
+impl_from_error_collapse!(git2::Error, GitError);
+impl_from_error_collapse!(std::io::Error, IoError);
+impl_from_error_move!(nix::errno::Errno, NixErrno);
+impl_from_error_collapse!(ureq::Error, UreqError);
+impl_from_error_move!(url::ParseError, UrlParseError);
+impl_from_error_collapse!(serde_yaml::Error, YAMLParseError);
+impl_from_error_collapse!(rmp_serde::decode::Error, RmpDecodeError);
+impl_from_error_collapse!(rmp_serde::encode::Error, RmpEncodeError);
+impl_from_error_move!(pkgbuild::Error, PkgbuildLibError);
 
 impl From<Box<dyn std::any::Any + Send + 'static>> for Error {
-    fn from(value: Box<dyn std::any::Any + Send + 'static>) -> Self {
-        Self::ThreadFailure(Some(value))
-    }
-}
-
-// impl Into<std::io::Error> for Error {
-//     fn into(self) -> std::io::Error {
-//         match self {
-//             Self::IoError(e) => e,
-//             Self::NixErrno(e) => e.into(),
-//             _ => std::io::Error::new(std::io::ErrorKind::Other, "Unmappable Error")
-//         }
-//     }
-// }
-
-impl Clone for Error {
-    fn clone(&self) -> Self {
-        match self {
-            // Self::AlpmError(arg0) => Self::AlpmError(arg0.clone()),
-            Self::BadChild { pid, code } => Self::BadChild { pid: pid.clone(), code: code.clone() },
-            Self::BrokenEnvironment => Self::BrokenEnvironment,
-            Self::BrokenPKGBUILDs(arg0) => Self::BrokenPKGBUILDs(arg0.clone()),
-            Self::BuildFailure => Self::BuildFailure,
-            Self::Collapsed(arg0) => Self::Collapsed(arg0.clone()),
-            Self::DependencyMissing(arg0) => Self::DependencyMissing(arg0.clone()),
-            Self::FilesystemConflict => Self::FilesystemConflict,
-            Self::GitError(arg0) => Self::GitError(git2::Error::new(arg0.code(), arg0.class(), arg0.message())),
-            Self::GitObjectMissing => Self::GitObjectMissing,
-            Self::ImpossibleLogic => Self::ImpossibleLogic,
-            Self::IntegrityError => Self::IntegrityError,
-            Self::InvalidArgument => Self::InvalidArgument,
-            Self::InvalidConfig => Self::InvalidConfig,
-            Self::IoError(arg0) => Self::IoError(std::io::Error::from(arg0.kind())),
-            Self::IllegalWorkerState(s) => Self::IllegalWorkerState(s),
-            Self::MappingFailure => Self::MappingFailure,
-            Self::NixErrno(arg0) => Self::NixErrno(*arg0),
-            Self::PkgbuildLibError(arg0) => Self::PkgbuildLibError(arg0.clone()),
-            Self::RmpDecodeError(arg0) => Self::Collapsed(format!("From RMP Decode Error: {}", arg0)),
-            Self::RmpEncodeError(arg0) => Self::Collapsed(format!("From RMP Encode Error: {}", arg0)),
-            // Self::ProcError(arg0) => Self::Collapsed(format!("From Proc Error: {}", arg0)),
-            Self::ThreadFailure(arg0) => Self::Collapsed(format!("From Thread Failure: {:?}", arg0)),
-            // Self::TimeError(arg0) => Self::Collapsed(format!("From Time Error: {}", arg0)),
-            Self::UreqError(arg0) => Self::Collapsed(format!("From Ureq Error: {}", arg0)),
-            Self::UrlParseError(arg0) => Self::UrlParseError(arg0.clone()),
-            Self::YAMLParseError(arg0) => Self::Collapsed(format!("From YAML Parse Error: {}", arg0))
-        }
+    fn from(_: Box<dyn std::any::Any + Send + 'static>) -> Self {
+        Self::ThreadFailure
     }
 }
