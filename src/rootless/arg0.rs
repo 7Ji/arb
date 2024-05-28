@@ -7,8 +7,8 @@ pub(crate) fn try_get_arg0() -> Result<PathBuf> {
     match read_link(PATH_EXE) {
         Ok(exe) => Ok(exe),
         Err(e) => {
-            log::error!("Failed to read link '/proc/self/exe' to get \
-                actual arg0: {}", e);
+            log::error!("Failed to read link '{}' to get \
+                actual arg0: {}", PATH_EXE, e);
             Err(e.into())
         },
     }

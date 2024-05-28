@@ -1,9 +1,7 @@
 use std::{fs::File, io::{BufReader, Read}, iter::empty, path::{Path, PathBuf}};
 
-// use blake2::Blake2b512;
 use pkgbuild::{Architecture, B2sum, Cksum, GitSourceFragment, Md5sum, PkgbuildArchSpecific, Sha1sum, Sha224sum, Sha256sum, Sha384sum, Sha512sum, SourceWithChecksum};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-// use sha1::{digest::{generic_array::GenericArray, OutputSizeUser}, Digest};
 
 use super::Pkgbuilds;
 
@@ -16,21 +14,8 @@ struct GitSource {
     tags: Vec<String>,
 }
 
-// impl Into<RepoToOpen> for &GitSource {
-//     fn into(self) -> RepoToOpen {
-//         RepoToOpen { 
-//             path: format!("sources/git/").into(), 
-//             url: self.url.clone(), 
-//             branches: self.branches.clone(), 
-//             tags: self.tags.clone() 
-//         }
-//         // RepoToOpen::new_with_url_parent_type(&self.url, "git")
-//     }
-// }
-
 #[derive(PartialEq, Clone, Debug)]
 enum CacheableProtocol {
-    //Git,
     File,
     Ftp,
     Http,

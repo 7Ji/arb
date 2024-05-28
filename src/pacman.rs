@@ -1,8 +1,8 @@
-use std::{collections::BTreeMap, ffi::OsString, fmt::Display, io::{BufRead, BufReader, Write}, path::Path};
+use std::{collections::BTreeMap, ffi::OsString, fmt::Display, io::{BufRead, BufReader, Write}, path::{Path, PathBuf}};
 
 use alnopm::Db;
 
-use crate::{filesystem::{dir_entry_checked, file_create_checked, file_open_checked, read_dir_checked}, logfile::LogFileBuilder, rootless::BrokerPayload, Error, Result};
+use crate::{constant::PATH_PACMAN_SYNC, filesystem::{dir_entry_checked, file_create_checked, file_open_checked, read_dir_checked}, logfile::LogFileBuilder, rootless::BrokerPayload, Error, Result};
 
 type ConfigSection =  BTreeMap<String, Option<String>>;
 
@@ -144,8 +144,8 @@ impl PacmanConfig {
         }
     }
 
-    pub(crate) fn try_read_dbs<P: AsRef<Path>>(&self, dir: P) -> Result<PacmanDbs> {
-        PacmanDbs::try_read(self, dir)
+    pub(crate) fn try_read_dbs(&self) -> Result<PacmanDbs> {
+        PacmanDbs::try_read(self)
     }
 
     // /// Get a hash value of DBs + Packages to install (names instead of actual
@@ -224,13 +224,11 @@ pub(crate) struct PacmanDbs {
 }
 
 impl PacmanDbs {
-    pub(crate) fn try_read<P: AsRef<Path>>(config: &PacmanConfig, dir: P) 
-        -> Result<Self> 
-    {
+    pub(crate) fn try_read(config: &PacmanConfig) -> Result<Self> {
         let mut dbs = BTreeMap::new();
-        let dir = dir.as_ref();
         for db_name in config.repos.keys() {
-            let db = Db::try_from_path(&dir.join(db_name))?;
+            let db = Db::try_from_path(
+                format!("{}/{}.db", PATH_PACMAN_SYNC, db_name))?;
             if dbs.insert(db_name.clone(), db).is_some() {
                 log::error!("Impossible: duplicated DB");
                 return Err(Error::ImpossibleLogic)

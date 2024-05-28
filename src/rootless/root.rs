@@ -3,7 +3,7 @@
 use std::{iter::once, os::unix::fs::{symlink, DirBuilderExt}, path::{Path, PathBuf}};
 use nix::{libc::mode_t, unistd::chroot};
 
-use crate::{filesystem::{file_create_with_content, set_permissions_mode}, pacman::PacmanConfig, rootless::RootlessHandler, Result};
+use crate::{constant::PATH_PACMAN_CONF_UNDER_ROOT, filesystem::{file_create_with_content, set_permissions_mode}, pacman::PacmanConfig, rootless::RootlessHandler, Result};
 
 use super::{idmap::IdMaps, BrokerPayload};
 
@@ -38,7 +38,7 @@ impl Root {
     }
 
     pub(crate) fn get_path_pacman_conf(&self) -> PathBuf {
-        self.path.join("etc/pacman.conf")
+        self.path.join(PATH_PACMAN_CONF_UNDER_ROOT)
     }
 
     fn set_permissions_mode<P: AsRef<Path>>(&self, suffix: P, mode: mode_t) 

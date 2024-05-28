@@ -1,9 +1,9 @@
 mod source;
 
-use std::{ffi::OsString, io::{stdout, Read, Write}, iter::{empty, once}, path::Path};
+use std::{collections::{BTreeMap, HashMap}, ffi::OsString, io::{stdout, Read, Write}, iter::{empty, once}, path::Path};
 use git2::Oid;
 use pkgbuild::{self, Architecture};
-use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, filesystem::{create_dir_allow_existing, set_current_dir_checked}, git::{RepoToOpen, ReposListToOpen}, mount::mount_bind, pkgbuild::source::CacheableSources, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, BrokerPayload}, Error, Result};
+use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, constant::PATH_PKGBUILDS, filesystem::{create_dir_allow_existing, set_current_dir_checked}, git::{RepoToOpen, ReposListToOpen}, mount::mount_bind, pacman::PacmanDbs, pkgbuild::source::CacheableSources, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, BrokerPayload}, Error, Result};
 
 #[derive(Debug)]
 pub(crate) struct Pkgbuild {
@@ -81,12 +81,6 @@ impl Pkgbuild {
                 &self.branch, self.subtree.as_ref(), path.as_ref())
     }
 }
-
-// impl Into<RepoToOpen> for &Pkgbuild {
-//     fn into(self) -> RepoToOpen {
-//         RepoToOpen::new_with_url_parent_type(&self.url, "PKGBUILD")
-//     }
-// }
 
 #[derive(Default, Debug)]
 pub(crate) struct Pkgbuilds {
@@ -194,6 +188,32 @@ impl Pkgbuilds {
         log::debug!("Cacheable sources: {:?}", &sources);
         sources
     }
+
+    pub(crate) fn get_plans(&self, dbs: &PacmanDbs, arch: &Architecture) -> Result<BuildPlan> {
+        // Provide: key: provide, value: pkgbuild, package
+        let map_provide = HashMap::<String, (String, String)>::new();
+        struct PkgbuildProvide {
+            pkgbuild: String,
+            package: String,
+            provide: String // Main key
+        }
+        let map_depend = HashMap::<String, String>::new();
+        // struct PkgbuildDepends {
+        //     pkgbuild: String,
+        //     depends: Vec<String>,
+        // }
+        // for pkgbuild in self.pkgbuilds.iter() {
+        //     // map_provide
+        //     let pkgbuild = pkgbuild.inner;
+        //     for provide in pkgbuild.multiarch {
+
+        //     }
+        //     // for provide in pkgbuild.inner.provides() {
+
+        //     // }
+        // }
+        Ok(Default::default())
+    }
 }
 
 /// The `pkgbuild_reader` applet entry point, takes no args
@@ -211,7 +231,7 @@ where
     let path_root = root.as_ref();
     let path_pkgbuilds = path_root.join("PKGBUILDs");
     create_dir_allow_existing(&path_pkgbuilds)?;
-    mount_bind("build/PKGBUILDs", &path_pkgbuilds)?;
+    mount_bind(PATH_PKGBUILDS, &path_pkgbuilds)?;
     set_current_dir_checked(&path_pkgbuilds)?;
     chroot_checked("..")?;
     set_uid_gid(1000, 1000)?;
@@ -238,4 +258,20 @@ where
     } else {
         Ok(())
     }
+}
+
+#[derive(Default)]
+struct BuildStage {
+    /// Install these dependencies before build, these could come from either
+    /// the 
+    install: Vec<String>,
+    /// Build these PKGBUILDs (not packages) concurrently
+    build: Vec<String>,
+}
+
+#[derive(Default)]
+struct BuildPlan {
+    /// Cache these packages from Internet before any stage
+    cache: Vec<String>,
+    stages: Vec<BuildStage>,
 }

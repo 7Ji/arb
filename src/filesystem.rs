@@ -6,7 +6,7 @@ use std::{
 
 use nix::libc::mode_t;
 
-use crate::{error::{
+use crate::{constant::{PATH_BUILD, PATH_LOGS, PATH_PACMAN_SYNC, PATH_PKGS, PATH_PKGS_CACHE, PATH_PKGS_LATEST, PATH_PKGS_UPDATED, PATH_SOURCES, PATH_SOURCES_FILE_B2, PATH_SOURCES_FILE_CK, PATH_SOURCES_FILE_MD5, PATH_SOURCES_FILE_SHA1, PATH_SOURCES_FILE_SHA224, PATH_SOURCES_FILE_SHA256, PATH_SOURCES_FILE_SHA384, PATH_SOURCES_FILE_SHA512, PATH_SOURCES_GIT, PATH_SOURCES_PKGBUILD}, error::{
         Error,
         Result,
     }, io::reader_to_writer};
@@ -320,16 +320,17 @@ where
 
 
 pub(crate) fn create_layout() -> Result<()> {
-    create_dirs_allow_existing(["build", "logs", "pkgs", "sources"])?;
-    create_dirs_under_allow_existing(
-        ["pacman.sync"], "build")?;
-    remove_dirs_allow_non_existing(["pkgs/updated", "pkgs/latest"])?;
-    create_dirs_under_allow_existing(
-        ["updated", "latest", "cache"], "pkgs")?;
-    create_dirs_under_allow_existing([
-        "file-ck", "file-md5", "file-sha1", "file-sha224", "file-sha256",
-        "file-sha384", "file-sha512", "file-b2", "git", "PKGBUILD", "pkg"], 
-        "sources")
+    create_dirs_allow_existing(
+        [PATH_BUILD, PATH_LOGS, PATH_PKGS, PATH_SOURCES, PATH_PACMAN_SYNC])?;
+    remove_dirs_allow_non_existing(
+        [PATH_PKGS_UPDATED, PATH_PKGS_LATEST, PATH_PKGS_CACHE])?;
+    create_dirs_allow_existing(
+        [PATH_PKGS_UPDATED, PATH_PKGS_LATEST, PATH_PKGS_CACHE,
+        PATH_SOURCES_GIT, PATH_SOURCES_PKGBUILD, PATH_SOURCES_FILE_B2,
+        PATH_SOURCES_FILE_SHA512, PATH_SOURCES_FILE_SHA384,
+        PATH_SOURCES_FILE_SHA256, PATH_SOURCES_FILE_SHA224,
+        PATH_SOURCES_FILE_SHA1, PATH_SOURCES_FILE_MD5,
+        PATH_SOURCES_FILE_CK])
 }
 
 pub(crate) fn prepare_layout() -> Result<()> {

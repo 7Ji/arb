@@ -3,7 +3,7 @@ use std::{iter::once, path::Path};
 use pkgbuild::Architecture;
 
 // Worker is a finite state machine
-use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, io::write_all_to_file_or_stdout, git::gmr_config_from_urls, rootless::{Root, RootlessHandler}, Error, Result};
+use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, constant::{PATH_BUILD, PATH_PKGBUILDS, PATH_ROOT_SINGLE_BASE}, git::gmr_config_from_urls, io::write_all_to_file_or_stdout, rootless::{Root, RootlessHandler}, Error, Result};
 
 pub(crate) struct WorkerStateReadConfig {
     config: PersistentConfig
@@ -59,7 +59,7 @@ impl WorkerStatePreparedRootless {
         -> Result<WorkerStatePreparedLayout>
     {
         self.rootless.run_action_no_payload(
-            "rm-rf", once("build"))?;
+            "rm-rf", once(PATH_BUILD))?;
         crate::filesystem::prepare_layout()?;
         self.config.paconf.set_defaults();
         Ok(WorkerStatePreparedLayout { 
@@ -97,7 +97,7 @@ impl WorkerStateFetchedPkgbuilds {
         -> Result<WorkerStatePreparedBaseRoot> 
     {
         let root = self.rootless.new_root(
-            "build/root.single.base", true);
+            PATH_ROOT_SINGLE_BASE, true);
         let mut paconf = self.config.paconf.clone();
         paconf.set_option("SigLevel", Some("Never"));
         root.prepare_layout(&paconf)?;
@@ -156,7 +156,7 @@ impl WorkerStateDumpedArch {
     pub(crate) fn try_parse_pkgbuilds(mut self) 
         -> Result<WorkerStateParsedPkgbuilds> 
     {
-        self.config.pkgbuilds.dump("build/PKGBUILDs")?;
+        self.config.pkgbuilds.dump(PATH_PKGBUILDS)?;
         self.rootless.complete_pkgbuilds_in_root(
             &self.root, &mut self.config.pkgbuilds)?;
         log::debug!("Parsed PKGBUILDs from secured chroot: {:?}", 
@@ -176,6 +176,9 @@ pub(crate) struct WorkerStateParsedPkgbuilds {
 
 impl WorkerStateParsedPkgbuilds {
     pub(crate) fn try_fetch_pkgs(self) -> Result<WorkerStateFetchedPkgs> {
+        let dbs = self.config.paconf.try_read_dbs()?;
+        // self.config.pkgbuilds.
+        
         Ok(WorkerStateFetchedPkgs { 
             config: self.config, 
             rootless: self.rootless, 
