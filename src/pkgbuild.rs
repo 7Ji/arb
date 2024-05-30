@@ -192,6 +192,7 @@ impl Pkgbuilds {
     pub(crate) fn get_plans(&self, dbs: &PacmanDbs, arch: &Architecture) 
         -> Result<BuildPlan> 
     {
+        #[derive(PartialEq)]
         struct ProvideChain<'a> {
             name: &'a str, // Main key
             version: Option<&'a PlainVersion>,
@@ -199,38 +200,30 @@ impl Pkgbuilds {
             pkgbuild: &'a str,
             db_id: usize,
         }
+        impl std::cmp::PartialOrd for ProvideChain<'_> {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                use std::cmp::Ordering;
+                match self.name.partial_cmp(&other.name) {
+                    Some(Ordering::Equal) => (),
+                    ord => return ord,
+                }
+                match self.db_id.cmp(&other.db_id) {
+                    Ordering::Equal => (),
+                    ord => return Some(ord),
+                }
+                match self.package.partial_cmp(&other.package) {
+                    Some(core::cmp::Ordering::Equal) => (),
+                    ord => return ord,
+                }
+                match self.pkgbuild.partial_cmp(&other.pkgbuild) {
+                    Some(core::cmp::Ordering::Equal) => (),
+                    ord => return ord,
+                }
+                None
+            }
+        
+        }
         let mut provide_chains = Vec::<ProvideChain>::new();
-        // for pkgbuild in self.pkgbuilds.iter() {
-        //     let pkgbuild_name = &pkgbuild.name;
-        //     let pkgbuild = &pkgbuild.inner;
-        //     macro_rules! add_provide_chains {
-        //         ($parent: expr, $package: expr) => {
-        //             for provide in $parent.provides.iter() {
-        //                 provide_chains.push(ProvideChain { 
-        //                     name: &provide.name,
-        //                     version: provide.version.as_ref(),
-        //                     package: &$package,
-        //                     pkgbuild: &pkgbuild_name, 
-        //                     db_id: usize::MAX,
-        //                 })
-        //             }
-        //         };
-        //     }
-        //     macro_rules! add_provide_chains_multiarch {
-        //         ($parent: expr, $package: expr) => {
-        //             add_provide_chains!($parent.multiarch.any, $package);
-        //             if let Some(arch_specific) = 
-        //                 $parent.multiarch.arches.get(arch) 
-        //             {
-        //                 add_provide_chains!(arch_specific, $package);
-        //             }
-        //         };
-        //     }
-        //     add_provide_chains_multiarch!(pkgbuild, pkgbuild.pkgbase);
-        //     for package in pkgbuild.pkgs.iter() {
-        //         add_provide_chains_multiarch!(package, package.pkgname);
-        //     }
-        // }
         let mut db_names = Vec::new();
         for (db_id, (db_name, db)) in 
             dbs.dbs.iter().enumerate() 
@@ -246,14 +239,31 @@ impl Pkgbuilds {
                         db_id,
                     })
                 }
+                provide_chains.push(ProvideChain { 
+                    name: &package.name,
+                    version: Some(&package.version), 
+                    package: &package.name, 
+                    pkgbuild: "", 
+                    db_id
+                })
             }
         }
-        provide_chains.sort_unstable_by_key(
-            |provide_chain|provide_chain.name);
         #[derive(Debug)]
         struct PkgbuildDepends<'a> {
             pkgbuild: &'a Pkgbuild,
             deps: Vec<&'a Dependency>,
+            build: BuildMethod,
+        }
+        impl std::fmt::Display for PkgbuildDepends<'_> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "PKGBUILD {}: deps: ", self.pkgbuild.name)?;
+                for dep in self.deps.iter() {
+                    write!(f, "{}, ", dep)?;                    
+                }
+                write!(f, "build method: {:?}", self.build)?;
+                Ok(())
+
+            }
         }
         let mut pkgbuilds_depends = 
             Vec::<PkgbuildDepends>::new();
@@ -282,34 +292,83 @@ impl Pkgbuilds {
             }
             add_deps_multiarch!(
                 pkgbuild.inner, depends, makedepends,checkdepends);
-            for package in pkgbuild.inner.pkgs.iter() {
-                add_deps_multiarch!(package, depends, checkdepends);
-            }
-            pkgbuilds_depends.push(PkgbuildDepends {pkgbuild, deps})
+            pkgbuilds_depends.push(PkgbuildDepends {
+                pkgbuild, deps, build: Default::default()})
         }
-        // pkgbuilds_depends.sort_unstable_by_key(
-        //     |pkgbuild_depends|pkgbuild_depends.name);
         let mut build_plan = BuildPlan::default();
         while ! pkgbuilds_depends.is_empty() {
+            // Do this for every loop, as a sort is needed before first loop,
+            // and provides from pkgbuilds could be added during last loop
+            provide_chains.sort_unstable_by(|some, other|
+                some.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal));
+            // for provide_chain in provide_chains.iter() {
+            //     log::info!("Provide {} <= package {} <= db {} / PKGBUILD {}", 
+            //         provide_chain.name, provide_chain.package, db_names[provide_chain.db_id],
+            //         provide_chain.pkgbuild);
+            // }
+            // log::info!("Provide chain first {}, last {}", 
+            // provide_chains[0].name, provide_chains[provide_chains.len() - 1].name);
+                // |provide_chain|provide_chain.name);
             let mut build_stage = BuildStage::default();
             // let mut build_stage = 
             for pkgbuild_depends in 
                 pkgbuilds_depends.iter_mut() 
             {
-
-                for dep in pkgbuild_depends.deps.iter() {
-                    // provide_chains.parti
-                    for provide_chain in provide_chains.iter() {
-                    }
+                let mut i = 0;
+                while i < pkgbuild_depends.deps.len() {
+                    let dep = &pkgbuild_depends.deps[i];
+                    match provide_chains.binary_search_by_key(
+                        &dep.name.as_str(), 
+                        |provide_chain|provide_chain.name
+                    ) {
+                        Ok(id) => {
+                            let mut id_start = id;
+                            while id_start > 0 && provide_chains[id_start - 1].name == dep.name {
+                                id_start -= 1;
+                            }
+                            let mut id_end = id;
+                            while provide_chains[id_end + 1].name == dep.name {
+                                id_end += 1;
+                            }
+                            let mut id_match = id_start;
+                            for j in id_start..id_end + 1 {
+                                let provide_chain = &provide_chains[i];
+                                if provide_chain.package == dep.name { // Exact match
+                                    id_match = j;
+                                    break;
+                                }
+                            }
+                            let provide_chain = &provide_chains[id_match];
+                            if provide_chain.db_id == usize::MAX {
+                                &mut pkgbuild_depends.build.install_built
+                            } else {
+                                build_plan.cache.push(provide_chain.package.into());
+                                &mut pkgbuild_depends.build.install_repo
+                            }.push(provide_chain.package.into());
+                            pkgbuild_depends.deps.swap_remove(i);
+                        },
+                        Err(_) => {
+                            log::warn!("Did not find provider for {}", dep.name);
+                            i += 1
+                        },
+                    };
                 }
             }
             let len_last = pkgbuilds_depends.len();
-            pkgbuilds_depends.retain(|pkgbuild_depends|
+            let mut i = 0;
+            while i < pkgbuilds_depends.len() {
+                let pkgbuild_depends = &pkgbuilds_depends[i];
                 if pkgbuild_depends.deps.is_empty() {
-                    let pkgbuild = pkgbuild_depends.pkgbuild;
-                    let pkgbuild_name = &pkgbuild.name;
-                    build_stage.build.push(pkgbuild_name.into());
-                    let pkgbuild = &pkgbuild.inner;
+                    let pkgbuild_depends = 
+                        pkgbuilds_depends.swap_remove(i);
+                    let mut build = pkgbuild_depends.build;
+                    build.pkgbuild = pkgbuild_depends.pkgbuild.name.clone();
+                    build.install_repo.sort_unstable();
+                    build.install_repo.dedup();
+                    build.install_built.sort_unstable();
+                    build.install_built.dedup();
+                    build_stage.build.push(build);
+                    let pkgbuild_name = &pkgbuild_depends.pkgbuild.name;
                     macro_rules! add_provide_chains {
                         ($parent: expr, $package: expr) => {
                             for provide in $parent.provides.iter() {
@@ -333,25 +392,53 @@ impl Pkgbuilds {
                             }
                         };
                     }
+                    let pkgbuild = &pkgbuild_depends.pkgbuild.inner;
                     add_provide_chains_multiarch!(pkgbuild, pkgbuild.pkgbase);
                     for package in pkgbuild.pkgs.iter() {
                         add_provide_chains_multiarch!(package, package.pkgname);
+                        provide_chains.push(ProvideChain { 
+                            name: &package.pkgname,
+                            version: Some(&pkgbuild.version),
+                            package: &package.pkgname,
+                            pkgbuild: &pkgbuild_name, 
+                            db_id: usize::MAX,
+                        })
                     }
-                    false
+                    if pkgbuild.pkgs.is_empty() {
+                        provide_chains.push(ProvideChain { 
+                            name: &pkgbuild_name,
+                            version: Some(&pkgbuild.version),
+                            package: &pkgbuild_name,
+                            pkgbuild: &pkgbuild_name, 
+                            db_id: usize::MAX,
+                        })
+                    }
                 } else {
-                    true
+                    i += 1
                 }
-            );
+            }
             if pkgbuilds_depends.len() == len_last {
                 log::error!("Failed to resolve dependency: {} PKGBUILDs not \
-                    resolved: {:?}", len_last, pkgbuilds_depends);
+                    resolved:", len_last);
+                for pkgbuild_depend in pkgbuilds_depends.iter() {
+                    log::error!("PKGBUILD not resolved: {}", pkgbuild_depend)
+                }
                 return Err(Error::BrokenPKGBUILDs(
                     pkgbuilds_depends.iter().map(
                         |pkgbuild_depends|
                             pkgbuild_depends.pkgbuild.name.clone()).collect()))
             }
+            build_plan.stages.push(build_stage);
         }
-        // Now let's look up
+        // Now all is done
+        log::info!("Build plan: cache packages: {:?}", build_plan.cache);
+        for (id, stage) in build_plan.stages.iter().enumerate() {
+            log::info!("Build stage {}:", id);
+            for build in &stage.build {
+                log::info!("- Build {}, install from repo: {:?}, install built: {:?}",
+                    build.pkgbuild, build.install_repo, build.install_built);
+            }
+        }
         Ok(build_plan)
     }
 }
@@ -400,13 +487,20 @@ where
     }
 }
 
+#[derive(Debug, Default)]
+struct BuildMethod {
+    pkgbuild: String,
+    install_repo: Vec<String>,
+    install_built: Vec<String>,
+}
+
 #[derive(Default)]
 struct BuildStage {
     /// Install these dependencies before build, these could come from either
     /// the 
-    install: Vec<String>,
+    // install: Vec<String>,
     /// Build these PKGBUILDs (not packages) concurrently
-    build: Vec<String>,
+    build: Vec<BuildMethod>,
 }
 
 #[derive(Default)]
