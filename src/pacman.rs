@@ -220,7 +220,7 @@ where
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct PacmanDbs {
-    dbs: BTreeMap<String, Db>,
+    pub(crate) dbs: BTreeMap<String, Db>,
 }
 
 impl PacmanDbs {
