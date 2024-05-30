@@ -464,6 +464,8 @@ impl Pkgbuilds {
             }
             build_plan.stages.push(build_stage);
         }
+        build_plan.cache.sort_unstable();
+        build_plan.cache.dedup();
         // Now all is done
         log::info!("Build plan: cache packages: {:?}", build_plan.cache);
         for (id, stage) in build_plan.stages.iter().enumerate() {
@@ -542,4 +544,10 @@ pub(crate) struct BuildPlan {
     /// Cache these packages from Internet before any stage
     cache: Vec<String>,
     stages: Vec<BuildStage>,
+}
+
+impl BuildPlan {
+    pub(crate) fn get_cache(&self) -> &Vec<String> {
+        &self.cache
+    }
 }

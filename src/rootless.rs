@@ -9,7 +9,7 @@ mod unshare;
 use std::{ffi::{OsStr, OsString}, io::Write, iter::empty, path::{Path, PathBuf}, process::Child};
 use nix::{libc::pid_t, unistd::getpid};
 use pkgbuild::Architecture;
-use crate::{child::{get_child_in_out, get_child_out, read_from_child, wait_child, write_to_child}, logfile::LogFile, pacman::try_get_install_pkgs_payload, pkgbuild::Pkgbuilds, Error, Result};
+use crate::{child::{get_child_in_out, get_child_out, read_from_child, wait_child, write_to_child}, logfile::LogFile, pacman::{try_get_cache_pkgs_payload, try_get_install_pkgs_payload}, pkgbuild::Pkgbuilds, Error, Result};
 use self::{action::start_action, idmap::IdMaps};
 
 pub(crate) use self::id::set_uid_gid;
@@ -181,6 +181,23 @@ impl RootlessHandler {
             ["--populate"]);
         self.run_broker(&payload)?;
         log::info!("Bootstrapped root at '{}'", path_root.display());
+        Ok(())
+    }
+
+    pub(crate) fn cache_pkgs_for_root<I, S>(
+        &self, root: &Root, pkgs: I
+    ) 
+        -> Result<()> 
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>
+    {
+        let path_root = root.get_path();
+        log::info!("Caching packages for root at '{}'", path_root.display());
+        let payload = try_get_cache_pkgs_payload(
+            root.get_path(), pkgs, false)?;
+        self.run_broker(&payload)?;
+        log::info!("Cached packages for root at '{}'", path_root.display());
         Ok(())
     }
 

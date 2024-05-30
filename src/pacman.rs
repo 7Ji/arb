@@ -189,14 +189,14 @@ impl Display for PacmanConfig {
     }
 }
 
-pub(crate) fn try_get_install_pkgs_payload<I, S>(
-    root: &Path, pkgs: I, refresh: bool
+fn try_get_sync_payload<I, S>(
+    root: &Path, pkgs: I, refresh: bool, download_only: bool
 ) -> Result<BrokerPayload>
 where
     I: IntoIterator<Item = S>, 
     S: Into<OsString>
 {
-    let mut suffix = String::from("install");
+    let mut suffix = String::from("sync");
     if let Some(name) = root.file_name() {
         suffix.push('-');
         suffix.push_str(&name.to_string_lossy())
@@ -211,11 +211,34 @@ where
         root.join("etc/pacman.conf").into(),
         "--noconfirm".into(),
     ];
+    if download_only {
+        args.push("--downloadonly".into())
+    }
     for pkg in pkgs.into_iter() {
         args.push(pkg.into())
     }
     payload.add_init_command_run_program(logfile, "pacman", args);
     Ok(payload)
+}
+
+pub(crate) fn try_get_cache_pkgs_payload<I, S>(
+    root: &Path, pkgs: I, refresh: bool
+) -> Result<BrokerPayload>
+where
+    I: IntoIterator<Item = S>, 
+    S: Into<OsString>
+{
+    try_get_sync_payload(root, pkgs, refresh, true)
+}
+
+pub(crate) fn try_get_install_pkgs_payload<I, S>(
+    root: &Path, pkgs: I, refresh: bool
+) -> Result<BrokerPayload>
+where
+    I: IntoIterator<Item = S>, 
+    S: Into<OsString>
+{
+    try_get_sync_payload(root, pkgs, refresh, false)
 }
 
 #[derive(Clone, Debug, Default)]

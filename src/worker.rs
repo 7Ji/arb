@@ -177,7 +177,8 @@ pub(crate) struct WorkerStateParsedPkgbuilds {
 impl WorkerStateParsedPkgbuilds {
     pub(crate) fn try_fetch_pkgs(self) -> Result<WorkerStateFetchedPkgs> {
         let dbs = self.config.paconf.try_read_dbs()?;
-        let build_plans = self.config.pkgbuilds.get_plans(&dbs, &self.config.arch)?;
+        let build_plan = self.config.pkgbuilds.get_plans(&dbs, &self.config.arch)?;
+        self.rootless.cache_pkgs_for_root(&self.root, build_plan.get_cache())?;
         Ok(WorkerStateFetchedPkgs { 
             config: self.config, 
             rootless: self.rootless, 
