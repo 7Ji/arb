@@ -195,7 +195,7 @@ impl Pkgbuilds {
         #[derive(PartialEq)]
         struct ProvideChain<'a> {
             name: &'a str, // Main key
-            version: Option<&'a PlainVersion>,
+            version: &'a PlainVersion,
             package: &'a str,
             pkgbuild: &'a str,
             db_id: usize,
@@ -233,7 +233,10 @@ impl Pkgbuilds {
                 for provide in package.provides.iter() {
                     provide_chains.push(ProvideChain { 
                         name: &provide.name,
-                        version: provide.version.as_ref(),
+                        version: match &provide.version {
+                            Some(version) => version,
+                            None => &package.version,
+                        },
                         package: &package.name,
                         pkgbuild: "", 
                         db_id,
@@ -241,7 +244,7 @@ impl Pkgbuilds {
                 }
                 provide_chains.push(ProvideChain { 
                     name: &package.name,
-                    version: Some(&package.version), 
+                    version: &package.version, 
                     package: &package.name, 
                     pkgbuild: "", 
                     db_id
@@ -330,11 +333,39 @@ impl Pkgbuilds {
                             while provide_chains[id_end + 1].name == dep.name {
                                 id_end += 1;
                             }
-                            let mut id_match = id_start;
+                            let mut candidates = Vec::new();
+                            candidates.reserve(id_end - id_start + 1);
                             for j in id_start..id_end + 1 {
-                                let provide_chain = &provide_chains[i];
-                                if provide_chain.package == dep.name { // Exact match
-                                    id_match = j;
+                                candidates.push((j, &provide_chains[j]))
+                            }
+                            if let Some(ordered_version) = &dep.version {
+                                let plain_version = &ordered_version.plain;
+                                candidates.retain(|(_, provide_chain)|{
+                                    match ordered_version.order {
+                                        pkgbuild::DependencyOrder::Greater => 
+                                            provide_chain.version > plain_version,
+                                        pkgbuild::DependencyOrder::GreaterOrEqual => 
+                                            provide_chain.version >= plain_version,
+                                        pkgbuild::DependencyOrder::Equal => 
+                                            provide_chain.version == plain_version,
+                                        pkgbuild::DependencyOrder::LessOrEqual => 
+                                            provide_chain.version <= plain_version,
+                                        pkgbuild::DependencyOrder::Less => 
+                                            provide_chain.version < plain_version,
+                                    }
+                                });
+                                if candidates.is_empty() {
+                                    i += 1;
+                                    continue
+                                }
+                            }
+                            candidates.sort_unstable_by(|some, other|
+                                some.1.partial_cmp(other.1).unwrap_or(std::cmp::Ordering::Equal));
+                            let mut id_match = candidates[0].0;
+                            // Prefer the one with exact name match, otherwise the first one
+                            for candidate in candidates.iter() {
+                                if candidate.1.package == dep.name {
+                                    id_match = candidate.0;
                                     break;
                                 }
                             }
@@ -374,7 +405,10 @@ impl Pkgbuilds {
                             for provide in $parent.provides.iter() {
                                 provide_chains.push(ProvideChain { 
                                     name: &provide.name,
-                                    version: provide.version.as_ref(),
+                                    version: match &provide.version {
+                                        Some(version) => version,
+                                        None => &pkgbuild_depends.pkgbuild.inner.version
+                                    },
                                     package: &$package,
                                     pkgbuild: &pkgbuild_name, 
                                     db_id: usize::MAX,
@@ -398,7 +432,7 @@ impl Pkgbuilds {
                         add_provide_chains_multiarch!(package, package.pkgname);
                         provide_chains.push(ProvideChain { 
                             name: &package.pkgname,
-                            version: Some(&pkgbuild.version),
+                            version: &pkgbuild.version,
                             package: &package.pkgname,
                             pkgbuild: &pkgbuild_name, 
                             db_id: usize::MAX,
@@ -407,7 +441,7 @@ impl Pkgbuilds {
                     if pkgbuild.pkgs.is_empty() {
                         provide_chains.push(ProvideChain { 
                             name: &pkgbuild_name,
-                            version: Some(&pkgbuild.version),
+                            version: &pkgbuild.version,
                             package: &pkgbuild_name,
                             pkgbuild: &pkgbuild_name, 
                             db_id: usize::MAX,
