@@ -524,6 +524,10 @@ impl Pkgbuilds {
             None => Err(Error::BrokenPKGBUILDs(vec![pkgbuild.into()])),
         }
     }
+
+    pub(crate) fn len(&self) -> usize {
+        self.map.len()
+    }
 }
 
 /// The `pkgbuild_reader` applet entry point, takes no args

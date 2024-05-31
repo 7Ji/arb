@@ -235,7 +235,9 @@ impl WorkerStateFetchedSources {
         loop {
             let mut built: usize = 0;
             let mut updated: usize = 0;
+            let mut stages: usize = 0;
             for stage in self.buildplan.stages.iter() {
+                stages += 1;
                 let results: Vec<Result<(String, PlainVersion, bool)>> = 
                     stage.build.par_iter().map(|method|
                 {
@@ -261,15 +263,32 @@ impl WorkerStateFetchedSources {
                         updated += 1;
                     }
                 }
+                if updated > 0 {
+                    log::warn!("Some PKGBUILD pkgver updated, re-planning...");
+                    self.buildplan = self.config.pkgbuilds.get_plans(
+                        &self.dbs, &self.config.arch)?;
+                    // self.rootless.cache_pkgs_for_root(&self.root, 
+                    //     &self.buildplan.cache)?;
+                    break
+                }
             }
-            log::info!("Built {} PKGBUILDs ({} pkgver updated)", built, updated);
+            log::info!(
+                "Built {}/{} stages, {}/{} PKGBUILDs ({} pkgver updated)", 
+                    stages, self.buildplan.stages.len(), 
+                    built, self.config.pkgbuilds.len(),
+                    updated);
             if built == 0 { // No new package built, break now
+                log::info!("Build plan properly finished, all jobs done");
+                // log::info!("")
                 break
             }
-            if updated > 0 {
-                self.buildplan = self.config.pkgbuilds.get_plans(
-                    &self.dbs, &self.config.arch)?;
-            }
+            log::info!("Build plan partially finished, revisiting build plan 
+                all stages...");
+            // if updated > 0 {
+            //     log::warn!("Some PKGBUILD pkgver updated, re-planning...");
+            //     self.buildplan = self.config.pkgbuilds.get_plans(
+            //         &self.dbs, &self.config.arch)?;
+            // }
         }
         Ok(WorkerStateBuilt { 
             config: self.config })
