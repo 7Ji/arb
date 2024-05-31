@@ -416,7 +416,7 @@ impl CacheableSources {
         -> Self 
     {
         let mut cacheable_sources = Self::default();
-        for pkgbuild in pkgbuilds.pkgbuilds.iter() {
+        for (_, pkgbuild) in pkgbuilds.map.iter() {
             let multiarch = 
                 &pkgbuild.inner.multiarch;
             cacheable_sources.add_from_pkgbuild_arch_specific(&multiarch.any);

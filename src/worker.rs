@@ -1,9 +1,10 @@
 use std::{iter::once, path::Path};
 
-use pkgbuild::Architecture;
+use pkgbuild::{Architecture, PlainVersion};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 // Worker is a finite state machine
-use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, constant::{PATH_BUILD, PATH_PKGBUILDS, PATH_ROOT_SINGLE_BASE}, git::gmr_config_from_urls, io::write_all_to_file_or_stdout, rootless::{Root, RootlessHandler}, Error, Result};
+use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, constant::{PATH_BUILD, PATH_PKGBUILDS, PATH_ROOT_SINGLE_BASE}, git::gmr_config_from_urls, io::write_all_to_file_or_stdout, pacman::PacmanDbs, pkgbuild::BuildPlan, rootless::{Root, RootlessHandler}, Error, Result};
 
 pub(crate) struct WorkerStateReadConfig {
     config: PersistentConfig
@@ -177,12 +178,15 @@ pub(crate) struct WorkerStateParsedPkgbuilds {
 impl WorkerStateParsedPkgbuilds {
     pub(crate) fn try_fetch_pkgs(self) -> Result<WorkerStateFetchedPkgs> {
         let dbs = self.config.paconf.try_read_dbs()?;
-        let build_plan = self.config.pkgbuilds.get_plans(&dbs, &self.config.arch)?;
-        self.rootless.cache_pkgs_for_root(&self.root, build_plan.get_cache())?;
+        let buildplan = self.config.pkgbuilds.get_plans(&dbs, &self.config.arch)?;
+        self.rootless.cache_pkgs_for_root(&self.root, &buildplan.cache)?;
         Ok(WorkerStateFetchedPkgs { 
             config: self.config, 
             rootless: self.rootless, 
-            root: self.root })
+            root: self.root,
+            dbs,
+            buildplan
+         })
     }
 }
 
@@ -190,6 +194,8 @@ pub(crate) struct WorkerStateFetchedPkgs {
     config: RuntimeConfig,
     rootless: RootlessHandler,
     root: Root,
+    dbs: PacmanDbs,
+    buildplan: BuildPlan,
 }
 
 impl WorkerStateFetchedPkgs {
@@ -209,7 +215,10 @@ impl WorkerStateFetchedPkgs {
         Ok(WorkerStateFetchedSources { 
             config: self.config, 
             rootless: self.rootless,
-            root: self.root  })
+            root: self.root,
+            dbs: self.dbs,
+            buildplan: self.buildplan,
+        })
     }
 }
 
@@ -217,11 +226,51 @@ pub(crate) struct WorkerStateFetchedSources {
     config: RuntimeConfig,
     rootless: RootlessHandler,
     root: Root,
+    dbs: PacmanDbs,
+    buildplan: BuildPlan,
 }
 
-
 impl WorkerStateFetchedSources {
-    pub(crate) fn try_build(self) -> Result<WorkerStateBuilt> {
+    pub(crate) fn try_build(mut self) -> Result<WorkerStateBuilt> {
+        loop {
+            let mut built: usize = 0;
+            let mut updated: usize = 0;
+            for stage in self.buildplan.stages.iter() {
+                let results: Vec<Result<(String, PlainVersion, bool)>> = 
+                    stage.build.par_iter().map(|method|
+                {
+                    let pkgbuild = 
+                        self.config.pkgbuilds.get_pkgbuild(&method.pkgbuild)?;
+                    
+                    // if pkgbuild
+                    Ok((Default::default(), Default::default(), true))
+                }).collect();
+                for result in results {
+                    let (pkgbuild, version, 
+                        built_this) = result?;
+                    if built_this { built += 1 }
+                    if self.config.pkgbuilds.update_pkgbuild_version(
+                        &pkgbuild, version)? 
+                    {
+                        if ! built_this {
+                            log::error!("PKGBUILD {} updated version \
+                                but was not built", pkgbuild);
+                            return Err(Error::BrokenPKGBUILDs(
+                                                    vec![pkgbuild]))
+                        }
+                        updated += 1;
+                    }
+                }
+            }
+            log::info!("Built {} PKGBUILDs ({} pkgver updated)", built, updated);
+            if built == 0 { // No new package built, break now
+                break
+            }
+            if updated > 0 {
+                self.buildplan = self.config.pkgbuilds.get_plans(
+                    &self.dbs, &self.config.arch)?;
+            }
+        }
         Ok(WorkerStateBuilt { 
             config: self.config })
     }

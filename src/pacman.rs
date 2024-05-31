@@ -160,7 +160,6 @@ impl PacmanConfig {
     // pub(crate) fn hash_db_pkgs<P: AsRef<Path>>(&self, db: P, pkgs: I) -> Result<u64> {
 
     // }
-
 }
 
 impl Display for PacmanConfig {

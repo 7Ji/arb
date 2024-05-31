@@ -3,7 +3,7 @@ mod source;
 use std::{collections::{BTreeMap, HashMap}, ffi::OsString, io::{stdout, Read, Write}, iter::{empty, once}, path::Path};
 use git2::Oid;
 use pkgbuild::{self, Architecture, Dependency, PlainVersion, Provide};
-use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, constant::PATH_PKGBUILDS, filesystem::{create_dir_allow_existing, set_current_dir_checked}, git::{RepoToOpen, ReposListToOpen}, mount::mount_bind, pacman::PacmanDbs, pkgbuild::source::CacheableSources, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, BrokerPayload}, Error, Result};
+use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, constant::PATH_PKGBUILDS, filesystem::{create_dir_allow_existing, set_current_dir_checked}, git::{RepoToOpen, ReposListToOpen}, mount::mount_bind, pacman::PacmanDbs, pkgbuild::source::CacheableSources, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, BrokerPayload, Root, RootlessHandler}, Error, Result};
 
 #[derive(Debug)]
 pub(crate) struct Pkgbuild {
@@ -80,36 +80,49 @@ impl Pkgbuild {
             .dump_branch_pkgbuild(
                 &self.branch, self.subtree.as_ref(), path.as_ref())
     }
+
+    fn extract(&self, rootless: &RootlessHandler, root: &Root) -> Result<()> {
+        Ok(())
+    }
+
+    fn build(&self, rootless: &RootlessHandler) -> Result<()> {
+        let (version, extracted) = 
+        if self.inner.pkgver_func {
+            let version = Default::default();
+            (version, true)
+        } else {
+            (self.inner.version.clone(), false)
+        };
+        Ok(())
+    }
 }
 
 #[derive(Default, Debug)]
 pub(crate) struct Pkgbuilds {
-    pub(crate) pkgbuilds: Vec<Pkgbuild>,
+    pub(crate) map: BTreeMap<String, Pkgbuild>,
 }
 
 impl From<PersistentPkgbuildsConfig> for Pkgbuilds {
     fn from(config: PersistentPkgbuildsConfig) -> Self {
-        let mut pkgbuilds: Vec<Pkgbuild> = config.into_iter().map(
+        let map: BTreeMap<String, Pkgbuild> = config.into_iter().map(
             |(name, config)| {
-                Pkgbuild::from_config(name, config)
+                (name.clone(), Pkgbuild::from_config(name, config))
             }).collect();
-        pkgbuilds.sort_unstable_by(
-            |a,b|a.name.cmp(&b.name));
         Self {
-            pkgbuilds,
+            map,
         }
     }
 }
 
 impl Into<Vec<Pkgbuild>> for Pkgbuilds {
     fn into(self) -> Vec<Pkgbuild> {
-        self.pkgbuilds
+        self.map.into_iter().map(|(_, pkgbuild)|pkgbuild).collect()
     }
 }
 
 impl Pkgbuilds {
     pub(crate) fn git_urls(&self) -> Vec<String> {
-        self.pkgbuilds.iter().map(
+        self.map.values().map(
             |repo|repo.url.clone()).collect()
     }
 
@@ -122,14 +135,14 @@ impl Pkgbuilds {
             },
         };
         let count_parsed = pkgbuilds_raw.len();
-        let count_config = self.pkgbuilds.len();
+        let count_config = self.map.len();
         if count_parsed != count_config {
             log::error!("Parsed PKGBUILDs count different from input: \
                 parsed {}, config {}", count_parsed, count_config);
             return Err(Error::ImpossibleLogic)
         }
         for (pkgbuild_wrapper, pkgbuild_raw) in 
-            self.pkgbuilds.iter_mut().zip(pkgbuilds_raw.into_iter()) 
+            self.map.values_mut().zip(pkgbuilds_raw.into_iter()) 
         {
             pkgbuild_wrapper.inner = pkgbuild_raw;
         }
@@ -137,7 +150,7 @@ impl Pkgbuilds {
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.pkgbuilds.is_empty()
+        self.map.is_empty()
     }
 
     /// Sync the PKGBUILDs repos from remote
@@ -147,7 +160,7 @@ impl Pkgbuilds {
         log::info!("Syncing PKGBUILDs (gmr: '{}', proxy: {}, hold: {})...",
             gmr, proxy, hold);
         let mut repos_list = ReposListToOpen::default();
-        for pkgbuild in self.pkgbuilds.iter() {
+        for pkgbuild in self.map.values() {
             repos_list.add::<_, _, _, _, _, &str>(
                 "PKGBUILD", &pkgbuild.url, 
                 once(&pkgbuild.branch), empty())
@@ -161,7 +174,7 @@ impl Pkgbuilds {
         log::info!("Dumping PKGBUILDs...");
         let parent = parent.as_ref();
         create_dir_allow_existing(&parent)?;
-        for pkgbuild in self.pkgbuilds.iter() {
+        for pkgbuild in self.map.values() {
             let path_pkgbuild = parent.join(&pkgbuild.name);
             pkgbuild.dump(&path_pkgbuild)?
         }
@@ -175,7 +188,7 @@ impl Pkgbuilds {
         payload.add_init_command_run_applet(
             "read-pkgbuilds",
             once(root).chain(
-            self.pkgbuilds.iter().map(
+            self.map.values().map(
                 |pkgbuild|(&pkgbuild.name).into())));
         payload
     }
@@ -270,7 +283,7 @@ impl Pkgbuilds {
         }
         let mut pkgbuilds_depends = 
             Vec::<PkgbuildDepends>::new();
-        for pkgbuild in self.pkgbuilds.iter() {
+        for pkgbuild in self.map.values() {
             let mut deps = Vec::new();
             macro_rules! add_deps {
                 ($arch_specific: ident, $($depends: ident),+) => {
@@ -477,6 +490,40 @@ impl Pkgbuilds {
         }
         Ok(build_plan)
     }
+
+    /// Update a PKGBUILD's version, return:
+    /// 
+    /// - `Ok(true)` if found and updated (diffrent)
+    /// - `Ok(false)` if found but not updated (same)
+    /// - `Err(Error::BrokenPKGBUILDs)` if not found
+    pub(crate) fn update_pkgbuild_version(
+        &mut self, pkgbuild: &str, version: PlainVersion
+    ) -> Result<bool> 
+    {
+        match self.map.get_mut(pkgbuild) {
+            Some(pkgbuild) => {
+                if pkgbuild.inner.version != version {
+                    pkgbuild.inner.version = version;
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            },
+            None => {
+                log::error!("Failed to find PKGBUILD {} to update its version", 
+                            pkgbuild);
+                Err(Error::BrokenPKGBUILDs(vec![pkgbuild.into()]))
+            },
+        }
+
+    }
+
+    pub(crate) fn get_pkgbuild(&self, pkgbuild: &str) -> Result<&Pkgbuild> {
+        match self.map.get(pkgbuild) {
+            Some(pkgbuild) => Ok(pkgbuild),
+            None => Err(Error::BrokenPKGBUILDs(vec![pkgbuild.into()])),
+        }
+    }
 }
 
 /// The `pkgbuild_reader` applet entry point, takes no args
@@ -524,30 +571,24 @@ where
 }
 
 #[derive(Debug, Default)]
-struct BuildMethod {
-    pkgbuild: String,
-    install_repo: Vec<String>,
-    install_built: Vec<String>,
+pub(crate) struct BuildMethod {
+    pub(crate) pkgbuild: String,
+    pub(crate) install_repo: Vec<String>,
+    pub(crate) install_built: Vec<String>,
 }
 
 #[derive(Default)]
-struct BuildStage {
+pub(crate) struct BuildStage {
     /// Install these dependencies before build, these could come from either
     /// the 
     // install: Vec<String>,
     /// Build these PKGBUILDs (not packages) concurrently
-    build: Vec<BuildMethod>,
+    pub(crate) build: Vec<BuildMethod>,
 }
 
 #[derive(Default)]
 pub(crate) struct BuildPlan {
     /// Cache these packages from Internet before any stage
-    cache: Vec<String>,
-    stages: Vec<BuildStage>,
-}
-
-impl BuildPlan {
-    pub(crate) fn get_cache(&self) -> &Vec<String> {
-        &self.cache
-    }
+    pub(crate) cache: Vec<String>,
+    pub(crate) stages: Vec<BuildStage>,
 }
