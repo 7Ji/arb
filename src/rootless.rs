@@ -15,7 +15,7 @@ use self::{action::start_action, idmap::IdMaps};
 pub(crate) use self::id::set_uid_gid;
 pub(crate) use self::init::{InitCommand, InitPayload};
 pub(crate) use self::broker::{BrokerCommand, BrokerPayload};
-pub(crate) use self::root::{Root, chroot_checked};
+pub(crate) use self::root::{Root, BaseRoot, OverlayRoot, chroot_checked};
 pub(crate) use self::unshare::{
     try_unshare_user_and_wait,
     try_unshare_user_mount_and_wait,
@@ -118,8 +118,8 @@ impl RootlessHandler {
             Some(payload.try_into_bytes()?))
     }
 
-    pub(crate) fn new_root<P: AsRef<Path>>(&self, path: P, temporary: bool) 
-    -> Root 
+    pub(crate) fn new_base_root<P: AsRef<Path>>(&self, path: P, temporary: bool) 
+    -> BaseRoot 
     {
         let destroy_with_exe = if temporary { 
             log::info!("Creating temporary root at '{}'", path.as_ref().display());
@@ -128,36 +128,38 @@ impl RootlessHandler {
             log::info!("Creating root at '{}'", path.as_ref().display());
             None 
         };
-        Root::new(path, &self.idmaps, destroy_with_exe)
+        BaseRoot::new(path.as_ref(), &self.idmaps, destroy_with_exe)
     }
 
-    pub(crate) fn install_pkgs_to_root<I, S>(
-        &self, root: &Root, pkgs: I, refresh: bool
+    pub(crate) fn install_pkgs_to_root<R, I, S>(
+        &self, root: &R, pkgs: I, refresh: bool
     ) 
         -> Result<()> 
     where
+        R: Root,
         I: IntoIterator<Item = S>,
         S: Into<OsString>
     {
         let payload = try_get_install_pkgs_payload(
-            root.get_path(), pkgs, refresh)?;
+            root.get_path_root(), pkgs, refresh)?;
         self.run_broker(&payload)
     }
 
-    pub(crate) fn bootstrap_root<I, S>(
-        &self, root: &Root, pkgs: I, refresh: bool
+    pub(crate) fn bootstrap_root<R, I, S>(
+        &self, root: &R, pkgs: I, refresh: bool
     ) 
         -> Result<()> 
     where
+        R: Root,
         I: IntoIterator<Item = S>,
         S: Into<OsString>
     {
-        let path_root = root.get_path();
+        let path_root = root.get_path_root();
         log::info!("Bootstrapping root at '{}'", path_root.display());
         let mut payload = try_get_install_pkgs_payload(
-            root.get_path(), pkgs, refresh)?;
+            path_root, pkgs, refresh)?;
         payload.add_init_command(InitCommand::Chroot { 
-            path: root.get_path().into() });
+            path: path_root.into() });
         payload.add_init_command_run_program(
             LogFile::try_new("bootstrap",
                 "localedef-en_GB.UTF-8")?,
@@ -184,18 +186,19 @@ impl RootlessHandler {
         Ok(())
     }
 
-    pub(crate) fn cache_pkgs_for_root<I, S>(
-        &self, root: &Root, pkgs: I
+    pub(crate) fn cache_pkgs_for_root<R, I, S>(
+        &self, root: &R, pkgs: I
     ) 
         -> Result<()> 
     where
+        R: Root,
         I: IntoIterator<Item = S>,
         S: Into<OsString>
     {
-        let path_root = root.get_path();
+        let path_root = root.get_path_root();
         log::info!("Caching packages for root at '{}'", path_root.display());
         let payload = try_get_cache_pkgs_payload(
-            root.get_path(), pkgs, false)?;
+            root.get_path_root(), pkgs, false)?;
         self.run_broker(&payload)?;
         log::info!("Cached packages for root at '{}'", path_root.display());
         Ok(())
@@ -214,12 +217,12 @@ impl RootlessHandler {
         write_to_child(child, payload)
     }
 
-    pub(crate) fn complete_pkgbuilds_in_root(
-        &self, root: &Root, pkgbuilds: &mut Pkgbuilds
+    pub(crate) fn complete_pkgbuilds_in_root<R: Root>(
+        &self, root: &R, pkgbuilds: &mut Pkgbuilds
     ) -> Result<()> 
     {
         let payload = 
-            pkgbuilds.get_reader_payload(root.get_path())
+            pkgbuilds.get_reader_payload(root.get_path_root())
                 .try_into_bytes()?;
         let mut child = self.start_broker(true)?;
         self.map_and_write_to_child(&mut child, &payload)?;
@@ -227,7 +230,10 @@ impl RootlessHandler {
         wait_child(&mut child)
     }
 
-    pub(crate) fn dump_arch_in_root(&self, root: &Root) -> Result<Architecture>{
+    pub(crate) fn dump_arch_in_root<R>(&self, root: &R) -> Result<Architecture>
+    where 
+        R: Root
+    {
         let mut payload = root.new_broker_payload();
         payload.add_init_command_run_program("", "bash", 
             ["-c", "source /etc/makepkg.conf; echo $CARCH"]);

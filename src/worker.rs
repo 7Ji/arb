@@ -1,10 +1,10 @@
 use std::{iter::once, path::Path};
 
 use pkgbuild::{Architecture, PlainVersion};
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 // Worker is a finite state machine
-use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, constant::{PATH_BUILD, PATH_PKGBUILDS, PATH_ROOT_SINGLE_BASE}, git::gmr_config_from_urls, io::write_all_to_file_or_stdout, pacman::PacmanDbs, pkgbuild::BuildPlan, rootless::{Root, RootlessHandler}, Error, Result};
+use crate::{cli::ActionArgs, config::{PersistentConfig, RuntimeConfig}, constant::{PATH_BUILD, PATH_PKGBUILDS, PATH_ROOT_SINGLE_BASE}, git::gmr_config_from_urls, io::write_all_to_file_or_stdout, pacman::PacmanDbs, pkgbuild::BuildPlan, rootless::{BaseRoot, Root, RootlessHandler}, Error, Result};
 
 pub(crate) struct WorkerStateReadConfig {
     config: PersistentConfig
@@ -97,17 +97,17 @@ impl WorkerStateFetchedPkgbuilds {
     pub(crate) fn try_prepare_base_root(self) 
         -> Result<WorkerStatePreparedBaseRoot> 
     {
-        let root = self.rootless.new_root(
+        let baseroot = self.rootless.new_base_root(
             PATH_ROOT_SINGLE_BASE, true);
         let mut paconf = self.config.paconf.clone();
         paconf.set_option("SigLevel", Some("Never"));
-        root.prepare_layout(&paconf)?;
+        baseroot.prepare_layout(&paconf)?;
         self.rootless.bootstrap_root(
-            &root, ["base", "base-devel"], true)?;
+            &baseroot, ["base", "base-devel"], true)?;
         Ok(WorkerStatePreparedBaseRoot { 
             config: self.config,
             rootless: self.rootless,
-            root 
+            baseroot
         })
     }
 }
@@ -115,7 +115,7 @@ impl WorkerStateFetchedPkgbuilds {
 pub(crate) struct WorkerStatePreparedBaseRoot {
     config: RuntimeConfig,
     rootless: RootlessHandler,
-    root: Root,
+    baseroot: BaseRoot,
 }
 
 impl WorkerStatePreparedBaseRoot {
@@ -132,10 +132,10 @@ impl WorkerStatePreparedBaseRoot {
         if get_arch {
             log::warn!("Architecture is 'auto' or 'any', dumping arch from \
                 makepkg.conf");
-            self.root.create_file_with_content("etc/makepkg.conf", 
+            self.baseroot.create_file_with_content("etc/makepkg.conf", 
                     &self.config.mpconf)?;
             let arch = 
-                self.rootless.dump_arch_in_root(&self.root)?;
+                self.rootless.dump_arch_in_root(&self.baseroot)?;
             log::info!("Dumped arch '{}' from makepkg.conf in secured root",
                 arch);
             self.config.arch = arch;
@@ -143,14 +143,14 @@ impl WorkerStatePreparedBaseRoot {
         Ok(WorkerStateDumpedArch { 
             config: self.config, 
             rootless: self.rootless, 
-            root: self.root })
+            baseroot: self.baseroot })
     }
 }
 
 pub(crate) struct WorkerStateDumpedArch {
     config: RuntimeConfig,
     rootless: RootlessHandler,
-    root: Root,
+    baseroot: BaseRoot,
 }
 
 impl WorkerStateDumpedArch {
@@ -159,31 +159,31 @@ impl WorkerStateDumpedArch {
     {
         self.config.pkgbuilds.dump(PATH_PKGBUILDS)?;
         self.rootless.complete_pkgbuilds_in_root(
-            &self.root, &mut self.config.pkgbuilds)?;
+            &self.baseroot, &mut self.config.pkgbuilds)?;
         log::debug!("Parsed PKGBUILDs from secured chroot: {:?}", 
             &self.config.pkgbuilds);
         Ok(WorkerStateParsedPkgbuilds { 
             config: self.config, 
             rootless: self.rootless, 
-            root: self.root })
+            baseroot: self.baseroot })
     }
 }
 
 pub(crate) struct WorkerStateParsedPkgbuilds {
     config: RuntimeConfig,
     rootless: RootlessHandler,
-    root: Root,
+    baseroot: BaseRoot,
 }
 
 impl WorkerStateParsedPkgbuilds {
     pub(crate) fn try_fetch_pkgs(self) -> Result<WorkerStateFetchedPkgs> {
         let dbs = self.config.paconf.try_read_dbs()?;
         let buildplan = self.config.pkgbuilds.get_plans(&dbs, &self.config.arch)?;
-        self.rootless.cache_pkgs_for_root(&self.root, &buildplan.cache)?;
+        self.rootless.cache_pkgs_for_root(&self.baseroot, &buildplan.cache)?;
         Ok(WorkerStateFetchedPkgs { 
             config: self.config, 
             rootless: self.rootless, 
-            root: self.root,
+            baseroot: self.baseroot,
             dbs,
             buildplan
          })
@@ -193,7 +193,7 @@ impl WorkerStateParsedPkgbuilds {
 pub(crate) struct WorkerStateFetchedPkgs {
     config: RuntimeConfig,
     rootless: RootlessHandler,
-    root: Root,
+    baseroot: BaseRoot,
     dbs: PacmanDbs,
     buildplan: BuildPlan,
 }
@@ -215,7 +215,7 @@ impl WorkerStateFetchedPkgs {
         Ok(WorkerStateFetchedSources { 
             config: self.config, 
             rootless: self.rootless,
-            root: self.root,
+            baseroot: self.baseroot,
             dbs: self.dbs,
             buildplan: self.buildplan,
         })
@@ -225,7 +225,7 @@ impl WorkerStateFetchedPkgs {
 pub(crate) struct WorkerStateFetchedSources {
     config: RuntimeConfig,
     rootless: RootlessHandler,
-    root: Root,
+    baseroot: BaseRoot,
     dbs: PacmanDbs,
     buildplan: BuildPlan,
 }
@@ -243,9 +243,9 @@ impl WorkerStateFetchedSources {
                 {
                     let pkgbuild = 
                         self.config.pkgbuilds.get_pkgbuild(&method.pkgbuild)?;
-                    
+                    // pkgbuild.try_build();
                     // if pkgbuild
-                    Ok((Default::default(), Default::default(), true))
+                    Ok((method.pkgbuild.clone(), Default::default(), true))
                 }).collect();
                 for result in results {
                     let (pkgbuild, version, 

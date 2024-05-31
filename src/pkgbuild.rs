@@ -81,14 +81,24 @@ impl Pkgbuild {
                 &self.branch, self.subtree.as_ref(), path.as_ref())
     }
 
-    fn extract(&self, rootless: &RootlessHandler, root: &Root) -> Result<()> {
-        Ok(())
-    }
+    /// Extract the PKGBUILD 
+    /// 
+    // fn extract(&self, rootless: &RootlessHandler, root: &Root) -> Result<()> {
+    //     Ok(())
+    // }
 
-    fn build(&self, rootless: &RootlessHandler) -> Result<()> {
+    fn try_build(&self, rootless: &RootlessHandler) -> Result<()> {
+        // rootless.new_root(path, temporary)
         let (version, extracted) = 
         if self.inner.pkgver_func {
+            log::info!("PKGBUILD {} has a pkgver() function, need to update",
+                self.name);
             let version = Default::default();
+            // self.extract();
+
+
+
+
             (version, true)
         } else {
             (self.inner.version.clone(), false)
@@ -579,6 +589,25 @@ pub(crate) struct BuildMethod {
     pub(crate) pkgbuild: String,
     pub(crate) install_repo: Vec<String>,
     pub(crate) install_built: Vec<String>,
+}
+
+impl BuildMethod {
+    /// Bootstrap the overlayed root.
+    /// 
+    /// The overlayed root would be at 
+    /// `build/root.overlay.[PKGBUILD]/{merged,upper,work}`, in which:
+    /// - `merged` is the mount point, i.e. the real root
+    /// - `upper` is the root-specific storage
+    /// - `work` is the working dir for folder
+    /// 
+    /// Parent should only be able to check the content under `upper`, as the 
+    /// `merged` is only ever mounted in the child namespace
+    ///
+    pub(crate) fn deploy_root(&self, rootless: &RootlessHandler) {
+        // rootless.new_root(path, temporary);
+
+
+    }
 }
 
 #[derive(Default)]
