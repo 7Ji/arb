@@ -212,8 +212,8 @@ impl Pkgbuilds {
         sources
     }
 
-    pub(crate) fn get_plans(&self, dbs: &PacmanDbs, arch: &Architecture) 
-        -> Result<BuildPlan> 
+    fn get_plans_raw(&self, dbs: &PacmanDbs, arch: &Architecture, cache: bool) 
+        -> Result<BuildPlanWithCache>
     {
         #[derive(PartialEq)]
         struct ProvideChain<'a> {
@@ -321,7 +321,7 @@ impl Pkgbuilds {
             pkgbuilds_depends.push(PkgbuildDepends {
                 pkgbuild, deps, build: Default::default()})
         }
-        let mut build_plan = BuildPlan::default();
+        let mut build_plan = BuildPlanWithCache::default();
         while ! pkgbuilds_depends.is_empty() {
             // Do this for every loop, as a sort is needed before first loop,
             // and provides from pkgbuilds could be added during last loop
@@ -396,7 +396,9 @@ impl Pkgbuilds {
                             if provide_chain.db_id == usize::MAX {
                                 &mut pkgbuild_depends.build.install_built
                             } else {
-                                build_plan.cache.push(provide_chain.package.into());
+                                if cache {
+                                    build_plan.cache.push(provide_chain.package.into());
+                                }
                                 &mut pkgbuild_depends.build.install_repo
                             }.push(provide_chain.package.into());
                             pkgbuild_depends.deps.swap_remove(i);
@@ -487,10 +489,12 @@ impl Pkgbuilds {
             }
             build_plan.stages.push(build_stage);
         }
-        build_plan.cache.sort_unstable();
-        build_plan.cache.dedup();
+        if cache {
+            build_plan.cache.sort_unstable();
+            build_plan.cache.dedup();
+            log::info!("Build plan: cache packages: {:?}", build_plan.cache);
+        }
         // Now all is done
-        log::info!("Build plan: cache packages: {:?}", build_plan.cache);
         for (id, stage) in build_plan.stages.iter().enumerate() {
             log::info!("Build stage {}:", id);
             for build in &stage.build {
@@ -499,6 +503,18 @@ impl Pkgbuilds {
             }
         }
         Ok(build_plan)
+    }
+
+    pub(crate) fn get_plans(&self, dbs: &PacmanDbs, arch: &Architecture) 
+        -> Result<BuildPlan>
+    {
+        Ok(self.get_plans_raw(dbs, arch, false)?.into())
+    }
+
+    pub(crate) fn get_plans_with_cache(&self, dbs: &PacmanDbs, arch: &Architecture) 
+        -> Result<BuildPlanWithCache>
+    {
+        self.get_plans_raw(dbs, arch, true)
     }
 
     /// Update a PKGBUILD's version, return:
@@ -620,8 +636,19 @@ pub(crate) struct BuildStage {
 }
 
 #[derive(Default)]
-pub(crate) struct BuildPlan {
+pub(crate) struct BuildPlanWithCache {
     /// Cache these packages from Internet before any stage
     pub(crate) cache: Vec<String>,
+    pub(crate) stages: Vec<BuildStage>,
+}
+
+impl Into<BuildPlan> for BuildPlanWithCache {
+    fn into(self) -> BuildPlan {
+        BuildPlan { stages: self.stages }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct BuildPlan {
     pub(crate) stages: Vec<BuildStage>,
 }

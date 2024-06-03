@@ -11,10 +11,14 @@ pub(crate) struct WorkerStateReadConfig {
 }
 
 impl WorkerStateReadConfig {
+    /// Create a `WorkerState` by reading config, this is the only way a 
+    /// `WorkerState` could be legally created
     pub(crate) fn try_new<P: AsRef<Path>>(path: P) -> Result<Self> {
         Ok(Self { config: PersistentConfig::try_read(path)? })
     }
 
+    /// Merge arguments with persistent config (config file) to get runtime
+    /// config
     pub(crate) fn try_merge_config(self, args: ActionArgs) 
         -> Result<WorkerStateMergedConfig> 
     {
@@ -41,6 +45,7 @@ pub(crate) struct WorkerStateMergedConfig {
 }
 
 impl WorkerStateMergedConfig {
+    /// Prepare rootless handler so we could utilize user namespaces later
     pub(crate) fn try_prepare_rootless(self) 
         -> Result<WorkerStatePreparedRootless> 
     {
@@ -56,6 +61,12 @@ pub(crate) struct WorkerStatePreparedRootless {
 }
 
 impl WorkerStatePreparedRootless {
+    /// Prepare the work directory layout, by removing some stuffs first then
+    /// creating some stuffs. Note this would utilize user namespaces to remove
+    /// the `build` folder, to avoid failing due to different user IDs (non-root
+    /// in child namespace, non-self in parent namespace). But that would still
+    /// fail when the current user changed their ID mapping and lost root 
+    /// identity in the original user namespace.
     pub(crate) fn try_prepare_layout(mut self) 
         -> Result<WorkerStatePreparedLayout>
     {
@@ -75,6 +86,9 @@ pub(crate) struct WorkerStatePreparedLayout {
 }
 
 impl WorkerStatePreparedLayout {
+    /// Fetching PKGBUILD repos, deduping first. Different PKGBUILDs from a 
+    /// single repo would only be fetched once. All PKGBUILDs would be stored
+    /// locally in bare git repos to save disk space.
     pub(crate) fn try_fetch_pkgbuilds(self) 
         -> Result<WorkerStateFetchedPkgbuilds> 
     {
@@ -94,6 +108,15 @@ pub(crate) struct WorkerStateFetchedPkgbuilds {
 }
 
 impl WorkerStateFetchedPkgbuilds {
+    /// Prepare the base root for:
+    /// 1. Parsing PKGBUILDs
+    /// 2. Dumping CARCH
+    /// 3. Working as base layer below overlay roots needed by all PKGBUILDs
+    /// 
+    /// This also has the following side-effects:
+    /// 1. DBs are available after fetching, note this is the only time the DB
+    /// would be "updated". The DBs would be "frozen" in the later whold run,
+    /// to avoid partial update during builds.
     pub(crate) fn try_prepare_base_root(self) 
         -> Result<WorkerStatePreparedBaseRoot> 
     {
@@ -119,6 +142,9 @@ pub(crate) struct WorkerStatePreparedBaseRoot {
 }
 
 impl WorkerStatePreparedBaseRoot {
+    /// Dump CARCH from base root, in case user has set architecture to `auto`
+    /// or `any` (or hasn't set any). This is needed later to filter PKGBUILDs
+    /// infos by architecture.
     pub(crate) fn try_dump_arch(mut self) -> Result<WorkerStateDumpedArch> {
         let get_arch = match &self.config.arch {
             Architecture::Other(arch) => 
@@ -154,6 +180,15 @@ pub(crate) struct WorkerStateDumpedArch {
 }
 
 impl WorkerStateDumpedArch {
+    /// Dump and parse PKGBUILDs in base root, the parser would be spawned in
+    /// child namespace mapped to non-root user, to avoiding malicious PKGBUILDs
+    /// tainting host and getting private data.
+    /// 
+    /// Currently this allows network access due to some PKGBUILDs needing 
+    /// network to finish their PKGBUILD, but the access could be disabled.
+    /// If there's conflict it's always PKGBUILDs fault being dynamic, but a
+    /// per-PKGBUILD allowing network option could be introduced to work around
+    /// bad PKGBUILDs.
     pub(crate) fn try_parse_pkgbuilds(mut self) 
         -> Result<WorkerStateParsedPkgbuilds> 
     {
@@ -176,16 +211,31 @@ pub(crate) struct WorkerStateParsedPkgbuilds {
 }
 
 impl WorkerStateParsedPkgbuilds {
+    /// Calculate builg plan with current DBs and PKGBUILDs info, then cache
+    /// all dependent packages. The cache only happens once, as early as
+    /// possible, right after DBs, PKGBUILDs info and arch are available, before
+    /// any possibly time-taking business. This ensures all of our PKGBUILDs 
+    /// could be built against the latest dependencies as of recorded in DBs.
+    /// 
+    /// Note this could still fail, if remote repo is updated between this and
+    /// DB fetching, and this really is a not-too-small time window. But two
+    /// base roots would take too much time, so let's pretend that wouldn't 
+    /// happen, and just bail out to restart everything if that really happens
+    /// 
+    /// This strategy is also error-prone, if a PKGBUILD has dependencies that
+    /// are determined dynamicly, and the newer dependencies are unreachable
+    /// for the existing DBs. But still, let's pretent that wouldn't happen and
+    /// just bail out to restart everything if that really happens.
     pub(crate) fn try_fetch_pkgs(self) -> Result<WorkerStateFetchedPkgs> {
         let dbs = self.config.paconf.try_read_dbs()?;
-        let buildplan = self.config.pkgbuilds.get_plans(&dbs, &self.config.arch)?;
+        let buildplan = self.config.pkgbuilds.get_plans_with_cache(&dbs, &self.config.arch)?;
         self.rootless.cache_pkgs_for_root(&self.baseroot, &buildplan.cache)?;
         Ok(WorkerStateFetchedPkgs { 
             config: self.config, 
             rootless: self.rootless, 
             baseroot: self.baseroot,
             dbs,
-            buildplan
+            buildplan: buildplan.into()
          })
     }
 }
@@ -199,6 +249,18 @@ pub(crate) struct WorkerStateFetchedPkgs {
 }
 
 impl WorkerStateFetchedPkgs {
+    /// Fetch sources depending on the PKGBUILDs info and archtecture. Caching
+    /// all git sources first into `source/git`, then cache all hashed file 
+    /// sources into `source/file-*`. 
+    /// 
+    /// This should only take long for the first
+    /// build and after a remote update. In latter runs cached sources that are
+    /// intact (HEAD healthy and refs are resolvable for git sources, hash
+    /// valud same for hashed file sources) would be skipped.
+    /// 
+    /// Currently cachead sources wouldn't be cleaned unless it's explicitly
+    /// issued (different from the old `arb` behaviour in which sources would
+    /// always be cleaned unless `--unclean` is specified).
     pub(crate) fn try_fetch_sources(self) -> Result<WorkerStateFetchedSources> {
         let cacheable_sources = self.config.pkgbuilds
             .get_cacheable_sources(Some(&self.config.arch));
@@ -231,6 +293,19 @@ pub(crate) struct WorkerStateFetchedSources {
 }
 
 impl WorkerStateFetchedSources {
+    /// Try to build every PKBGUILD that should be built, stages by stages (so
+    /// stage-wise this is sequential), and do parallel builds for PKGBUILDs in
+    /// the same stage. The "stages" come from the earlier calculation when we
+    /// wanted to get the list of packages to cache.
+    /// 
+    /// In any scenario, if the build plan would need to be re-calculated, it
+    /// shall be, then we would go from bottom to top again. But note in that
+    /// case dependent pakcages wouldn't be updated again, in the hope that 
+    /// PKGBUILDs would behave well and do not introduce different dependencies.
+    /// 
+    /// PKGBUILD that matches the following conditions would need to be built
+    /// - Such PKGBUILD with the specific `pkgver` was never built
+    /// - Such PKGBUILD with its depdency hashed was never built
     pub(crate) fn try_build(mut self) -> Result<WorkerStateBuilt> {
         loop {
             let mut built: usize = 0;
@@ -245,7 +320,7 @@ impl WorkerStateFetchedSources {
                         self.config.pkgbuilds.get_pkgbuild(&method.pkgbuild)?;
                     // pkgbuild.try_build();
                     // if pkgbuild
-                    Ok((method.pkgbuild.clone(), Default::default(), true))
+                    Ok((method.pkgbuild.clone(), Default::default(), false))
                 }).collect();
                 for result in results {
                     let (pkgbuild, version, 
@@ -282,7 +357,7 @@ impl WorkerStateFetchedSources {
                 // log::info!("")
                 break
             }
-            log::info!("Build plan partially finished, revisiting build plan 
+            log::info!("Build plan partially finished, revisiting build plan \
                 all stages...");
             // if updated > 0 {
             //     log::warn!("Some PKGBUILD pkgver updated, re-planning...");
