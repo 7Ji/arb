@@ -3,7 +3,7 @@ mod source;
 use std::{collections::{BTreeMap, HashMap}, ffi::OsString, io::{stdout, Read, Write}, iter::{empty, once}, path::Path};
 use git2::Oid;
 use pkgbuild::{self, Architecture, Dependency, PlainVersion, Provide};
-use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, constant::PATH_PKGBUILDS, filesystem::{create_dir_allow_existing, set_current_dir_checked}, git::{RepoToOpen, ReposListToOpen}, mount::mount_bind, pacman::PacmanDbs, pkgbuild::source::CacheableSources, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, BrokerPayload, Root, RootlessHandler}, Error, Result};
+use crate::{config::{PersistentPkgbuildConfig, PersistentPkgbuildsConfig}, constant::{PATH_PKGBUILDS, PATH_PKGS_BUILT}, filesystem::{create_dir_allow_existing, set_current_dir_checked}, git::{RepoToOpen, ReposListToOpen}, mount::mount_bind, pacman::PacmanDbs, pkgbuild::source::CacheableSources, proxy::Proxy, rootless::{chroot_checked, set_uid_gid, BrokerPayload, Root, RootlessHandler}, Error, Result};
 
 #[derive(Debug)]
 pub(crate) struct Pkgbuild {
@@ -86,6 +86,12 @@ impl Pkgbuild {
     // fn extract(&self, rootless: &RootlessHandler, root: &Root) -> Result<()> {
     //     Ok(())
     // }
+
+    fn get_pkg_dir(&self) -> Result<()> {
+        let a = Path::new(PATH_PKGS_BUILT);
+        Ok(())
+        // let pkgs
+    }
 
     fn try_build(&self, rootless: &RootlessHandler) -> Result<()> {
         // rootless.new_root(path, temporary)

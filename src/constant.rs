@@ -8,6 +8,7 @@ pub(crate) const PATH_PACMAN_SYNC: &str = "build/pacman.sync";
 pub(crate) const PATH_PKGS_UPDATED: &str = "pkgs/updated";
 pub(crate) const PATH_PKGS_LATEST: &str = "pkgs/latest";
 pub(crate) const PATH_PKGS_CACHE: &str = "pkgs/cache";
+pub(crate) const PATH_PKGS_BUILT: &str = "pkgs/built";
 
 pub(crate) const PATH_ROOT_SINGLE_BASE: &str = "build/root.single.base";
 pub(crate) const PATH_PKGBUILDS: &str = "build/PKGBUILDs";

@@ -306,6 +306,22 @@ impl WorkerStateFetchedSources {
     /// PKGBUILD that matches the following conditions would need to be built
     /// - Such PKGBUILD with the specific `pkgver` was never built
     /// - Such PKGBUILD with its depdency hashed was never built
+    /// 
+    /// Note that built PKGBUILDs would carry additionally `.[build count]
+    /// .[dependency hash]` in their pkgver as suffix, this is currently 
+    /// implemented naively as follows:
+    /// 1. As we store package files in `pkgs/PKGBUILD/[name]/[version]/[hash]`,
+    /// the `[build count]` is simply the count of first package files inside the
+    /// `[version]` folder recursively (note the version here is the original
+    /// `pkgver`, without our local suffix)
+    /// 2. The `[dependency hash]` is the hash of a byte array that's assembled
+    /// with every direct dependency's `sha256sum`. `sha256sum` is favored based
+    /// on the result got in 
+    /// `https://github.com/7Ji/alnopm/blob/2ee446963bca4fee32f110dca015efda32a4d3a0/examples/hashstat.rs`
+    /// . As of writing every package in every DB in official Arch and ALARM
+    /// and any third party has `sha256sum`. Every package in every DB in 
+    /// official Arch and ALARM has `pgpsig`, but not every one in third party
+    /// does. ALARM official all have `md5sum`, but Arch official ~50%.
     pub(crate) fn try_build(mut self) -> Result<WorkerStateBuilt> {
         loop {
             let mut built: usize = 0;
