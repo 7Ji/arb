@@ -145,7 +145,7 @@ pub(crate) trait CommonRoot {
     /// Root is expected.
     fn base_mounts(&self) -> Result<&Self> {
         self.mount_proc()?
-            .mount_sys()?
+            // .mount_sys()?
             .mount_dev()?
             .mount_devpts()?
             .mount_devshm()?
