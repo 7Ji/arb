@@ -14,6 +14,7 @@ mod mount;
 mod pkgbuild;
 mod pacman;
 mod proxy;
+mod record;
 mod rootless;
 mod threading;
 mod worker;

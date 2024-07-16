@@ -619,7 +619,9 @@ impl BuildMethod {
     /// The overlayed root would be at 
     /// `build/root.overlay.[PKGBUILD]/{merged,upper,work}`, in which:
     /// - `merged` is the mount point, i.e. the real root
-    /// - `upper` is the root-specific storage
+    /// - `upper-2-build` is the root-specific storage
+    /// - `upper-1-extracted` is the root-specific storage
+    /// - `upper-0-deps` is the root-specific storage
     /// - `work` is the working dir for folder
     /// 
     /// Parent should only be able to check the content under `upper`, as the 

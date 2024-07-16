@@ -91,7 +91,7 @@ fn symlink_metadata_checked<P: AsRef<Path>>(path: P) -> Result<Metadata> {
     })
 }
 
-fn create_dir_checked<P: AsRef<Path>>(path: P) -> Result<()> {
+pub(crate) fn create_dir_checked<P: AsRef<Path>>(path: P) -> Result<()> {
     create_dir(&path).map_err(|e|{
         log::error!("Failed to create dir at '{}': {}", 
             path.as_ref().display(), e);

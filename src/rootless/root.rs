@@ -3,7 +3,7 @@
 use std::{iter::once, os::unix::fs::{symlink, DirBuilderExt}, path::{Path, PathBuf}};
 use nix::{libc::mode_t, unistd::chroot};
 
-use crate::{constant::PATH_PACMAN_CONF_UNDER_ROOT, filesystem::{file_create_with_content, set_permissions_mode}, pacman::PacmanConfig, rootless::RootlessHandler, Result};
+use crate::{constant::PATH_PACMAN_CONF_UNDER_ROOT, filesystem::{create_dir_checked, file_create_with_content, remove_dir_all_try_best, set_permissions_mode}, pacman::PacmanConfig, rootless::RootlessHandler, Result};
 
 use super::{idmap::IdMaps, BrokerPayload};
 
@@ -25,8 +25,14 @@ pub(crate) struct OverlayRoot {
     common: RootCommon,
     /// The merged, to-be-mounted-at root
     merged: PathBuf,
-    /// The base root this is overlayed on
-    base: PathBuf
+    /// The work dir
+    work: PathBuf,
+    /// The top layer, upper dir
+    top: PathBuf,
+    /// The layers between base and top, lowerdirs in reversed order
+    middle: Vec<PathBuf>,
+    /// The base layer this is overlayed on, last lowerdir
+    base: PathBuf,
 }
 
 pub(crate) trait Root {
@@ -168,6 +174,32 @@ impl BaseRoot {
         pacman_conf.set_root(self.path.to_string_lossy());
         pacman_conf.try_write(self.get_path_pacman_conf())?;
         Ok(())
+    }
+}
+
+impl OverlayRoot {
+    fn add_layer(&mut self, name: &str) -> Result<()> {
+        self.middle.push(
+            std::mem::replace(
+                &mut self.top,
+                self.common.path.join(name)));
+        create_dir_checked(&self.top)
+    }
+
+    fn get_options(&self) -> String {
+        let mut options = format!("upperdir={},workdir={},lowerdir=",
+            self.top.display(), self.work.display());
+        for layer in self.middle.iter().rev() {
+            options.push_str(&layer.to_string_lossy());
+            options.push(':');
+        }
+        options.push_str(&self.base.to_string_lossy());
+        options
+    }
+
+    fn reset_top(&mut self) -> Result<()> {
+        remove_dir_all_try_best(&self.top)?;
+        create_dir_checked(&self.top)
     }
 }
 
