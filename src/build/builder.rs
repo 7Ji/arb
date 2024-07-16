@@ -314,7 +314,7 @@ fn check_heavy_load(jobs: usize, cores: usize) -> bool {
         },
         Err(e) => {
             log::error!("Failed to get CPU pressure: {}", e);
-            true
+            false
         },
     } {
         return true
