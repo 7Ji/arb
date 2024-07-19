@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs::File, path::Path};
 use pkgbuild::Architecture;
 use serde::Deserialize;
 
-use crate::{cli::ActionArgs, constant::PATH_PACMAN_CONF, filesystem::read_to_bytes, pacman::PacmanConfig, pkgbuild::Pkgbuilds, proxy::Proxy, Error, Result};
+use crate::{cli::ActionArgs, constant::{PATH_MAKEPKG_CONF, PATH_PACMAN_CONF}, filesystem::read_to_bytes, pacman::PacmanConfig, pkgbuild::Pkgbuilds, proxy::Proxy, Error, Result};
 
 /// The static part that comes from config
 #[derive(Debug, PartialEq, Deserialize)]
@@ -121,7 +121,7 @@ impl TryFrom<(ActionArgs, PersistentConfig)> for RuntimeConfig {
             str_from_two_options(
                 args.mpconf.as_deref(),
                 persistent.mpconf.as_deref(),
-                PATH_PACMAN_CONF))?;
+                PATH_MAKEPKG_CONF))?;
         let paconf = PacmanConfig::try_read(
             str_from_two_options(
                 args.paconf.as_deref(),

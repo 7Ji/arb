@@ -14,6 +14,7 @@ pub(crate) const PATH_ROOT_SINGLE_BASE: &str = "build/root.single.base";
 pub(crate) const PATH_PKGBUILDS: &str = "build/PKGBUILDs";
 pub(crate) const PATH_PACMAN_CONF: &str = "/etc/pacman.conf";
 pub(crate) const PATH_PACMAN_CONF_UNDER_ROOT: &str = "etc/pacman.conf";
+pub(crate) const PATH_MAKEPKG_CONF: &str = "/etc/makepkg.conf";
 pub(crate) const PATH_SOURCES_GIT: &str = "sources/git";
 pub(crate) const PATH_SOURCES_PKGBUILD: &str = "sources/PKGBUILD";
 pub(crate) const PATH_SOURCES_FILE_B2: &str = "sources/file-b2";
