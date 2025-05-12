@@ -905,19 +905,34 @@ impl PKGBUILDs {
     {
         let mut children = vec![];
         let mut r = Ok(());
+        let mut names = vec![];
         for pkgbuild in pkgbuilds.iter_mut() {
             match pkgbuild.extractor_source(actual_identity) {
-                Ok(child) => children.push(child),
+                Ok(child) => {
+                    children.push(child);
+                    names.push(pkgbuild.base.clone())
+                },
                 Err(e) => {
                     log::error!("Failed to spawn source extractor: {}", e);
                     r = Err(e)
                 },
             }
         }
-        for mut child in children {
-            if let Err(e) = child.wait() {
-                log::error!("Failed to wait for child: {}", e);
-                r = Err(e.into())
+        for (mut child, name) in children.into_iter().zip(names.into_iter()) {
+            match child.wait() {
+                Ok(r2) => {
+                    let code = r2.code();
+                    if let Some(0) = code {
+                        continue
+                    } else {
+                        r = Err(Error::BadChild { pid: None, code }.into());
+                        log::error!("Failed to extract {}", name);
+                    }
+                },
+                Err(e) => {
+                    log::error!("Failed to wait for child: {}", e);
+                    r = Err(e.into());
+                }
             }
         }
         r
