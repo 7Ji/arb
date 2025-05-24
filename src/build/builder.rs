@@ -313,7 +313,7 @@ fn check_heavy_load(jobs: usize, cores: usize) -> bool {
             some.avg10 > 10.00 || some.avg60 > 10.00 || some.avg300 > 10.00
         },
         Err(e) => {
-            log::error!("Failed to get CPU pressure: {}", e);
+            // log::error!("Failed to get CPU pressure: {}", e);
             false
         },
     } {
